@@ -1,14 +1,17 @@
 {
     "pageTitle": {
         "home": "望海服务器",
-        "login": "登录/注册"
+        "login": "登录/注册",
+        "user": "用户中心",
+        "joinus": "加入我们"
     },
     "nav": {
         "title": "望海服务器",
         "news": "新闻",
         "about": "关于",
         "login": "登录/注册",
-        "menu": "菜单"
+        "menu": "菜单",
+        "back": "返回"
     },
     "pages": {
         "home": {
@@ -18,6 +21,33 @@
             "signup": "注册"
         }
     },
+    "auth": {
+        "title": "登录/注册",
+        "register_title": "注册",
+        "account_mode": "账密登录",
+        "email_mode": "邮箱登录",
+        "identifier": "邮箱 / UID / 用户名",
+        "email": "邮箱",
+        "password": "密码",
+        "code": "验证码",
+        "send_code": "发送验证码",
+        "send_code_again": "重新发送",
+        "captcha": "人机验证",
+        "avatar": "头像",
+        "upload_avatar": "上传头像",
+        "login_register": "登录/注册",
+        "register": "注册",
+        "login": "登录",
+        "go_register": "没有账号？去注册",
+        "go_login": "已有账号？去登录",
+        "email_invalid": "邮箱格式不正确",
+        "email_required": "请输入邮箱",
+        "password_required": "请输入密码",
+        "password_ascii": "密码只能包含 ASCII 字符",
+        "request_failed": "请求失败，请稍后重试",
+        "code_required": "请输入验证码",
+        "captcha_required": "请完成人机验证"
+    },
     "footer": {
         "quick_links": "快速链接",
         "language": "语言",
@@ -25,5 +55,10 @@
         "theme_light": "亮色",
         "theme_system": "跟随系统",
         "theme_dark": "暗色"
+    },
+    "message": {
+        "title": "消息",
+        "empty": "暂无消息",
+        "close": "关闭"
     }
 }

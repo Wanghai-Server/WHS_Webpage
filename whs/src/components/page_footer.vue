@@ -324,6 +324,7 @@ onMounted(() => {
 @media (max-width: 768px) {
   .footer {
     padding: 32px 20px 20px;
+    text-align: center;
   }
 
   .footer-top {
@@ -331,13 +332,26 @@ onMounted(() => {
     gap: 32px;
   }
 
+  .brand-logo {
+    justify-content: center;
+  }
+
+  .brand-desc {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  .quick-links {
+    align-items: center;
+  }
+
   .footer-switches {
-    align-items: stretch;
+    align-items: center;
   }
 
   .footer-bottom {
     flex-direction: column;
-    align-items: flex-start;
+    align-items: center;
     gap: 12px;
   }
 }

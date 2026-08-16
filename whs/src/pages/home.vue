@@ -1,17 +1,29 @@
 <script setup>
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
+import RegisterForm from '../components/register.vue'
 
 import defaultBg from '../assets/background.png'
 
 const { t } = useI18n()
-const router = useRouter()
 
 const bgImage = ref(defaultBg)
+
+const email = ref('')
+const showRegister = ref(false)
+
+function onSignup() {
+  showRegister.value = true
+}
+
+function handleKeydown(event) {
+  if (event.key === 'Escape' && showRegister.value) {
+    showRegister.value = false
+  }
+}
 
 onMounted(() => {
   // 从现有图片中随机抽取一张作为 hero 背景（每次刷新随机）
@@ -19,12 +31,13 @@ onMounted(() => {
   const wanghaiImages = Object.values(modules).map((m) => m.default)
   const allImages = [defaultBg, ...wanghaiImages]
   bgImage.value = allImages[Math.floor(Math.random() * allImages.length)]
+
+  document.addEventListener('keydown', handleKeydown)
 })
 
-// 引导用户前往登录/注册页（暂不实现登录/注册逻辑）
-function goLogin() {
-  router.push('/login')
-}
+onUnmounted(() => {
+  document.removeEventListener('keydown', handleKeydown)
+})
 </script>
 
 <template>
@@ -34,12 +47,23 @@ function goLogin() {
         <div class="hero-overlay">
             <h1>{{ t('pages.home.title') }}</h1>
             <p>{{ t('pages.home.description') }}</p>
-            <form class="signup" novalidate @submit.prevent="goLogin">
-                <input type="email" :placeholder="t('pages.home.email_placeholder')" />
+            <form class="signup" novalidate @submit.prevent="onSignup">
+                <input v-model="email" type="email" :placeholder="t('pages.home.email_placeholder')" />
                 <button type="submit">{{ t('pages.home.signup') }}</button>
             </form>
         </div>
     </section>
+
+    <!-- 注册弹窗：复用 register.vue 并注入 email -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div v-if="showRegister" class="modal-overlay" @click.self="showRegister = false">
+          <div class="modal">
+            <RegisterForm :prefill="{ email }" @switch-login="showRegister = false" />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <div class="home"></div>
     <Page_footer />
@@ -49,7 +73,7 @@ function goLogin() {
 .hero {
   position: relative;
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
@@ -124,6 +148,43 @@ function goLogin() {
 
 .signup button:hover {
   background: #d99a1f;
+}
+
+/* 注册弹窗 */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 5000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.modal {
+  position: relative;
+  max-height: 90vh;
+  overflow-y: auto;
+  border-radius: 20px;
+}
+
+/* 弹窗内复用组件：去掉其自带的大顶部外边距，避免顶部留白 */
+.modal :deep(.register-form) {
+  margin: 0 auto 40px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
 }
 
 @media (max-width: 768px) {

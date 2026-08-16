@@ -1,0 +1,5 @@
+*.json
+*.yml
+/database
+/avatar
+__pycache__/

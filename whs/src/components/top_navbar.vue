@@ -1,22 +1,68 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { animate, stagger } from 'animejs'
-import { User } from 'lucide-vue-next'
+import { User, Mail, X, ArrowLeft } from 'lucide-vue-next'
+import MessageBox from './message_box.vue'
+import { useAuth } from '../composables/useAuth'
+
+const props = defineProps({
+  backRoute: { type: String, default: '' },
+  navRoutes: { type: Object, default: null },
+})
 
 const { t } = useI18n()
+const router = useRouter()
+const { state: authState, fetchMe } = useAuth()
+
+// 登录态与头像
+const isLoggedIn = computed(() => !!authState.token)
+const avatarSrc = computed(() => (authState.user && authState.user.avatar ? `/api/user/${authState.user.uid}/avatar` : ''))
+const userLink = computed(() => (authState.user ? `/user/${authState.user.uid}` : '/login'))
+
+// 导航链接：默认 /news + /about，可被 navRoutes 覆盖
+const links = computed(() => {
+  if (props.navRoutes) {
+    return Object.entries(props.navRoutes).map(([key, route]) => ({ key, route }))
+  }
+  return [
+    { key: 'nav.news', route: '/news' },
+    { key: 'nav.about', route: '/about' },
+  ]
+})
+
+function goBack() {
+  if (props.backRoute) {
+    router.push(props.backRoute)
+  } else {
+    router.back()
+  }
+}
 
 // 导航栏高度（px），与下方 <style> 中的 height 保持一致，用于计算滚动阈值
 const NAVBAR_HEIGHT = 48
 // 与 <style> 中 @media (max-width: 768px) 保持一致
 const MOBILE_BREAKPOINT = 768
 
-const scrolled = ref(false)
+const scrolled = ref(window.scrollY > NAVBAR_HEIGHT * 1.5)
 const menuOpen = ref(false)
 const navbarRef = ref(null)
+const showMessages = ref(false)
+const messageBoxRef = ref(null)
+
+// 点击消息图标：关闭时打开，打开时（图标变为叉）关闭
+function toggleMessages() {
+  if (showMessages.value) {
+    messageBoxRef.value?.close()
+  } else {
+    showMessages.value = true
+  }
+}
 let isMobile = false
 let mediaQuery = null
 let ready = false
+let loginBtnNaturalWidth = 0
 
 function handleScroll() {
   const nowScrolled = window.scrollY > NAVBAR_HEIGHT * 1.5
@@ -39,13 +85,18 @@ function setLoginState(isScrolled) {
   if (!btn || !fab) return
 
   if (isScrolled) {
+    loginBtnNaturalWidth = btn.offsetWidth
     btn.style.pointerEvents = 'none'
     btn.style.opacity = '0'
+    btn.style.width = '0px'
+    btn.style.marginLeft = '0px'
     fab.style.pointerEvents = 'auto'
     fab.style.opacity = '1'
   } else {
     btn.style.pointerEvents = 'auto'
     btn.style.opacity = '1'
+    btn.style.width = ''
+    btn.style.marginLeft = ''
     fab.style.pointerEvents = 'none'
     fab.style.opacity = '0'
   }
@@ -60,16 +111,17 @@ function animateLoginTransition(isScrolled) {
   if (!btn || !fab) return
 
   if (isScrolled) {
-    // 脱离：文字按钮淡出，圆形带弹性弹出
+    // 脱离：文字按钮淡出并收起（宽度/间距归零），圆形带弹性弹出
     btn.style.pointerEvents = 'none'
     fab.style.pointerEvents = 'auto'
-    animate(btn, { opacity: [1, 0], scale: [1, 0.8], duration: 180, ease: 'outQuad' })
+    loginBtnNaturalWidth = btn.offsetWidth
+    animate(btn, { opacity: 0, width: 0, marginLeft: 0, duration: 250, ease: 'outQuad' })
     animate(fab, { opacity: [0, 1], scale: [0.5, 1], duration: 500, ease: 'outBack' })
   } else {
-    // 吸附：文字按钮回弹，圆形淡出
+    // 吸附：文字按钮展开并回弹，圆形淡出
     btn.style.pointerEvents = 'auto'
     fab.style.pointerEvents = 'none'
-    animate(btn, { opacity: [0, 1], scale: [0.8, 1], duration: 400, ease: 'outBack' })
+    animate(btn, { opacity: 1, width: loginBtnNaturalWidth, marginLeft: 28, duration: 300, ease: 'outQuad' })
     animate(fab, { opacity: [1, 0], scale: [1, 0.5], duration: 180, ease: 'outQuad' })
   }
 }
@@ -114,8 +166,13 @@ function onMediaChange(event) {
   if (nowMobile === isMobile) return
   isMobile = nowMobile
   if (!nowMobile) closeMenu()
-  // 等下一帧布局/样式生效后再动画，确保目标元素已可见
-  requestAnimationFrame(animateBreakpointSwitch)
+  // 等下一帧布局/样式生效后再处理，确保目标元素已可见
+  requestAnimationFrame(() => {
+    // 先重置登录按钮状态，清除跨断点时残留的内联样式（如 width:0 / opacity:0）
+    setLoginState(scrolled.value)
+    // 再播放断点切换动画
+    animateBreakpointSwitch()
+  })
 }
 
 // 入场动画：容器淡入 + 所有子元素交错淡入下滑（参考旧版使用 anime.js）
@@ -147,6 +204,7 @@ function playEntranceAnimation() {
 }
 
 onMounted(() => {
+  if (isLoggedIn.value) fetchMe()
   handleScroll() // 初始化滚动状态与登录按钮状态（不播放动画）
   ready = true
 
@@ -186,28 +244,64 @@ onUnmounted(() => {
     <!-- 桌面端右侧：导航链接 + 登录按钮 -->
     <div class="nav-right">
       <nav class="links">
-        <RouterLink to="/news">{{ t('nav.news') }}</RouterLink>
-        <RouterLink to="/about">{{ t('nav.about') }}</RouterLink>
+        <RouterLink v-for="l in links" :key="l.route" :to="l.route">{{ t(l.key) }}</RouterLink>
       </nav>
-      <RouterLink to="/login" class="login-btn">{{ t('nav.login') }}</RouterLink>
+      <RouterLink :to="userLink" class="login-btn">
+        <template v-if="isLoggedIn">
+          <img v-if="avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
+          <User v-else :size="20" />
+        </template>
+        <template v-else>{{ t('nav.login') }}</template>
+      </RouterLink>
     </div>
 
-    <!-- 移动端右侧：仅登录/注册 -->
-    <RouterLink to="/login" class="login-mobile">{{ t('nav.login') }}</RouterLink>
+    <!-- 移动端右侧：登录后显示头像 -->
+    <RouterLink :to="userLink" class="login-mobile">
+      <template v-if="isLoggedIn">
+        <img v-if="avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
+        <User v-else :size="20" />
+      </template>
+      <template v-else>{{ t('nav.login') }}</template>
+    </RouterLink>
 
     <!-- 桌面端脱离后的圆形登录按钮 -->
-    <RouterLink to="/login" class="user-fab" :aria-label="t('nav.login')">
-      <User :size="22" />
+    <RouterLink :to="userLink" class="user-fab" :aria-label="t('nav.login')">
+      <img v-if="isLoggedIn && avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
+      <User v-else :size="22" />
     </RouterLink>
 
     <!-- 移动端折叠菜单：除登录/注册外的导航目标 -->
     <Transition name="slide">
       <nav v-if="menuOpen" class="mobile-menu">
-        <RouterLink to="/news" @click="closeMenu">{{ t('nav.news') }}</RouterLink>
-        <RouterLink to="/about" @click="closeMenu">{{ t('nav.about') }}</RouterLink>
+        <RouterLink v-for="l in links" :key="l.route" :to="l.route" @click="closeMenu">{{ t(l.key) }}</RouterLink>
       </nav>
     </Transition>
   </header>
+
+  <!-- 返回按钮：传入 backRoute 时显示 -->
+  <button
+    v-if="props.backRoute"
+    class="back-fab"
+    :class="{ scrolled }"
+    :aria-label="t('nav.back')"
+    @click="goBack"
+  >
+    <ArrowLeft :size="22" />
+  </button>
+
+  <!-- 消息图标：桌面端滚动后吸附到导航栏左侧；页首/移动端时在屏幕左下角 -->
+  <button
+    class="message-fab"
+    :class="{ attached: scrolled }"
+    :aria-label="t('message.title')"
+    @click="toggleMessages"
+  >
+    <X v-if="showMessages" :size="22" />
+    <Mail v-else :size="22" />
+  </button>
+
+  <!-- 消息弹窗 -->
+  <MessageBox ref="messageBoxRef" v-if="showMessages" @close="showMessages = false" />
 </template>
 
 <style scoped>
@@ -277,7 +371,6 @@ onUnmounted(() => {
 .nav-right {
   display: flex;
   align-items: center;
-  gap: 28px;
 }
 
 .links {
@@ -299,6 +392,9 @@ onUnmounted(() => {
 }
 
 .login-btn {
+  /* 与左侧链接之间的间距；JS 脱离动画里的 marginLeft: 28 与此保持一致 */
+  margin-left: 28px;
+  overflow: hidden;
   color: var(--links-color);
   text-decoration: none;
   font-size: 16px;
@@ -337,6 +433,89 @@ onUnmounted(() => {
 
 .user-fab:hover {
   color: var(--text-color);
+}
+
+/* 消息图标：页首/移动端在屏幕左下角，桌面端滚动后吸附到导航栏左侧 */
+.message-fab {
+  position: fixed;
+  top: calc(100vh - 72px); /* 24px 下边距 + 48px 高度 */
+  left: 24px;
+  z-index: 4000;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+
+  background: var(--navbar-bg);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  color: var(--text-color);
+  cursor: pointer;
+
+  /* 位置过渡：平滑缓动、无过冲，稳稳吸附在导航栏左侧 */
+  transition:
+    top 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    left 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.message-fab:hover {
+  color: var(--text-color);
+}
+
+/* 桌面端滚动后：吸附到导航栏左侧（镜像右侧用户圆，12px 间距） */
+.message-fab.attached {
+  top: 16px;
+  left: calc(50% - min(360px, 36%) - 60px);
+}
+
+/* 返回按钮：与消息/用户圆形按钮同风格，位置随吸附状态切换 */
+.back-fab {
+  position: fixed;
+  top: 16px;
+  left: calc(50% - min(540px, 45%) - 60px);
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--navbar-bg);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  color: var(--text-color);
+  cursor: pointer;
+  transition: left 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.back-fab:hover {
+  color: var(--text-color);
+}
+
+.back-fab.scrolled {
+  left: calc(50% - min(360px, 36%) - 120px);
+}
+
+/* 头像图 */
+.avatar-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 999px;
+}
+
+.login-btn .avatar-img,
+.login-mobile .avatar-img {
+  width: 24px;
+  height: 24px;
+  vertical-align: middle;
 }
 
 /* 移动端折叠按钮（桌面端隐藏） */
@@ -451,6 +630,17 @@ onUnmounted(() => {
   .login-mobile {
     display: inline-flex;
     justify-self: end;
+  }
+
+  /* 移动端消息图标始终固定在左下角，不吸附 */
+  .message-fab.attached {
+    top: calc(100vh - 72px);
+    left: 24px;
+  }
+
+  /* 移动端返回按钮不随滚动左移（消息按钮不吸附到顶部） */
+  .back-fab.scrolled {
+    left: calc(50% - min(540px, 45%) - 60px);
   }
 }
 </style>

@@ -1,10 +1,34 @@
 <script setup>
-// 登录/注册页面（待实现，后续引用 components/login.vue）
+import { ref } from 'vue'
+import LoginForm from '../components/login.vue'
+import RegisterForm from '../components/register.vue'
+import Page_footer from '../components/page_footer.vue'
+
+// 登录页本身不带顶部导航栏，只有底部导航栏
+const mode = ref('login') // 'login' | 'register'
+const prefill = ref({})
+
+function onSwitchRegister(data) {
+  prefill.value = data || {}
+  mode.value = 'register'
+}
+
+function onSwitchLogin() {
+  mode.value = 'login'
+}
 </script>
 
 <template>
-  <!-- 登录/注册页面内容（待实现） -->
+  <main class="auth-page">
+    <LoginForm v-if="mode === 'login'" @switch-register="onSwitchRegister" />
+    <RegisterForm v-else :prefill="prefill" @switch-login="onSwitchLogin" />
+  </main>
+
+  <Page_footer />
 </template>
 
 <style scoped>
+.auth-page {
+  min-height: calc(100vh - 200px);
+}
 </style>

@@ -1,14 +1,17 @@
 {
     "pageTitle": {
         "home": "WangHai Server",
-        "login": "Login / Register"
+        "login": "Login / Register",
+        "user": "User Center",
+        "joinus": "Join Us"
     },
     "nav": {
         "title": "WHS",
         "news": "News",
         "about": "About",
         "login": "Login / Register",
-        "menu": "Menu"
+        "menu": "Menu",
+        "back": "Back"
     },
     "pages": {
         "home": {
@@ -18,6 +21,33 @@
             "signup": "Sign Up"
         }
     },
+    "auth": {
+        "title": "Login / Register",
+        "register_title": "Register",
+        "account_mode": "Password Login",
+        "email_mode": "Email Login",
+        "identifier": "Email / UID / Username",
+        "email": "Email",
+        "password": "Password",
+        "code": "Verification Code",
+        "send_code": "Send Code",
+        "send_code_again": "Resend",
+        "captcha": "Captcha",
+        "avatar": "Avatar",
+        "upload_avatar": "Upload Avatar",
+        "login_register": "Login / Register",
+        "register": "Register",
+        "login": "Login",
+        "go_register": "No account? Register",
+        "go_login": "Have an account? Login",
+        "email_invalid": "Invalid email format",
+        "email_required": "Please enter your email",
+        "password_required": "Please enter your password",
+        "password_ascii": "Password may only contain ASCII characters",
+        "request_failed": "Request failed, please try again later",
+        "code_required": "Please enter the verification code",
+        "captcha_required": "Please complete the captcha"
+    },
     "footer": {
         "quick_links": "Quick Links",
         "language": "Language",
@@ -25,5 +55,10 @@
         "theme_light": "Light",
         "theme_system": "System",
         "theme_dark": "Dark"
+    },
+    "message": {
+        "title": "Messages",
+        "empty": "No messages yet",
+        "close": "Close"
     }
 }

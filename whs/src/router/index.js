@@ -30,12 +30,28 @@ const routes = [
     name: 'Login',
     component: () => import("../pages/login.vue"),
     meta: { titleKey: 'pageTitle.login'}
+  },
+  {
+    path: '/user/:uid',
+    name: 'User',
+    component: () => import("../pages/user.vue"),
+    meta: { titleKey: 'pageTitle.user'}
+  },
+  {
+    path: '/joinus',
+    name: 'JoinUs',
+    component: () => import("../pages/joinus.vue"),
+    meta: { titleKey: 'pageTitle.joinus'}
   }
 ]
 
 const router = createRouter({
   history: createWebHistory(),
-  routes
+  routes,
+  scrollBehavior(to, from, savedPosition) {
+    // 后退时恢复原位置；前进/新跳转回到页首
+    return savedPosition || { top: 0 }
+  }
 })
 
 export default router
