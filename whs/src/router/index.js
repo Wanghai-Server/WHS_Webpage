@@ -24,6 +24,12 @@ const routes = [
     name: 'NewsDetail',
     component: () => import("../pages/news_detail.vue"),
     meta: { titleKey: 'pageTitle.news'}
+  },
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import("../pages/login.vue"),
+    meta: { titleKey: 'pageTitle.login'}
   }
 ]
 

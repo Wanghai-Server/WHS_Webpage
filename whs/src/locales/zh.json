@@ -1,118 +1,29 @@
 {
-  "pageTitle": {
-    "home": "望海服务器",
-    "about": "望海服务器 - 关于",
-    "news": "望海服务器 - 新闻公告"
-  },
-  "bottom_navbar": {
-    "backtop": "▲"
-  },
-  "nav": {
-    "about": "关于",
-    "title": "望海服务器",
-    "news": "新闻公告",
-    "join": "加入我们"
-  },
-  "pages": {
-    "home": {
-      "title": "望海服务器",
-      "description": "以玩家为中心，将游戏的快乐还给玩家 —— 集轨交、建筑、生电于一体的自由Minecraft社区。",
-      "whs_feature": {
-        "old_name": "曾用名: 望海公社",
-        "server_status": {
-          "first_name": "望海公社: 一周目",
-          "second_name": "望海服务器: 二周目"
-        },
-        "players": "在线玩家: ",
-        "versions": "游戏版本: ",
-        "loading": "加载中...",
-        "whs_saved": {
-          "current": "当前主服",
-          "original": "原版生存",
-          "old": "旧周目 · 圆满归档",
-          "saved": "已归档"
-        },
-        "whs_concept": {
-          "core": "✨核心理念",
-          "core_concept": "“ 以玩家为中心，把游戏的快乐还给玩家",
-          "summary_p": "没有繁忙的生电任务分配，没有绩效考核要求，有的是那份在游戏世界中",
-          "summary_strong": "追寻热爱的自由",
-          "mini_card": {
-            "no_metrics": "✅ 无强制生产指标",
-            "no_mechanization": "✅ 拒绝机械化绩效",
-            "return_essence": "✅ 回归建造/探索/协作本质"
-          }
-        },
-        "whs_tag": [
-            "🚆 轨道交通",
-            "🏛️ 建筑工程",
-            "⚙️ 生电科技",
-            "🎮 原版核心",
-            "🧩 模组联机(寒暑假限定)"
-          ],
-        "whs_history": {
-          "title": "📜 服务器历史",
-          "button": "完整历史 ->",
-          "events": [
-            {
-              "date": "2024-03-27",
-              "title": "望海公社成立",
-              "desc": "一群热爱 Minecraft 的玩家以「公社」之名聚集，在原版生存中开始了自由建造与探索的旅程。"
-            },
-            {
-              "date": "2024-03-27 ~ 2026-02-13",
-              "title": "一周目 · 基建狂潮",
-              "desc": "首条轨交线路通车，各大聚落初具规模。生电体系从零起步，红石机器集群逐步成型。"
-            },
-            {
-              "date": "2024-02-13",
-              "title": "二周目 · 全新起航",
-              "desc": "更名为「望海服务器」，以全新理念重新出发。更高性能硬件，更自由的玩法选择。"
-            },
-            {
-              "date": "2026-02-13 ~ 今",
-              "title": "持续发展 · 未来可期",
-              "desc": "轨交网络持续扩展，生电工程全面升级。新城区规划启动，社区规模稳步增长。"
-            }
-          ]
-        },
-        "whs_management": {
-          "title": "👥 管理团队",
-          "owner": "服主",
-          "hardware_provider": "服务器物理机提供者",
-          "admins": "管理员"
-        },
-        "whs_achievements": {
-          "current_title": "当前成果 · 基建完备",
-          "current_items": [
-            "🛤️ <strong>多条原版轨交线路</strong> —— 已开通运营，联通各大聚落",
-            "⚡ <strong>全系生电基础设施</strong> —— 各类农场、刷怪塔、自动化存储、合成站等",
-            "🏗️ 完备红石机器集群 & 物资保障体系",
-            "🎨 众多优秀建筑群 & 地标交通枢纽",
-            "📊 高性能服务器保障：<strong>yizexiaomu</strong> 高性能硬件，低延迟稳定Tick"
-          ],
-          "future_title": "多项规划 · 未来蓝图",
-          "future_items": [
-            "🚄 <strong>轨交网络扩展</strong> <span class=\"plan-tag\">规划中</span> —— 新增环线/城际快线",
-            "🏭 <strong>生电集群升级</strong> <span class=\"plan-tag\">进行中</span> —— 新一代全物品分类 & 多维度生电工程",
-            "🏙️ <strong>新城区开发计划</strong> <span class=\"plan-tag\">设计阶段</span> —— 现代建筑与自然景观融合",
-            "🎮 <strong>模组/整合包活动筹备</strong> <span class=\"plan-tag\">短期活动</span> —— 长假特别玩法，丰富社区体验",
-            "📖 <strong>服务器官网与社区地图</strong> <span class=\"plan-tag\">共建中</span> —— 记录历史与工程"
-          ]
-        },
-        "whs_joinus": {
-          "title": "加入我们",
-          "understand": "深入了解",
-          "join": "加入我们"
-        },
-        "whs_news": {
-          "title": "服务器新闻公告"
-        }
-      }
+    "pageTitle": {
+        "home": "望海服务器",
+        "login": "登录/注册"
     },
-    "news_detail": {
-      "loading": "加载中...",
-      "error": "加载新闻失败"
+    "nav": {
+        "title": "望海服务器",
+        "news": "新闻",
+        "about": "关于",
+        "login": "登录/注册",
+        "menu": "菜单"
+    },
+    "pages": {
+        "home": {
+            "title": "望海服务器",
+            "description": "以玩家为中心，将游戏的快乐还给玩家 —— 集轨交、建筑、生电于一体的自由Minecraft社区。",
+            "email_placeholder": "请输入邮箱",
+            "signup": "注册"
+        }
+    },
+    "footer": {
+        "quick_links": "快速链接",
+        "language": "语言",
+        "theme": "主题",
+        "theme_light": "亮色",
+        "theme_system": "跟随系统",
+        "theme_dark": "暗色"
     }
-  }
 }

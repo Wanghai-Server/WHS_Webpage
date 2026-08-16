@@ -1,6 +1,6 @@
 {
-    "notice": {
-        "zh": "望海服务器官网已进入测试阶段，欢迎访问!",
-        "en": "The WangHai server website is now in the testing phase. Welcome to visit!"
+    "title_suffix": {
+        "zh": " - 一个集生电、轨交、建筑于一体的自由、开放Minecraft服务器",
+        "en": " - A free and open Minecraft server that integrates redstone, rail transit, and architecture"
     }
 }

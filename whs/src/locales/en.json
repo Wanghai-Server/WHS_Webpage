@@ -1,113 +1,29 @@
 {
-  "pageTitle": {
-    "home": "WangHai Server",
-    "about": "WangHai Server - About"
-  },
-  "bottom_navbar": {
-    "backtop": "▲"
-  },
-  "nav": {
-    "about": "About",
-    "title": "WangHai Server",
-    "news": "News",
-    "join": "Join Us"
-  },
-  "pages": {
-    "home": {
-      "title": "WangHai Server",
-      "description": "Player-centered, bringing the joy of the game back to players — a free Minecraft community integrating rail transit, building, and redstone.",
-      "whs_feature": {
-        "old_name": "Formerly: WangHai Commune",
-        "server_status": {
-          "first_name": "WangHai Commune: Season 1",
-          "second_name": "WangHai Server: Season 2"
-        },
-        "players": "Online Players: ",
-        "versions": "Game Version: ",
-        "loading": "Loading...",
-        "whs_saved": {
-          "current": "Current Main Server",
-          "original": "Vanilla Survival",
-          "old": "Past Seasons · Archived",
-          "saved": "Archived"
-        },
-        "whs_concept": {
-          "core": "✨ Core Philosophy",
-          "core_concept": "\" Player-centered, bringing the joy of gaming back to players",
-          "summary_p": "No hectic task assignments, no performance reviews — only the",
-          "summary_strong": "freedom to pursue what you love",
-          "mini_card": {
-            "no_metrics": "✅ No Mandatory Quotas",
-            "no_mechanization": "✅ No Mechanized Metrics",
-            "return_essence": "✅ Return to Building, Exploration & Collaboration"
-          }
-        },
-        "whs_tag": [
-            "🚆 Rail Transit",
-            "🏛️ Architecture",
-            "⚙️ Redstone Tech",
-            "🎮 Vanilla Core",
-            "🧩 Modded Multiplayer (Holiday Special)"
-        ],
-        "whs_history": {
-          "title": "📜 Server History",
-          "button": "Full History ->",
-          "events": [
-            {
-              "date": "2024-03-27",
-              "title": "WangHai Commune Founded",
-              "desc": "A group of Minecraft enthusiasts gathered under the name 'Commune', beginning a journey of free building and exploration in vanilla survival."
-            },
-            {
-              "date": "2024-03-27 ~ 2026-02-13",
-              "title": "Season 1 · Infrastructure Boom",
-              "desc": "The first rail transit line opened, major settlements took shape. Redstone tech infrastructure grew from scratch into a full industrial cluster."
-            },
-            {
-              "date": "2026-02-13",
-              "title": "Season 2 · A New Beginning",
-              "desc": "Rebranded as 'WangHai Server' with a renewed vision. Upgraded hardware, greater gameplay freedom, and fresh horizons."
-            },
-            {
-              "date": "2026-02-13 — Present",
-              "title": "Steady Growth · Bright Future",
-              "desc": "Rail network continues expanding, tech infrastructure fully upgraded. New district development underway, community steadily growing."
-            }
-          ]
-        },
-        "whs_management": {
-          "title": "👥 Management Team",
-          "owner": "Server Owner",
-          "hardware_provider": "Server Hardware Provider",
-          "admins": "Administrators"
-        },
-        "whs_achievements": {
-          "current_title": "Current Achievements · Fully Established",
-          "current_items": [
-            "🛤️ <strong>Multiple Vanilla Rail Lines</strong> —— Operational, connecting major settlements",
-            "⚡ <strong>Full Tech Infrastructure</strong> —— Farms, mob grinders, auto-storage, crafting stations",
-            "🏗️ Complete Redstone Machine Cluster & Supply System",
-            "🎨 Numerous Architectural Landmarks & Transit Hubs",
-            "📊 High-Performance Server: <strong>yizexiaomu</strong> hardware, low-latency stable TPS"
-          ],
-          "future_title": "Future Plans · Blueprint",
-          "future_items": [
-            "🚄 <strong>Rail Network Expansion</strong> <span class=\"plan-tag\">Planning</span> —— New loop lines & intercity express",
-            "🏭 <strong>Tech Cluster Upgrade</strong> <span class=\"plan-tag\">In Progress</span> —— Next-gen item sorter & multi-dimension engineering",
-            "🏙️ <strong>New District Development</strong> <span class=\"plan-tag\">Design Phase</span> —— Modern architecture meets natural landscape",
-            "🎮 <strong>Mod/Modpack Events</strong> <span class=\"plan-tag\">Seasonal</span> —— Special holiday gameplay for the community",
-            "📖 <strong>Server Official Website & Community Map</strong> <span class=\"plan-tag\">Co-building</span> —— Documenting our history & projects"
-          ]
-        },
-        "whs_joinus": {
-          "title": "Join Us",
-          "understand": "Learn More",
-          "join": "Join Us"
-        },
-        "whs_news": {
-          "title": "Server News & Announcements"
+    "pageTitle": {
+        "home": "WangHai Server",
+        "login": "Login / Register"
+    },
+    "nav": {
+        "title": "WHS",
+        "news": "News",
+        "about": "About",
+        "login": "Login / Register",
+        "menu": "Menu"
+    },
+    "pages": {
+        "home": {
+            "title": "WangHai Server",
+            "description": "Player-centered, bringing the joy of the game back to players — a free Minecraft community integrating rail transit, building, and redstone.",
+            "email_placeholder": "Enter your email",
+            "signup": "Sign Up"
         }
-      }
+    },
+    "footer": {
+        "quick_links": "Quick Links",
+        "language": "Language",
+        "theme": "Theme",
+        "theme_light": "Light",
+        "theme_system": "System",
+        "theme_dark": "Dark"
     }
-  }
 }
