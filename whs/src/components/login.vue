@@ -93,8 +93,9 @@ async function submit() {
     }
 
     errorMsg.value = localMessage(data)
-  } catch {
+  } catch(e) {
     errorMsg.value = t('auth.request_failed')
+    console.warn(e)
   } finally {
     loading.value = false
   }
