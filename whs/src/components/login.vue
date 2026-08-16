@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { useAuth } from '../composables/useAuth'
-import { sha256 } from '../utils/sha256'
+import { sha256 } from '../composables/sha256'
 
 const emit = defineEmits(['switch-register'])
 

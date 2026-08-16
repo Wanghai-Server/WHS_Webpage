@@ -5,7 +5,7 @@ import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { User } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
-import { sha256 } from '../utils/sha256'
+import { sha256 } from '../composables/sha256'
 
 const props = defineProps({
   prefill: { type: Object, default: () => ({}) },
