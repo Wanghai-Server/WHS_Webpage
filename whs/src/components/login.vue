@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { useAuth } from '../composables/useAuth'
+import { sha256 } from '../utils/sha256'
 
 const emit = defineEmits(['switch-register'])
 
@@ -13,12 +14,6 @@ const { setAuth } = useAuth()
 
 const EMAIL_RE = /^[a-zA-Z0-9_@.-]+$/
 const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
-
-async function sha256(str) {
-  const data = new TextEncoder().encode(str)
-  const buf = await crypto.subtle.digest('SHA-256', data)
-  return Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, '0')).join('')
-}
 
 // 'account'：账密登录；'email'：邮箱验证码登录
 const mode = ref('account')
