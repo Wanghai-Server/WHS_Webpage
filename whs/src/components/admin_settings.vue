@@ -150,7 +150,8 @@ function closeDialog() {
 }
 
 async function submitPermission() {
-  const raw = permissionInput.value.trim()
+  // v-model 对 number 输入框会返回数字，统一转字符串处理
+  const raw = String(permissionInput.value ?? '').trim()
   if (raw === '') {
     showTip('error', t('admin.permissionInvalid'))
     return
@@ -161,12 +162,16 @@ async function submitPermission() {
     return
   }
   dialogSaving.value = true
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 8000)
   try {
     const res = await fetch(`/api/user/${dialogUser.value.uid}/permission`, {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ permission: value }),
+      signal: controller.signal,
     })
+    clearTimeout(timer)
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       dialogUser.value.permission = data.permission
@@ -179,6 +184,7 @@ async function submitPermission() {
     showTip('error', t('auth.request_failed'))
     console.warn(e)
   } finally {
+    clearTimeout(timer)
     dialogSaving.value = false
   }
 }
@@ -804,6 +810,16 @@ onUnmounted(() => {
 .icon-btn:hover {
   background: var(--btn-hover);
   color: var(--text-color);
+}
+
+.icon-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.icon-btn:disabled:hover {
+  background: transparent;
+  color: var(--links-color);
 }
 
 .icon-btn.danger {

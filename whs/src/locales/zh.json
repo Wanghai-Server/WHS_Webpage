@@ -207,7 +207,8 @@
         "examDelete": "删除此答卷",
         "examSheetTitle": "答题卡",
         "examTotalScore": "总分 {total} · 得分 {obtained}",
-        "examDeleted": "答卷已删除"
+        "examDeleted": "答卷已删除",
+        "cannotManageHigher": "不能操作权限不低于自己的用户"
     },
     "joinus": {
         "title": "加入我们",

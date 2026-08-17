@@ -207,7 +207,8 @@
         "examDelete": "Delete answer sheet",
         "examSheetTitle": "Answer Sheet",
         "examTotalScore": "Total {total} · Score {obtained}",
-        "examDeleted": "Answer sheet deleted"
+        "examDeleted": "Answer sheet deleted",
+        "cannotManageHigher": "You cannot manage users with permission equal or higher than yours"
     },
     "joinus": {
         "title": "Join Us",

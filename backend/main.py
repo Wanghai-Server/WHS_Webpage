@@ -330,6 +330,10 @@ ERROR_MESSAGES = {
         "zh": "不能修改自己的权限",
         "en": "You cannot change your own permission",
     },
+    "cannot_modify_higher_permission": {
+        "zh": "不能操作权限不低于自己的用户",
+        "en": "You cannot manage users with permission equal or higher than yours",
+    },
     "email_same": {
         "zh": "新邮箱不能与当前邮箱相同",
         "en": "New email must be different from the current one",
@@ -429,6 +433,7 @@ ERROR_STATUS: dict[str, int] = {
     "invalid_permission": 400,
     "cannot_ban_self": 400,
     "cannot_change_own_permission": 400,
+    "cannot_modify_higher_permission": 403,
     "email_same": 400,
     "message_content_empty": 400,
     "message_title_empty": 400,
@@ -667,13 +672,16 @@ def me(user: dict | None = Depends(get_current_user)):
 
 @app.post("/api/user/{uid}/unlock")
 def unlock_user(uid: int, user: dict | None = Depends(get_current_user)):
-    """解锁指定账号；仅 permission >= 3（admin/owner）可操作。"""
+    """解锁指定账号；仅 permission >= 3（admin/owner）可操作，且不能解锁权限不低于自己的用户。"""
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
         return _error_response("permission_denied", 403)
-    if user_db.get_user(uid=uid) is None:
+    target = user_db.get_user(uid=uid)
+    if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
+    if (user.get("permission") or 0) <= (target.get("permission") or 0):
+        return _error_response("cannot_modify_higher_permission", 403)
     user_db.set_locked(uid, False)
     _clear_failures(uid)
     return {"success": True}
@@ -990,15 +998,18 @@ async def cancel_account(uid: int, payload: dict = Body(...), user: dict | None 
 
 @app.post("/api/user/{uid}/ban")
 def set_user_banned(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """封禁 / 解封用户；仅管理员。"""
+    """封禁 / 解封用户；仅管理员，且不能操作权限不低于自己的用户。"""
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
         return _error_response("permission_denied", 403)
     if uid == user["uid"]:
         return _error_response("cannot_ban_self", 400)
-    if user_db.get_user(uid=uid) is None:
+    target = user_db.get_user(uid=uid)
+    if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
+    if (user.get("permission") or 0) <= (target.get("permission") or 0):
+        return _error_response("cannot_modify_higher_permission", 403)
     banned = bool(payload.get("banned"))
     user_db.set_banned(uid, banned)
     return {"success": True, "banned": banned}
@@ -1006,15 +1017,18 @@ def set_user_banned(uid: int, payload: dict = Body(...), user: dict | None = Dep
 
 @app.post("/api/user/{uid}/permission")
 def set_user_permission(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """设置用户权限等级；仅管理员，且不能改自己。"""
+    """设置用户权限等级；仅管理员，不能改自己，也不能操作权限不低于自己的用户。"""
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
         return _error_response("permission_denied", 403)
     if uid == user["uid"]:
         return _error_response("cannot_change_own_permission", 400)
-    if user_db.get_user(uid=uid) is None:
+    target = user_db.get_user(uid=uid)
+    if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
+    if (user.get("permission") or 0) <= (target.get("permission") or 0):
+        return _error_response("cannot_modify_higher_permission", 403)
     permission = payload.get("permission")
     if not isinstance(permission, int) or isinstance(permission, bool) or not (0 <= permission <= 4):
         return _error_response("invalid_permission", 400)
