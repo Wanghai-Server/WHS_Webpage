@@ -55,3 +55,59 @@ body {
 .h-captcha iframe {
   width: 100% !important;
 }
+
+/* 块级载入动画：淡入 + 上滑。通过 --load-delay 控制逐块交错（0.5s，both 保持首尾帧） */
+@keyframes load-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.load-in {
+  --load-delay: 0ms;
+  animation: load-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: var(--load-delay);
+}
+
+/* 尊重系统"减少动态效果"偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .load-in {
+    animation: none;
+  }
+}
+
+/* 对话框通用弹出动画：遮罩淡入 + 面板上滑缩放（配合 <Transition name="dialog-fade">） */
+.dialog-fade-enter-active,
+.dialog-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.dialog-fade-enter-from,
+.dialog-fade-leave-to {
+  opacity: 0;
+}
+
+.dialog-fade-enter-active .dialog,
+.dialog-fade-leave-active .dialog {
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
+}
+
+.dialog-fade-enter-from .dialog,
+.dialog-fade-leave-to .dialog {
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dialog-fade-enter-active,
+  .dialog-fade-leave-active,
+  .dialog-fade-enter-active .dialog,
+  .dialog-fade-leave-active .dialog {
+    transition: none;
+  }
+}

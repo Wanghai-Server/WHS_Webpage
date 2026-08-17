@@ -39,9 +39,9 @@ else
     exit 1
 fi
 
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload &
+uvicorn main:app --host 127.0.0.1 --port 8000 --reload &
 BACKEND_PID=$!
-echo "  -> Backend started (PID $BACKEND_PID) on http://localhost:8000"
+echo "  -> Backend started (PID $BACKEND_PID) on http://127.0.0.1:8000"
 
 # ==================== Frontend ====================
 echo "[2/2] Starting Frontend (Vite)..."
@@ -56,7 +56,7 @@ echo "  -> Installing dependencies..."
 npm install --silent
 
 echo "  -> Starting Vite dev server..."
-npm run dev &
+npm run dev -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 echo "  -> Frontend started (PID $FRONTEND_PID) on http://localhost:5173"
 
@@ -64,7 +64,7 @@ echo "  -> Frontend started (PID $FRONTEND_PID) on http://localhost:5173"
 echo ""
 echo "============================================"
 echo "  All services running!"
-echo "  Backend:   http://localhost:8000"
+echo "  Backend:   http://127.0.0.1:8000"
 echo "  Frontend:  http://localhost:5173"
 echo "  Press Ctrl+C to stop all services."
 echo "============================================"

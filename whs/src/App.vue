@@ -1,12 +1,30 @@
 <script setup>
-import { ref, watch, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import Tips from './components/tips.vue'
 
 const { t, locale } = useI18n()
 const route = useRoute()
+const router = useRouter()
 
 const titleSuffix = ref({ zh: '', en: '' })
+
+// 全局快捷键：同时按下 G + D 回到首页
+const pressedKeys = new Set()
+
+function handleShortcutKeydown(e) {
+  if (e.repeat) return
+  pressedKeys.add(e.code)
+  if (pressedKeys.has('KeyG') && pressedKeys.has('KeyD')) {
+    pressedKeys.clear()
+    router.push('/')
+  }
+}
+
+function handleShortcutKeyup(e) {
+  pressedKeys.delete(e.code)
+}
 
 onMounted(async () => {
   try {
@@ -18,6 +36,14 @@ onMounted(async () => {
   } catch {
     console.error('Failed to fetch title suffix')
   }
+
+  window.addEventListener('keydown', handleShortcutKeydown)
+  window.addEventListener('keyup', handleShortcutKeyup)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleShortcutKeydown)
+  window.removeEventListener('keyup', handleShortcutKeyup)
 })
 
 watch([() => route.meta.titleKey, locale, titleSuffix], () => {
@@ -34,4 +60,5 @@ watch([() => route.meta.titleKey, locale, titleSuffix], () => {
 
 <template>
   <router-view />
+  <Tips />
 </template>

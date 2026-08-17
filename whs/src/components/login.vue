@@ -1,18 +1,23 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
+import ForgotPassword from './forgot_password.vue'
 import { useAuth } from '../composables/useAuth'
 import { sha256 } from '../composables/sha256'
+import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
+import { useTips } from '../composables/useTips'
 
 const emit = defineEmits(['switch-register'])
 
 const { t, locale } = useI18n()
 const router = useRouter()
 const { setAuth } = useAuth()
+const { showTip } = useTips()
 
-const EMAIL_RE = /^[a-zA-Z0-9_@.-]+$/
+// 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)
+const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
 const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
 
 // 'account'：账密登录；'email'：邮箱验证码登录
@@ -21,11 +26,12 @@ const identifier = ref('')
 const password = ref('')
 const email = ref('')
 const code = ref('')
-const errorMsg = ref('')
 const loading = ref(false)
 const hcaptchaToken = ref('')
-
-const HCAPTCHA_SITE_KEY = '8f00495e-ff6c-49c8-8f92-0570bd562674'
+const hcaptchaSiteKey = useHcaptchaSiteKey()
+const sendCooldown = ref(0)
+const showForgot = ref(false)
+let cooldownTimer = null
 
 const captchaTheme = computed(() => {
   const html = document.documentElement
@@ -38,6 +44,18 @@ function onVerify(token) {
   hcaptchaToken.value = token
 }
 
+function onCaptchaExpired() {
+  hcaptchaToken.value = ''
+  showTip('warning', t('auth.captcha_expired'))
+}
+
+function onCaptchaError(err) {
+  // hCaptcha 的 error 事件常为瞬时（如网络抖动），组件随后仍可正常使用，
+  // 因此这里只清空 token 并记录日志，不弹出误导性的“加载失败”提示。
+  hcaptchaToken.value = ''
+  console.warn('hCaptcha error:', err)
+}
+
 function localMessage(data) {
   const m = data && data.message
   if (!m) return t('auth.request_failed')
@@ -45,23 +63,22 @@ function localMessage(data) {
 }
 
 async function submit() {
-  errorMsg.value = ''
   loading.value = true
   try {
     let body
     if (mode.value === 'account') {
-      if (!identifier.value.trim()) { errorMsg.value = t('auth.email_required'); return }
-      if (!password.value) { errorMsg.value = t('auth.password_required'); return }
-      if (!PASSWORD_ASCII_RE.test(password.value)) { errorMsg.value = t('auth.password_ascii'); return }
+      if (!identifier.value.trim()) { showTip('warning', t('auth.email_required')); return }
+      if (!password.value) { showTip('warning', t('auth.password_required')); return }
+      if (!PASSWORD_ASCII_RE.test(password.value)) { showTip('warning', t('auth.password_ascii')); return }
       const passwordHash = await sha256(password.value)
       body = { identifier: identifier.value.trim(), password: passwordHash }
     } else {
-      if (!EMAIL_RE.test(email.value.trim())) { errorMsg.value = t('auth.email_invalid'); return }
-      if (!code.value.trim()) { errorMsg.value = t('auth.code_required'); return }
+      if (!EMAIL_RE.test(email.value.trim())) { showTip('warning', t('auth.email_invalid')); return }
+      if (!code.value.trim()) { showTip('warning', t('auth.code_required')); return }
       body = { identifier: email.value.trim(), code: code.value.trim() }
     }
 
-    if (!hcaptchaToken.value) { errorMsg.value = t('auth.captcha_required'); return }
+    if (!hcaptchaToken.value) { showTip('warning', t('auth.captcha_required')); return }
     body.hcaptcha_response = hcaptchaToken.value
 
     const res = await fetch('/api/user/login', {
@@ -87,9 +104,9 @@ async function submit() {
       return
     }
 
-    errorMsg.value = localMessage(data)
+    showTip('error', localMessage(data))
   } catch(e) {
-    errorMsg.value = t('auth.request_failed')
+    showTip('error', t('auth.request_failed'))
     console.warn(e)
   } finally {
     loading.value = false
@@ -97,24 +114,44 @@ async function submit() {
 }
 
 async function sendCode() {
-  errorMsg.value = ''
   if (!EMAIL_RE.test(email.value.trim())) {
-    errorMsg.value = t('auth.email_invalid')
+    showTip('warning', t('auth.email_invalid'))
     return
   }
+  // 必须先完成人机验证，才能获取验证码
+  if (!hcaptchaToken.value) {
+    showTip('warning', t('auth.captcha_required'))
+    return
+  }
+  if (sendCooldown.value > 0) return
   const res = await fetch('/api/user/send_code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: email.value.trim() }),
+    body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
   })
   const data = await res.json().catch(() => ({}))
-  if (res.ok && data.dev_code) {
-    // mock 阶段：后端把验证码回传，自动填入方便调试
-    code.value = data.dev_code
+  if (res.ok && data.success) {
+    showTip('info', t('auth.code_sent'))
+    sendCooldown.value = 60
+    if (cooldownTimer) clearInterval(cooldownTimer)
+    cooldownTimer = setInterval(() => {
+      sendCooldown.value -= 1
+      if (sendCooldown.value <= 0) {
+        clearInterval(cooldownTimer)
+        cooldownTimer = null
+      }
+    }, 1000)
   } else {
-    errorMsg.value = localMessage(data)
+    showTip('error', localMessage(data))
   }
 }
+
+onUnmounted(() => {
+  if (cooldownTimer) {
+    clearInterval(cooldownTimer)
+    cooldownTimer = null
+  }
+})
 </script>
 
 <template>
@@ -134,7 +171,7 @@ async function sendCode() {
       >{{ t('auth.email_mode') }}</button>
     </div>
 
-    <form class="form" @submit.prevent="submit">
+    <form class="form" novalidate @submit.prevent="submit">
       <!-- 账密登录 -->
       <template v-if="mode === 'account'">
         <input
@@ -156,26 +193,42 @@ async function sendCode() {
         <input v-model="email" type="email" :placeholder="t('auth.email')" autocomplete="email" />
         <div class="code-row">
           <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
-          <button type="button" class="send-code" @click="sendCode">{{ t('auth.send_code') }}</button>
+          <button type="button" class="send-code" :disabled="sendCooldown > 0" @click="sendCode">
+            {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
+          </button>
         </div>
       </template>
 
       <!-- 人机验证码（hCaptcha 官方 Vue 组件） -->
       <div class="h-captcha">
-        <VueHcaptcha :sitekey="HCAPTCHA_SITE_KEY" :theme="captchaTheme" @verify="onVerify" />
+        <VueHcaptcha
+          v-if="hcaptchaSiteKey"
+          :sitekey="hcaptchaSiteKey"
+          :theme="captchaTheme"
+          api-endpoint="https://js.hcaptcha.com/1/api.js"
+          @verify="onVerify"
+          @expired="onCaptchaExpired"
+          @error="onCaptchaError"
+        />
       </div>
-
-      <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
 
       <button type="submit" class="submit" :disabled="loading">
         {{ t('auth.login_register') }}
       </button>
     </form>
 
-    <button type="button" class="switch-link" @click="emit('switch-register', {})">
-      {{ t('auth.go_register') }}
-    </button>
+    <div class="form-foot" :class="{ centered: mode !== 'account' }">
+      <!-- 忘记密码：仅在账密登录模式显示（验证码登录无需密码） -->
+      <button v-if="mode === 'account'" type="button" class="forgot-link" @click="showForgot = true">
+        {{ t('auth.forgot_password') }}
+      </button>
+      <button type="button" class="switch-link" @click="emit('switch-register', {})">
+        {{ t('auth.go_register') }}
+      </button>
+    </div>
   </div>
+
+  <ForgotPassword v-if="showForgot" @close="showForgot = false" />
 </template>
 
 <style scoped>
@@ -272,10 +325,9 @@ async function sendCode() {
   color: var(--text-color);
 }
 
-.error {
-  margin: 0;
-  color: #e5484d;
-  font-size: 14px;
+.send-code:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .submit {
@@ -295,9 +347,22 @@ async function sendCode() {
   cursor: not-allowed;
 }
 
-.switch-link {
+/* 底部并排：忘记密码（左）与 去注册（右） */
+.form-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 16px;
-  width: 100%;
+}
+
+/* 仅剩“去注册”时（邮箱登录模式）居中 */
+.form-foot.centered {
+  justify-content: center;
+}
+
+.switch-link,
+.forgot-link {
   border: none;
   background: none;
   color: var(--links-color);
@@ -306,7 +371,12 @@ async function sendCode() {
   transition: color 0.2s ease;
 }
 
-.switch-link:hover {
+.forgot-link {
+  padding: 0;
+}
+
+.switch-link:hover,
+.forgot-link:hover {
   color: var(--text-color);
 }
 </style>

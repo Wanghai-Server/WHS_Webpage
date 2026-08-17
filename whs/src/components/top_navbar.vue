@@ -1,10 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { animate, stagger } from 'animejs'
 import { User, Mail, X, ArrowLeft } from 'lucide-vue-next'
 import MessageBox from './message_box.vue'
+import MessageDetail from './message_detail.vue'
+import UserDropdown from './user_dropdown.vue'
 import { useAuth } from '../composables/useAuth'
 
 const props = defineProps({
@@ -21,14 +23,20 @@ const isLoggedIn = computed(() => !!authState.token)
 const avatarSrc = computed(() => (authState.user && authState.user.avatar ? `/api/user/${authState.user.uid}/avatar` : ''))
 const userLink = computed(() => (authState.user ? `/user/${authState.user.uid}` : '/login'))
 
-// 导航链接：默认 /news + /about，可被 navRoutes 覆盖
+// 导航链接：默认 /news + /about，可被 navRoutes 覆盖。
+// navRoutes 值支持两种：字符串（路由，标签用 i18n key）或 {label, route} 对象（route 可为空字符串=纯文本）。
 const links = computed(() => {
   if (props.navRoutes) {
-    return Object.entries(props.navRoutes).map(([key, route]) => ({ key, route }))
+    return Object.entries(props.navRoutes).map(([key, value]) => {
+      if (value && typeof value === 'object') {
+        return { key, label: value.label, route: value.route || '' }
+      }
+      return { key, label: t(key), route: value }
+    })
   }
   return [
-    { key: 'nav.news', route: '/news' },
-    { key: 'nav.about', route: '/about' },
+    { key: 'nav.news', label: t('nav.news'), route: '/news' },
+    { key: 'nav.about', label: t('nav.about'), route: '/about' },
   ]
 })
 
@@ -50,15 +58,90 @@ const menuOpen = ref(false)
 const navbarRef = ref(null)
 const showMessages = ref(false)
 const messageBoxRef = ref(null)
+const userMenuOpen = ref(false)
+let userMenuTimer = null
+
+// 消息详情窗口（点击消息盒内消息时打开；activeMessage 非空即显示）
+const activeMessage = ref(null)
+// 从详情返回消息盒时跳过打开动画
+const messageBoxSkipAnim = ref(false)
+
+function onOpenDetail(message) {
+  showMessages.value = false
+  messageBoxSkipAnim.value = true
+  activeMessage.value = message
+  fetchUnreadCount()
+}
+
+// 详情页返回消息盒
+function onBackToMessages() {
+  activeMessage.value = null
+  showMessages.value = true
+  fetchUnreadCount()
+}
+
+// 关闭详情（不返回消息盒）
+function onCloseDetail() {
+  activeMessage.value = null
+  fetchUnreadCount()
+}
+
+// 悬浮打开用户菜单；带关闭延迟，避免鼠标穿过触发按钮与菜单之间的空隙时误关
+function openUserMenu() {
+  if (userMenuTimer) {
+    clearTimeout(userMenuTimer)
+    userMenuTimer = null
+  }
+  userMenuOpen.value = true
+}
+
+function closeUserMenu() {
+  userMenuTimer = setTimeout(() => {
+    userMenuOpen.value = false
+  }, 150)
+}
 
 // 点击消息图标：关闭时打开，打开时（图标变为叉）关闭
 function toggleMessages() {
   if (showMessages.value) {
     messageBoxRef.value?.close()
   } else {
+    // 正常入口打开：播放弹出动画，并刷新未读数
+    messageBoxSkipAnim.value = false
     showMessages.value = true
+    fetchUnreadCount()
   }
 }
+
+// 未读系统消息数（红点）
+const unreadCount = ref(0)
+
+async function fetchUnreadCount() {
+  if (!authState.token) {
+    unreadCount.value = 0
+    return
+  }
+  try {
+    const res = await fetch('/api/message/unread_count', {
+      headers: { Authorization: `Bearer ${authState.token}` },
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      unreadCount.value = data.count || 0
+    }
+  } catch (e) {
+    console.warn(e)
+  }
+}
+
+// 登录 / 登出时刷新未读数
+watch(
+  () => authState.token,
+  (token) => {
+    if (token) fetchUnreadCount()
+    else unreadCount.value = 0
+  }
+)
 let isMobile = false
 let mediaQuery = null
 let ready = false
@@ -82,7 +165,8 @@ function setLoginState(isScrolled) {
   if (!root) return
   const btn = root.querySelector('.login-btn')
   const fab = root.querySelector('.user-fab')
-  if (!btn || !fab) return
+  const fabWrap = root.querySelector('.user-fab-wrap')
+  if (!btn || !fab || !fabWrap) return
 
   if (isScrolled) {
     loginBtnNaturalWidth = btn.offsetWidth
@@ -90,6 +174,7 @@ function setLoginState(isScrolled) {
     btn.style.opacity = '0'
     btn.style.width = '0px'
     btn.style.marginLeft = '0px'
+    fabWrap.style.pointerEvents = 'auto'
     fab.style.pointerEvents = 'auto'
     fab.style.opacity = '1'
   } else {
@@ -97,6 +182,7 @@ function setLoginState(isScrolled) {
     btn.style.opacity = '1'
     btn.style.width = ''
     btn.style.marginLeft = ''
+    fabWrap.style.pointerEvents = 'none'
     fab.style.pointerEvents = 'none'
     fab.style.opacity = '0'
   }
@@ -108,11 +194,13 @@ function animateLoginTransition(isScrolled) {
   if (!root) return
   const btn = root.querySelector('.login-btn')
   const fab = root.querySelector('.user-fab')
-  if (!btn || !fab) return
+  const fabWrap = root.querySelector('.user-fab-wrap')
+  if (!btn || !fab || !fabWrap) return
 
   if (isScrolled) {
     // 脱离：文字按钮淡出并收起（宽度/间距归零），圆形带弹性弹出
     btn.style.pointerEvents = 'none'
+    fabWrap.style.pointerEvents = 'auto'
     fab.style.pointerEvents = 'auto'
     loginBtnNaturalWidth = btn.offsetWidth
     animate(btn, { opacity: 0, width: 0, marginLeft: 0, duration: 250, ease: 'outQuad' })
@@ -120,6 +208,7 @@ function animateLoginTransition(isScrolled) {
   } else {
     // 吸附：文字按钮展开并回弹，圆形淡出
     btn.style.pointerEvents = 'auto'
+    fabWrap.style.pointerEvents = 'none'
     fab.style.pointerEvents = 'none'
     animate(btn, { opacity: 1, width: loginBtnNaturalWidth, marginLeft: 28, duration: 300, ease: 'outQuad' })
     animate(fab, { opacity: [1, 0], scale: [1, 0.5], duration: 180, ease: 'outQuad' })
@@ -205,6 +294,7 @@ function playEntranceAnimation() {
 
 onMounted(() => {
   if (isLoggedIn.value) fetchMe()
+  fetchUnreadCount()
   handleScroll() // 初始化滚动状态与登录按钮状态（不播放动画）
   ready = true
 
@@ -222,6 +312,10 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll)
   document.removeEventListener('click', handleClickOutside)
+  if (userMenuTimer) {
+    clearTimeout(userMenuTimer)
+    userMenuTimer = null
+  }
   if (mediaQuery) {
     mediaQuery.removeEventListener('change', onMediaChange)
   }
@@ -244,15 +338,30 @@ onUnmounted(() => {
     <!-- 桌面端右侧：导航链接 + 登录按钮 -->
     <div class="nav-right">
       <nav class="links">
-        <RouterLink v-for="l in links" :key="l.route" :to="l.route">{{ t(l.key) }}</RouterLink>
-      </nav>
-      <RouterLink :to="userLink" class="login-btn">
-        <template v-if="isLoggedIn">
-          <img v-if="avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
-          <User v-else :size="20" />
+        <template v-for="l in links" :key="l.key">
+          <RouterLink v-if="l.route" :to="l.route">{{ l.label }}</RouterLink>
+          <span v-else class="nav-label">{{ l.label }}</span>
         </template>
-        <template v-else>{{ t('nav.login') }}</template>
-      </RouterLink>
+      </nav>
+      <div class="user-menu" @mouseenter="openUserMenu" @mouseleave="closeUserMenu">
+        <RouterLink :to="userLink" class="login-btn">
+          <template v-if="isLoggedIn">
+            <img v-if="avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
+            <User v-else :size="20" />
+          </template>
+          <template v-else>{{ t('nav.login') }}</template>
+        </RouterLink>
+        <Transition name="dropdown">
+          <div
+            v-if="isLoggedIn && userMenuOpen && !scrolled"
+            class="user-dropdown-anchor"
+            @mouseenter="openUserMenu"
+            @mouseleave="closeUserMenu"
+          >
+            <UserDropdown />
+          </div>
+        </Transition>
+      </div>
     </div>
 
     <!-- 移动端右侧：登录后显示头像 -->
@@ -265,15 +374,30 @@ onUnmounted(() => {
     </RouterLink>
 
     <!-- 桌面端脱离后的圆形登录按钮 -->
-    <RouterLink :to="userLink" class="user-fab" :aria-label="t('nav.login')">
-      <img v-if="isLoggedIn && avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
-      <User v-else :size="22" />
-    </RouterLink>
+    <div class="user-fab-wrap" @mouseenter="openUserMenu" @mouseleave="closeUserMenu">
+      <RouterLink :to="userLink" class="user-fab" :aria-label="t('nav.login')">
+        <img v-if="isLoggedIn && avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
+        <User v-else :size="22" />
+      </RouterLink>
+      <Transition name="dropdown">
+        <div
+          v-if="isLoggedIn && userMenuOpen && scrolled"
+          class="user-dropdown-anchor"
+          @mouseenter="openUserMenu"
+          @mouseleave="closeUserMenu"
+        >
+          <UserDropdown />
+        </div>
+      </Transition>
+    </div>
 
     <!-- 移动端折叠菜单：除登录/注册外的导航目标 -->
     <Transition name="slide">
       <nav v-if="menuOpen" class="mobile-menu">
-        <RouterLink v-for="l in links" :key="l.route" :to="l.route" @click="closeMenu">{{ t(l.key) }}</RouterLink>
+        <template v-for="l in links" :key="l.key">
+          <RouterLink v-if="l.route" :to="l.route" @click="closeMenu">{{ l.label }}</RouterLink>
+          <span v-else class="nav-label">{{ l.label }}</span>
+        </template>
       </nav>
     </Transition>
   </header>
@@ -298,10 +422,30 @@ onUnmounted(() => {
   >
     <X v-if="showMessages" :size="22" />
     <Mail v-else :size="22" />
+    <!-- 未读小红点（未登录/查看消息时不显示） -->
+    <span
+      v-if="unreadCount > 0 && !showMessages && !activeMessage"
+      class="message-badge"
+    >{{ unreadCount > 99 ? '99+' : unreadCount }}</span>
   </button>
 
   <!-- 消息弹窗 -->
-  <MessageBox ref="messageBoxRef" v-if="showMessages" @close="showMessages = false" />
+  <MessageBox
+    ref="messageBoxRef"
+    v-if="showMessages"
+    :skip-open-animation="messageBoxSkipAnim"
+    @close="showMessages = false"
+    @open-detail="onOpenDetail"
+    @read-changed="fetchUnreadCount"
+  />
+
+  <!-- 消息详情窗口（点击消息后替代消息盒显示） -->
+  <MessageDetail
+    v-if="activeMessage"
+    :message="activeMessage"
+    @close="onCloseDetail"
+    @back="onBackToMessages"
+  />
 </template>
 
 <style scoped>
@@ -387,6 +531,14 @@ onUnmounted(() => {
   transition: color 0.2s ease;
 }
 
+/* 纯文本导航项（如考试页的"当前题号"） */
+.nav-label {
+  color: var(--links-color);
+  font-size: 16px;
+  white-space: nowrap;
+  font-weight: 700;
+}
+
 .links a:hover {
   color: var(--text-color);
 }
@@ -406,13 +558,46 @@ onUnmounted(() => {
   color: var(--text-color);
 }
 
-/* 桌面端脱离后的圆形登录按钮 */
-.user-fab {
+/* 桌面端行内登录按钮的悬浮菜单容器 */
+.user-menu {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+/* 桌面端脱离后的圆形登录按钮容器：承载绝对定位与悬浮菜单锚点 */
+.user-fab-wrap {
   position: absolute;
   top: 0;
   right: -60px; /* 48px 圆 + 12px 间距 */
   z-index: 1002;
+  width: 48px;
+  height: 48px;
+}
 
+/* 悬浮菜单定位锚点：绝对定位到触发按钮正下方（右对齐） */
+.user-dropdown-anchor {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 1003;
+  transform-origin: top right; /* 弹出动画以触发按钮为原点 */
+}
+
+/* 用户悬浮菜单弹出/收起动画（参考导航栏 slide 动画，加入轻微缩放） */
+.dropdown-enter-active,
+.dropdown-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.dropdown-enter-from,
+.dropdown-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.96);
+}
+
+/* 桌面端脱离后的圆形登录按钮 */
+.user-fab {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -467,17 +652,38 @@ onUnmounted(() => {
   color: var(--text-color);
 }
 
+/* 未读小红点（消息按钮右上角） */
+.message-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  z-index: 5;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #e5484d;
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+
 /* 桌面端滚动后：吸附到导航栏左侧（镜像右侧用户圆，12px 间距） */
 .message-fab.attached {
   top: 16px;
   left: calc(50% - min(360px, 36%) - 60px);
 }
 
-/* 返回按钮：与消息/用户圆形按钮同风格，位置随吸附状态切换 */
+/* 返回按钮：与消息/用户圆形按钮同风格。
+   页首（未吸附）时贴导航栏更近；小视口下用 max() 兜底防止溢出屏幕左缘。
+   滚动后位置由 .back-fab.scrolled 接管（-120px，保持原样）。 */
 .back-fab {
   position: fixed;
   top: 16px;
-  left: calc(50% - min(540px, 45%) - 60px);
+  left: max(24px, calc(50% - min(540px, 45%) - 24px));
   z-index: 4000;
   display: flex;
   align-items: center;
@@ -499,6 +705,8 @@ onUnmounted(() => {
   color: var(--text-color);
 }
 
+/* 吸附后：返回按钮贴导航栏左侧（离 LOGO 近），消息按钮在其外侧 */
+/* 吸附后：返回按钮位置（原始值） */
 .back-fab.scrolled {
   left: calc(50% - min(360px, 36%) - 120px);
 }
@@ -564,8 +772,10 @@ onUnmounted(() => {
   gap: 4px;
   padding: 8px;
 
-  background: var(--card-color);
+  background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
@@ -582,6 +792,15 @@ onUnmounted(() => {
 .mobile-menu a:hover {
   background: var(--btn-hover);
   color: var(--text-color);
+}
+
+.mobile-menu .nav-label {
+  display: block;
+  padding: 12px 16px;
+  border-radius: 10px;
+  color: var(--links-color);
+  font-size: 16px;
+  font-weight: 700;
 }
 
 /* 折叠菜单展开/收起过渡 */
@@ -623,6 +842,7 @@ onUnmounted(() => {
     display: none;
   }
 
+  .user-fab-wrap,
   .user-fab {
     display: none;
   }

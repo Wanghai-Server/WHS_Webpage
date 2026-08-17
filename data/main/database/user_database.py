@@ -4,6 +4,7 @@
 ``data/database/basic_user_data.db``，内部使用一张 ``users`` 表存储用户基础数据。
 """
 
+import json
 import re
 import sqlite3
 from typing import Any
@@ -13,8 +14,11 @@ from .basic_database import BasicDatabase
 # 用户名仅允许：英文字母、数字、下划线，且至少一个字符。
 USERNAME_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
 
-# 邮箱仅允许：英文字母、数字、下划线、@、点号和短横杆，且至少一个字符。
-EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9_@.-]+")
+# 玩家名称（Minecraft 名称）仅允许：英文字母、数字、下划线，且至少一个字符。
+PLAYER_NAME_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
+
+# 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)。
+EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+")
 
 # 密码仅允许 ASCII 字符（不允许出现非 ASCII 字符）。
 PASSWORD_PATTERN = re.compile(r"^[\x00-\x7f]+$")
@@ -27,9 +31,12 @@ USER_TABLE_COLUMNS: dict[str, str] = {
     "uid": "INTEGER PRIMARY KEY AUTOINCREMENT",   # 自增且永不重复
     "email": "TEXT NOT NULL UNIQUE",               # 唯一，满足 [a-zA-Z0-9_@.-]+
     "username": "TEXT NOT NULL UNIQUE",            # 唯一，满足 [a-zA-Z0-9_]+
-    "fullname": "TEXT NOT NULL",                   # 任意值，反斜杠按字面保存
+    "fullname": "TEXT",                            # 昵称，可空；注册时不自动注入，之后在用户设置里填
     "password": "TEXT NOT NULL",                   # 后端计算的 sha256 哈希
     "avatar": "TEXT",                               # 头像文件名，可空（NULL 表示无头像）
+    "permission": "INTEGER NOT NULL DEFAULT 1",     # 0=guest 1=user 2=player 3=admin 4=owner
+    "locked": "INTEGER NOT NULL DEFAULT 0",         # 0/1，连续输错 5 次后锁定
+    "banned": "INTEGER NOT NULL DEFAULT 0",         # 0/1，管理员封禁
 }
 
 
@@ -69,6 +76,12 @@ class EmailExistsError(UserDatabaseError):
     code = "email_exists"
 
 
+class PlayerNameExistsError(UserDatabaseError):
+    """玩家名称（Minecraft 名称）已被占用。"""
+
+    code = "player_name_exists"
+
+
 class UserNotFoundError(UserDatabaseError):
     """指定用户不存在。"""
 
@@ -80,6 +93,10 @@ ERROR_MESSAGES: dict[str, dict[str, str]] = {
     "username_invalid": {
         "zh": "用户名仅允许英文字母、数字和下划线",
         "en": "Username may only contain letters, digits and underscores",
+    },
+    "player_name_invalid": {
+        "zh": "玩家名仅允许英文字母、数字和下划线",
+        "en": "Player name may only contain letters, digits and underscores",
     },
     "email_invalid": {
         "zh": "邮箱格式不合法",
@@ -96,6 +113,10 @@ ERROR_MESSAGES: dict[str, dict[str, str]] = {
     "email_exists": {
         "zh": "邮箱已被注册",
         "en": "Email already registered",
+    },
+    "player_name_exists": {
+        "zh": "该玩家名已被占用",
+        "en": "Player name already taken",
     },
     "user_not_found": {
         "zh": "用户不存在",
@@ -122,6 +143,7 @@ class UserDatabase(BasicDatabase):
     """
 
     TABLE_NAME = "users"
+    TABLE_COLUMNS = USER_TABLE_COLUMNS
 
     def __init__(self, database_path: str = "basic_user_data.db") -> None:
         super().__init__(database_path)
@@ -136,7 +158,7 @@ class UserDatabase(BasicDatabase):
         super().connect()
         self._connection = sqlite3.connect(self.database_path, check_same_thread=False)
         self._connection.row_factory = sqlite3.Row
-        self.create_table(self.TABLE_NAME, USER_TABLE_COLUMNS, if_not_exists=True)
+        self.create_table(self.TABLE_NAME, self.TABLE_COLUMNS, if_not_exists=True)
         self._migrate()
 
     def close(self) -> None:
@@ -154,7 +176,7 @@ class UserDatabase(BasicDatabase):
                 f"PRAGMA table_info({self.TABLE_NAME})"
             ).fetchall()
         }
-        for name, definition in USER_TABLE_COLUMNS.items():
+        for name, definition in self.TABLE_COLUMNS.items():
             if name not in existing_cols:
                 self._conn.execute(
                     f"ALTER TABLE {self.TABLE_NAME} ADD COLUMN {name} {definition}"
@@ -258,7 +280,7 @@ class UserDatabase(BasicDatabase):
     # 用户业务方法
     # ------------------------------------------------------------------
 
-    def create_user(self, username: str, email: str, fullname: str, password: str) -> int:
+    def create_user(self, username: str, email: str, fullname: str = "", password: str = "") -> int:
         """创建用户并返回自增的 ``uid``。
 
         ``email`` 需满足 ``[a-zA-Z0-9_@.-]+``，重复时抛出 :class:`EmailExistsError`。
@@ -348,6 +370,52 @@ class UserDatabase(BasicDatabase):
         )
         self._conn.commit()
 
+    def set_permission(self, uid: int, permission: int) -> None:
+        """设置用户的权限等级（0~4）。"""
+        if not isinstance(permission, int) or isinstance(permission, bool) or not (0 <= permission <= 4):
+            raise ValueError(f"非法的 permission 值: {permission!r}")
+        if self.get_user(uid=uid) is None:
+            raise UserNotFoundError(f"uid={uid} 的用户不存在")
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET permission = ? WHERE uid = ?",
+            (permission, uid),
+        )
+        self._conn.commit()
+
+    def set_locked(self, uid: int, locked: bool) -> None:
+        """设置用户的锁定状态（True/False）。"""
+        if self.get_user(uid=uid) is None:
+            raise UserNotFoundError(f"uid={uid} 的用户不存在")
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET locked = ? WHERE uid = ?",
+            (1 if locked else 0, uid),
+        )
+        self._conn.commit()
+
+    def set_username(self, uid: int, username: str) -> None:
+        """更新用户名（校验格式 + 唯一性）。"""
+        username = self._validate_username(username)
+        if self.get_user(uid=uid) is None:
+            raise UserNotFoundError(f"uid={uid} 的用户不存在")
+        other = self.get_user(username=username)
+        if other is not None and other["uid"] != uid:
+            raise UsernameExistsError(f"用户名 {username!r} 已存在")
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET username = ? WHERE uid = ?",
+            (username, uid),
+        )
+        self._conn.commit()
+
+    def set_banned(self, uid: int, banned: bool) -> None:
+        """设置用户的封禁状态（True/False）。"""
+        if self.get_user(uid=uid) is None:
+            raise UserNotFoundError(f"uid={uid} 的用户不存在")
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET banned = ? WHERE uid = ?",
+            (1 if banned else 0, uid),
+        )
+        self._conn.commit()
+
     def delete_user(self, uid: int) -> bool:
         """按 ``uid`` 删除用户，返回是否真的删除了。"""
         cursor = self._conn.execute(
@@ -413,3 +481,237 @@ class UserDatabase(BasicDatabase):
             f"SELECT username FROM {self.TABLE_NAME} ORDER BY uid"
         ).fetchall()
         return [row["username"] for row in rows]
+
+
+# 用户信息表结构：uid 与 users 表一致（非自增），其余字段可空（NULL 表示“不透露”）。
+USER_INFO_TABLE_COLUMNS: dict[str, str] = {
+    "uid": "INTEGER PRIMARY KEY",  # 与 users.uid 对应，非自增
+    "birthday_year": "INTEGER",     # 可空
+    "birthday_month": "INTEGER",    # 可空
+    "birthday_day": "INTEGER",      # 可空
+    "gender": "TEXT",               # "male" / "female" / NULL
+    "player_name": "TEXT",          # Minecraft 玩家名，满足 [a-zA-Z0-9_]+
+    "followers": "TEXT",            # JSON 数组：关注本用户的 uid 列表
+    "followings": "TEXT",           # JSON 数组：本用户关注的 uid 列表
+    "profile": "TEXT",              # 个人简介（Markdown 文本）
+}
+
+
+class UserInfoDatabase(UserDatabase, BasicDatabase):
+    """存储用户扩展信息（性别、生日）的 sqlite3 数据库。
+
+    与用户基础库共用同一个 ``basic_user_data.db`` 文件，内部表 ``user_info``；
+    其 ``uid`` 主键来自 ``users`` 表，因此不是自增列。
+    """
+
+    TABLE_NAME = "user_info"
+    TABLE_COLUMNS = USER_INFO_TABLE_COLUMNS
+
+    def connect(self) -> None:
+        """打开数据库、建表/迁移，并确保 player_name 唯一索引存在。"""
+        super().connect()
+        self._conn.execute(
+            f"CREATE UNIQUE INDEX IF NOT EXISTS idx_{self.TABLE_NAME}_player_name "
+            f"ON {self.TABLE_NAME}(player_name)"
+        )
+        self._conn.commit()
+
+    def get_user_info(self, uid: int) -> dict[str, Any] | None:
+        """按 uid 读取用户扩展信息；不存在返回 None。"""
+        row = self._conn.execute(
+            f"SELECT * FROM {self.TABLE_NAME} WHERE uid = ?", (uid,)
+        ).fetchone()
+        return self._row_to_dict(row)
+
+    def set_user_info(
+        self,
+        uid: int,
+        *,
+        birthday_year: int | None = None,
+        birthday_month: int | None = None,
+        birthday_day: int | None = None,
+        gender: str | None = None,
+    ) -> None:
+        """插入或更新指定 uid 的扩展信息（全量 upsert）。"""
+        self._conn.execute(
+            f"INSERT INTO {self.TABLE_NAME} "
+            f"(uid, birthday_year, birthday_month, birthday_day, gender) "
+            f"VALUES (?, ?, ?, ?, ?) "
+            f"ON CONFLICT(uid) DO UPDATE SET "
+            f"birthday_year=excluded.birthday_year, "
+            f"birthday_month=excluded.birthday_month, "
+            f"birthday_day=excluded.birthday_day, "
+            f"gender=excluded.gender",
+            (uid, birthday_year, birthday_month, birthday_day, gender),
+        )
+        self._conn.commit()
+
+    @staticmethod
+    def _validate_player_name(player_name: str) -> str:
+        """校验玩家名称；不合法时抛出 ValueError。"""
+        if not isinstance(player_name, str) or PLAYER_NAME_PATTERN.fullmatch(player_name) is None:
+            raise ValueError(f"非法的 player_name: {player_name!r}")
+        return player_name
+
+    def player_name_exists(self, player_name: str) -> bool:
+        """判断玩家名称是否已被占用。"""
+        row = self._conn.execute(
+            f"SELECT 1 FROM {self.TABLE_NAME} WHERE player_name = ? LIMIT 1",
+            (player_name,),
+        ).fetchone()
+        return row is not None
+
+    def set_player_name(self, uid: int, player_name: str) -> None:
+        """设置玩家的 Minecraft 名称（仅更新 player_name，不影响其它字段）。"""
+        player_name = self._validate_player_name(player_name)
+        other = self._conn.execute(
+            f"SELECT uid FROM {self.TABLE_NAME} WHERE player_name = ? AND uid != ? LIMIT 1",
+            (player_name, uid),
+        ).fetchone()
+        if other is not None:
+            raise PlayerNameExistsError(f"玩家名 {player_name!r} 已被占用")
+        if self.get_user_info(uid) is None:
+            self.set_user_info(uid)  # 预建空行
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET player_name = ? WHERE uid = ?",
+            (player_name, uid),
+        )
+        self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # 关注 / 简介
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _json_to_uid_list(raw: Any) -> list[int]:
+        """把 followers/followings 的 JSON 文本解析成 uid 列表；空/非法返回 []。"""
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        result: list[int] = []
+        for item in data:
+            try:
+                result.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        return result
+
+    @staticmethod
+    def _uid_list_to_json(uids: list[int]) -> str:
+        """把 uid 列表序列化为 JSON 文本（去重、升序，最小化存储）。"""
+        return json.dumps(sorted({int(u) for u in uids}))
+
+    def get_followers(self, uid: int) -> list[int]:
+        """返回关注本用户的 uid 列表。"""
+        info = self.get_user_info(uid)
+        return self._json_to_uid_list(info["followers"]) if info else []
+
+    def get_followings(self, uid: int) -> list[int]:
+        """返回本用户关注的 uid 列表。"""
+        info = self.get_user_info(uid)
+        return self._json_to_uid_list(info["followings"]) if info else []
+
+    def is_following(self, follower_uid: int, target_uid: int) -> bool:
+        """判断 follower 是否关注了 target。"""
+        return target_uid in self.get_followings(follower_uid)
+
+    def _set_follow_list(self, uid: int, column: str, uids: list[int]) -> None:
+        """写入指定关注列（column 仅限内部常量 followers/followings）。"""
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET {column} = ? WHERE uid = ?",
+            (self._uid_list_to_json(uids), uid),
+        )
+
+    def add_follow(self, follower_uid: int, target_uid: int) -> None:
+        """follower 关注 target：双方列表各追加一个 uid。"""
+        if self.get_user_info(follower_uid) is None:
+            self.set_user_info(follower_uid)
+        if self.get_user_info(target_uid) is None:
+            self.set_user_info(target_uid)
+        followings = self.get_followings(follower_uid)
+        followers = self.get_followers(target_uid)
+        if target_uid not in followings:
+            followings.append(target_uid)
+        if follower_uid not in followers:
+            followers.append(follower_uid)
+        self._set_follow_list(follower_uid, "followings", followings)
+        self._set_follow_list(target_uid, "followers", followers)
+        self._conn.commit()
+
+    def remove_follow(self, follower_uid: int, target_uid: int) -> None:
+        """follower 取消关注 target。"""
+        followings = [u for u in self.get_followings(follower_uid) if u != target_uid]
+        followers = [u for u in self.get_followers(target_uid) if u != follower_uid]
+        self._set_follow_list(follower_uid, "followings", followings)
+        self._set_follow_list(target_uid, "followers", followers)
+        self._conn.commit()
+
+    def purge_user_refs(self, uid: int) -> None:
+        """完整清理：从所有其他用户的 followers / followings 列表中移除指定 uid 的引用。"""
+        rows = self._conn.execute(
+            f"SELECT uid FROM {self.TABLE_NAME}"
+        ).fetchall()
+        for row in rows:
+            other_uid = row["uid"]
+            if other_uid == uid:
+                continue
+            followings = [u for u in self.get_followings(other_uid) if u != uid]
+            followers = [u for u in self.get_followers(other_uid) if u != uid]
+            self._set_follow_list(other_uid, "followings", followings)
+            self._set_follow_list(other_uid, "followers", followers)
+        self._conn.commit()
+
+    def set_profile(self, uid: int, profile: str) -> None:
+        """设置个人简介（Markdown 文本）。"""
+        if self.get_user_info(uid) is None:
+            self.set_user_info(uid)
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET profile = ? WHERE uid = ?",
+            (profile, uid),
+        )
+        self._conn.commit()
+
+    def delete_user_info(self, uid: int) -> bool:
+        """按 uid 删除扩展信息，返回是否真的删除了。"""
+        cursor = self._conn.execute(
+            f"DELETE FROM {self.TABLE_NAME} WHERE uid = ?", (uid,)
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # 键值接口：以 uid（字符串形式）为 key，覆盖父类以 username 为 key 的语义
+    # ------------------------------------------------------------------
+
+    def get(self, key: str, default: Any = None) -> Any:
+        try:
+            info = self.get_user_info(int(key))
+        except (TypeError, ValueError):
+            return default
+        return default if info is None else info
+
+    def set(self, key: str, value: Any) -> None:
+        if not isinstance(value, dict):
+            raise TypeError("value 必须是包含 birthday_year/month/day/gender 的字典")
+        try:
+            uid = int(key)
+        except (TypeError, ValueError):
+            raise ValueError(f"非法的 uid key: {key!r}") from None
+        self.set_user_info(uid, **value)
+
+    def delete(self, key: str) -> bool:
+        try:
+            return self.delete_user_info(int(key))
+        except (TypeError, ValueError):
+            return False
+
+    def keys(self) -> list[str]:
+        rows = self._conn.execute(
+            f"SELECT uid FROM {self.TABLE_NAME} ORDER BY uid"
+        ).fetchall()
+        return [str(row["uid"]) for row in rows]

@@ -1,11 +1,14 @@
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
-import { User } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { sha256 } from '../composables/sha256'
+import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
+import { useTips } from '../composables/useTips'
+import UsernameSuggestion from './username_suggestion.vue'
+import FullUserInfo from './full_user_info.vue'
 
 const props = defineProps({
   prefill: { type: Object, default: () => ({}) },
@@ -15,19 +18,29 @@ const emit = defineEmits(['switch-login'])
 const { t, locale } = useI18n()
 const router = useRouter()
 const { setAuth } = useAuth()
+const { showTip } = useTips()
 
-const EMAIL_RE = /^[a-zA-Z0-9_@.-]+$/
+// 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)
+const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
+const USERNAME_RE = /^[a-zA-Z0-9_]+$/
 const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
-const HCAPTCHA_SITE_KEY = '8f00495e-ff6c-49c8-8f92-0570bd562674'
+
+// 编排步骤：register / suggestion / full_info
+const step = ref('register')
 
 const email = ref('')
+const username = ref('')
 const code = ref('')
 const password = ref('')
-const avatarFile = ref(null)
-const avatarPreview = ref('')
-const errorMsg = ref('')
+const confirmPassword = ref('')
 const loading = ref(false)
 const hcaptchaToken = ref('')
+const hcaptchaSiteKey = useHcaptchaSiteKey()
+const sendCooldown = ref(0)
+let cooldownTimer = null
+
+const suggestionBase = ref('')
+const registeredUid = ref(null)
 
 // hCaptcha 主题跟随站点亮/暗色
 const captchaTheme = computed(() => {
@@ -41,10 +54,25 @@ function onVerify(token) {
   hcaptchaToken.value = token
 }
 
+function onCaptchaExpired() {
+  hcaptchaToken.value = ''
+  showTip('warning', t('auth.captcha_expired'))
+}
+
+function onCaptchaError(err) {
+  // hCaptcha 的 error 事件常为瞬时（如网络抖动），组件随后仍可正常使用，
+  // 因此这里只清空 token 并记录日志，不弹出误导性的“加载失败”提示。
+  hcaptchaToken.value = ''
+  console.warn('hCaptcha error:', err)
+}
+
 watch(() => props.prefill, (p) => {
   if (!p) return
   if (p.email) email.value = p.email
-  if (p.password) password.value = p.password
+  if (p.password) {
+    password.value = p.password
+    confirmPassword.value = p.password
+  }
   if (p.code) code.value = p.code
 }, { immediate: true, deep: true })
 
@@ -54,114 +82,165 @@ function localMessage(data) {
   return m[locale.value] || m.zh || m.en || ''
 }
 
-function onFileChange(event) {
-  const f = event.target.files && event.target.files[0]
-  if (!f) return
-  avatarFile.value = f
-  avatarPreview.value = URL.createObjectURL(f)
-}
-
 async function sendCode() {
-  errorMsg.value = ''
   if (!EMAIL_RE.test(email.value.trim())) {
-    errorMsg.value = t('auth.email_invalid')
+    showTip('warning', t('auth.email_invalid'))
     return
   }
+  // 必须先完成人机验证，才能获取验证码
+  if (!hcaptchaToken.value) {
+    showTip('warning', t('auth.captcha_required'))
+    return
+  }
+  if (sendCooldown.value > 0) return
   const res = await fetch('/api/user/send_code', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: email.value.trim() }),
+    body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
   })
   const data = await res.json().catch(() => ({}))
-  if (res.ok && data.dev_code) {
-    code.value = data.dev_code // mock 阶段自动填入
+  if (res.ok && data.success) {
+    showTip('info', t('auth.code_sent'))
+    sendCooldown.value = 60
+    if (cooldownTimer) clearInterval(cooldownTimer)
+    cooldownTimer = setInterval(() => {
+      sendCooldown.value -= 1
+      if (sendCooldown.value <= 0) {
+        clearInterval(cooldownTimer)
+        cooldownTimer = null
+      }
+    }, 1000)
   } else {
-    errorMsg.value = localMessage(data)
+    showTip('error', localMessage(data))
   }
 }
 
+onUnmounted(() => {
+  if (cooldownTimer) {
+    clearInterval(cooldownTimer)
+    cooldownTimer = null
+  }
+})
+
+// 真正发起注册请求；成功则进入 full_info 步骤
+async function doRegister() {
+  const passwordHash = await sha256(password.value)
+  const res = await fetch('/api/user/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: email.value.trim(),
+      username: username.value.trim(),
+      code: code.value.trim(),
+      password: passwordHash,
+      hcaptcha_response: hcaptchaToken.value,
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.ok) {
+    setAuth(data.token, { uid: data.uid })
+    registeredUid.value = data.uid
+    step.value = 'full_info'
+    return true
+  }
+  showTip('error', localMessage(data))
+  return false
+}
+
 async function submit() {
-  errorMsg.value = ''
   loading.value = true
   try {
-    if (!EMAIL_RE.test(email.value.trim())) { errorMsg.value = t('auth.email_invalid'); return }
-    if (!code.value.trim()) { errorMsg.value = t('auth.code_required'); return }
-    if (!password.value) { errorMsg.value = t('auth.password_required'); return }
-    if (!PASSWORD_ASCII_RE.test(password.value)) { errorMsg.value = t('auth.password_ascii'); return }
-    if (!hcaptchaToken.value) { errorMsg.value = t('auth.captcha_required'); return }
+    if (!EMAIL_RE.test(email.value.trim())) { showTip('warning', t('auth.email_invalid')); return }
+    if (!USERNAME_RE.test(username.value.trim())) { showTip('warning', t('auth.username_invalid')); return }
+    if (!code.value.trim()) { showTip('warning', t('auth.code_required')); return }
+    if (!password.value) { showTip('warning', t('auth.password_required')); return }
+    if (!PASSWORD_ASCII_RE.test(password.value)) { showTip('warning', t('auth.password_ascii')); return }
+    if (password.value !== confirmPassword.value) { showTip('warning', t('auth.password_mismatch')); return }
+    if (!hcaptchaToken.value) { showTip('warning', t('auth.captcha_required')); return }
 
-    const passwordHash = await sha256(password.value)
-
-    const res = await fetch('/api/user/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: email.value.trim(),
-        code: code.value.trim(),
-        password: passwordHash,
-        hcaptcha_response: hcaptchaToken.value,
-      }),
-    })
-    const data = await res.json().catch(() => ({}))
-
-    if (res.ok) {
-      setAuth(data.token, { uid: data.uid })
-      // 两步：注册拿到 uid 后再上传头像
-      if (avatarFile.value) {
-        const fd = new FormData()
-        fd.append('file', avatarFile.value)
-        await fetch(`/api/user/${data.uid}/avatar`, { method: 'POST', body: fd })
-      }
-      router.push('/joinus')
+    // 注册前先查重（避免消耗验证码 / hCaptcha）
+    const checkRes = await fetch(`/api/user/username_exists?username=${encodeURIComponent(username.value.trim())}`)
+    const checkData = await checkRes.json().catch(() => ({}))
+    if (checkRes.ok && checkData.exists) {
+      suggestionBase.value = username.value.trim()
+      step.value = 'suggestion'
       return
     }
 
-    errorMsg.value = localMessage(data)
-  } catch(e) {
-    errorMsg.value = t('auth.request_failed')
+    await doRegister()
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
     console.warn(e)
   } finally {
     loading.value = false
   }
 }
 
+async function onSuggestionConfirm(chosenUsername) {
+  username.value = chosenUsername
+  loading.value = true
+  try {
+    await doRegister()
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <template>
   <div class="register-form">
-    <h1 class="form-title">{{ t('auth.register_title') }}</h1>
+    <Transition name="step" mode="out-in">
+      <div v-if="step === 'register'" key="register">
+        <h1 class="form-title">{{ t('auth.register_title') }}</h1>
 
-    <form class="form" @submit.prevent="submit">
-      <!-- 上传头像（可选，放在 4 个输入框上方） -->
-      <label class="avatar-upload">
-        <input type="file" accept="image/png,image/jpeg,image/webp,image/x-icon" @change="onFileChange" />
-        <img v-if="avatarPreview" :src="avatarPreview" class="avatar-preview" alt="avatar" />
-        <User v-else :size="30" class="avatar-icon" />
-        <span class="avatar-label">{{ t('auth.upload_avatar') }}</span>
-      </label>
+      <form class="form" novalidate @submit.prevent="submit">
+        <input v-model="email" type="email" :placeholder="t('auth.email')" autocomplete="email" />
+        <input v-model="username" type="text" :placeholder="t('register.username_placeholder')" autocomplete="username" />
 
-      <input v-model="email" type="email" :placeholder="t('auth.email')" autocomplete="email" />
+        <div class="code-row">
+          <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
+          <button type="button" class="send-code" :disabled="sendCooldown > 0" @click="sendCode">
+            {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
+          </button>
+        </div>
 
-      <div class="code-row">
-        <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
-        <button type="button" class="send-code" @click="sendCode">{{ t('auth.send_code') }}</button>
+        <input v-model="password" type="password" :placeholder="t('auth.password')" autocomplete="new-password" />
+        <input v-model="confirmPassword" type="password" :placeholder="t('auth.confirm_password')" autocomplete="new-password" />
+
+        <!-- 人机验证码（hCaptcha 官方 Vue 组件） -->
+        <div class="h-captcha">
+          <VueHcaptcha
+            v-if="hcaptchaSiteKey"
+            :sitekey="hcaptchaSiteKey"
+            :theme="captchaTheme"
+            api-endpoint="https://js.hcaptcha.com/1/api.js"
+            @verify="onVerify"
+            @expired="onCaptchaExpired"
+            @error="onCaptchaError"
+          />
+        </div>
+
+        <button type="submit" class="submit" :disabled="loading">{{ t('auth.register') }}</button>
+      </form>
+
+        <button type="button" class="switch-link" @click="emit('switch-login')">
+          {{ t('auth.go_login') }}
+        </button>
       </div>
 
-      <input v-model="password" type="password" :placeholder="t('auth.password')" autocomplete="new-password" />
+      <UsernameSuggestion
+        v-else-if="step === 'suggestion'"
+        key="suggestion"
+        :base="suggestionBase"
+        @confirm="onSuggestionConfirm"
+        @back="step = 'register'"
+      />
 
-      <!-- 人机验证码（hCaptcha 官方 Vue 组件） -->
-      <div class="h-captcha">
-        <VueHcaptcha :sitekey="HCAPTCHA_SITE_KEY" :theme="captchaTheme" @verify="onVerify" />
-      </div>
-
-      <p v-if="errorMsg" class="error">{{ errorMsg }}</p>
-
-      <button type="submit" class="submit" :disabled="loading">{{ t('auth.register') }}</button>
-    </form>
-
-    <button type="button" class="switch-link" @click="emit('switch-login')">
-      {{ t('auth.go_login') }}
-    </button>
+      <FullUserInfo v-else key="full_info" :uid="registeredUid" />
+    </Transition>
   </div>
 </template>
 
@@ -171,10 +250,24 @@ async function submit() {
   margin: 100px auto 40px;
   padding: 32px;
   box-sizing: border-box;
-  background: var(--card-color);
+  background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border-radius: 20px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+
+/* 步骤切换动画：弹出 + 淡入 */
+.step-enter-active,
+.step-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.step-enter-from,
+.step-leave-to {
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
 }
 
 .form-title {
@@ -208,50 +301,6 @@ async function submit() {
   border-color: var(--text-color);
 }
 
-.avatar-upload {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 96px;
-  height: 96px;
-  margin: 0 auto;
-  border-radius: 999px;
-  overflow: hidden;
-  border: 1px dashed rgba(148, 163, 184, 0.35);
-  color: var(--links-color);
-  cursor: pointer;
-}
-
-.avatar-upload input {
-  display: none;
-}
-
-.avatar-icon {
-  color: var(--links-color);
-}
-
-.avatar-preview {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.avatar-label {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 2;
-  padding: 3px 0;
-  font-size: 11px;
-  text-align: center;
-  color: #ffffff;
-  background: rgba(0, 0, 0, 0.45);
-}
-
 .code-row {
   display: flex;
   gap: 10px;
@@ -277,18 +326,17 @@ async function submit() {
   color: var(--text-color);
 }
 
+.send-code:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 .h-captcha {
   width: 100%;
 }
 
 .h-captcha :deep(iframe) {
   width: 100% !important;
-}
-
-.error {
-  margin: 0;
-  color: #e5484d;
-  font-size: 14px;
 }
 
 .submit {

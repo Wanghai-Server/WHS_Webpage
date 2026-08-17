@@ -1,17 +1,47 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { animate } from 'animejs'
+import { Plus, Trash2, X, Check } from 'lucide-vue-next'
+import { useAuth } from '../composables/useAuth'
+import { useTips } from '../composables/useTips'
 
-const { t } = useI18n()
-const emit = defineEmits(['close'])
+const { t, locale } = useI18n()
+const props = defineProps({
+  skipOpenAnimation: { type: Boolean, default: false },
+})
+const emit = defineEmits(['close', 'open-detail', 'read-changed'])
+const { state: authState } = useAuth()
+const { showTip } = useTips()
 
-// 消息列表（暂时为空）
-// 后续从后端 GET /api/message/{user_id} 获取并填充，当前直接 pass（不实现）
+// 系统消息列表
 const messages = ref([])
+const loading = ref(true)
+
+const isAdmin = computed(() => (authState.user?.permission ?? 0) >= 3)
+const isLoggedIn = computed(() => !!authState.token)
+
+// 发布消息对话框
+const showPublish = ref(false)
+const publishTitle = ref('')
+const publishContent = ref('')
+const publishing = ref(false)
 
 const overlayRef = ref(null)
 const boxRef = ref(null)
+
+function localMessage(data) {
+  const m = data && data.message
+  if (!m) return t('auth.request_failed')
+  return m[locale.value] || m.zh || m.en || ''
+}
+
+function authHeaders(extra = {}) {
+  return {
+    ...(authState.token ? { Authorization: `Bearer ${authState.token}` } : {}),
+    ...extra,
+  }
+}
 
 // 计算消息按钮中心相对盒子的位置，作为弹出/收起动画的原点
 function getButtonOrigin() {
@@ -28,25 +58,156 @@ function getButtonOrigin() {
   }
 }
 
-onMounted(() => {
-  const box = boxRef.value
-  const overlay = overlayRef.value
+// ISO 时间 -> "YYYY-MM-DD HH:mm"
+function formatTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
-  // 打开动画：盒子从消息按钮处弹出到屏幕中央（带弹性）
-  if (box) {
-    const { x, y } = getButtonOrigin()
-    box.style.transformOrigin = `${x}px ${y}px`
-    animate(box, {
-      scale: [0, 1],
-      opacity: [0, 1],
-      duration: 450,
-      ease: 'outCubic'
+async function fetchMessages() {
+  loading.value = true
+  try {
+    // 系统消息（公开）+ 本人定向消息（登录时）合并
+    const [sysRes, dirRes] = await Promise.all([
+      fetch('/api/message/system', { headers: authHeaders() }),
+      authState.token
+        ? fetch(`/api/message/${authState.user?.uid}`, { headers: authHeaders() })
+        : Promise.resolve(null),
+    ])
+    let list = []
+    if (sysRes.ok) {
+      const d = await sysRes.json().catch(() => ({}))
+      list = d.messages || []
+    }
+    if (dirRes && dirRes.ok) {
+      const d = await dirRes.json().catch(() => ({}))
+      if (d.messages) list = list.concat(d.messages)
+    }
+    // 未读优先，组内按 id 倒序
+    list.sort((a, b) => Number(b.id) - Number(a.id))
+    list.sort((a, b) => Number(a.is_read ?? 0) - Number(b.is_read ?? 0))
+    messages.value = list
+  } catch (e) {
+    console.warn(e)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 标为已读（幂等）
+async function markRead(m) {
+  if (!isLoggedIn.value || m.is_read) return
+  const res = await fetch(`/api/message/${m.id}/read`, {
+    method: 'POST',
+    headers: authHeaders(),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.ok) {
+    m.is_read = true
+    messages.value.sort((a, b) => Number(a.is_read ?? 0) - Number(b.is_read ?? 0))
+    emit('read-changed')
+    showTip('info', t('message.markedRead'))
+  } else {
+    showTip('error', localMessage(data))
+  }
+}
+
+async function publish() {
+  if (!publishTitle.value.trim()) {
+    showTip('warning', t('message.titleEmpty'))
+    return
+  }
+  if (!publishContent.value.trim()) {
+    showTip('warning', t('message.contentEmpty'))
+    return
+  }
+  publishing.value = true
+  try {
+    const res = await fetch('/api/admin/messages', {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ title: publishTitle.value.trim(), content: publishContent.value }),
     })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      showTip('info', t('message.published'))
+      publishTitle.value = ''
+      publishContent.value = ''
+      showPublish.value = false
+      fetchMessages()
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
+  } finally {
+    publishing.value = false
   }
-  if (overlay) {
-    animate(overlay, { opacity: [0, 1], duration: 300, ease: 'outQuad' })
+}
+
+// 点击标题行：未读则先发送已读请求，再关闭消息盒并打开详情窗口
+function openDetail(m) {
+  if (isLoggedIn.value && !m.is_read) {
+    fetch(`/api/message/${m.id}/read`, { method: 'POST', headers: authHeaders() })
+      .then((res) => res.json().catch(() => ({})))
+      .then((data) => {
+        if (data && data.success) {
+          m.is_read = true
+          emit('read-changed')
+        }
+      })
+      .catch(() => {})
+  }
+  emit('open-detail', m)
+}
+
+// 仅管理员可删除自己发布的消息
+function canDelete(m) {
+  return isAdmin.value && m.author_uid === authState.user?.uid
+}
+
+async function removeMessage(m) {
+  const res = await fetch(`/api/admin/messages/${m.id}`, {
+    method: 'DELETE',
+    headers: authHeaders(),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (res.ok) {
+    showTip('info', t('message.deleted'))
+    messages.value = messages.value.filter((x) => x.id !== m.id)
+    emit('read-changed') // 若删除的是未读消息，刷新导航栏红点
+  } else {
+    showTip('error', localMessage(data))
+  }
+}
+
+onMounted(() => {
+  // 从详情页返回时不重新播放打开动画（skipOpenAnimation=true）
+  if (!props.skipOpenAnimation) {
+    const box = boxRef.value
+    const overlay = overlayRef.value
+
+    // 打开动画：盒子从消息按钮处弹出到屏幕中央（带弹性）
+    if (box) {
+      const { x, y } = getButtonOrigin()
+      box.style.transformOrigin = `${x}px ${y}px`
+      animate(box, {
+        scale: [0, 1],
+        opacity: [0, 1],
+        duration: 450,
+        ease: 'outCubic'
+      })
+    }
+    if (overlay) {
+      animate(overlay, { opacity: [0, 1], duration: 300, ease: 'outQuad' })
+    }
   }
 
+  fetchMessages()
   document.addEventListener('keydown', handleKeydown)
 })
 
@@ -54,8 +215,14 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
 })
 
+// ESC：优先关闭发布对话框，其次关闭消息盒
 function handleKeydown(event) {
-  if (event.key === 'Escape') close()
+  if (event.key !== 'Escape') return
+  if (showPublish.value) {
+    showPublish.value = false
+  } else {
+    close()
+  }
 }
 
 function close() {
@@ -90,16 +257,85 @@ defineExpose({ close })
       <div class="message-box" ref="boxRef">
         <header class="message-head">
           <h2>{{ t('message.title') }}</h2>
+          <div class="head-actions">
+            <!-- 管理员：发布消息 -->
+            <button v-if="isAdmin" type="button" class="publish-btn" @click="showPublish = true">
+              <Plus :size="16" />
+              <span>{{ t('message.publish') }}</span>
+            </button>
+            <button type="button" class="head-close" :aria-label="t('message.close')" @click="close">
+              <X :size="18" />
+            </button>
+          </div>
         </header>
 
         <div class="message-body">
-          <p v-if="messages.length === 0" class="message-empty">{{ t('message.empty') }}</p>
+          <p v-if="loading" class="message-empty">{{ t('admin.loading') }}</p>
+          <p v-else-if="messages.length === 0" class="message-empty">{{ t('message.empty') }}</p>
           <ul v-else class="message-list">
-            <li v-for="msg in messages" :key="msg.id">{{ msg.content }}</li>
+            <li v-for="m in messages" :key="m.id" class="message-item">
+              <!-- 标题行：点击打开详情窗口 -->
+              <div class="message-head-row" @click="openDetail(m)">
+                <span class="message-title">{{ m.title || t('message.untitled') }}</span>
+                <div class="message-meta">
+                  <span class="message-time">{{ formatTime(m.created_at) }}</span>
+                  <!-- 标为已读：未读可点；已读置灰 -->
+                  <button
+                    v-if="isLoggedIn"
+                    type="button"
+                    class="read-btn"
+                    :class="{ read: m.is_read }"
+                    :title="m.is_read ? t('message.read') : t('message.markRead')"
+                    :aria-label="m.is_read ? t('message.read') : t('message.markRead')"
+                    @click.stop="markRead(m)"
+                  >
+                    <Check :size="15" />
+                  </button>
+                  <button
+                    v-if="canDelete(m)"
+                    type="button"
+                    class="delete-btn"
+                    :title="t('message.delete')"
+                    :aria-label="t('message.delete')"
+                    @click.stop="removeMessage(m)"
+                  >
+                    <Trash2 :size="15" />
+                  </button>
+                </div>
+              </div>
+            </li>
           </ul>
         </div>
       </div>
     </div>
+
+    <!-- 发布消息对话框 -->
+    <Transition name="dialog-fade">
+      <div v-if="showPublish" class="publish-overlay" @click.self="showPublish = false">
+        <div class="publish-dialog">
+          <h3 class="publish-title">{{ t('message.publish') }}</h3>
+          <input
+            v-model="publishTitle"
+            type="text"
+            class="publish-title-input"
+            :placeholder="t('message.titlePlaceholder')"
+          />
+          <textarea
+            v-model="publishContent"
+            class="publish-input"
+            :placeholder="t('message.publishPlaceholder')"
+          ></textarea>
+          <div class="publish-actions">
+            <button type="button" class="btn cancel" :disabled="publishing" @click="showPublish = false">
+              {{ t('admin.cancel') }}
+            </button>
+            <button type="button" class="btn primary" :disabled="publishing" @click="publish">
+              {{ t('message.publish') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -112,6 +348,8 @@ defineExpose({ close })
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
 }
 
 .message-box {
@@ -143,6 +381,51 @@ defineExpose({ close })
   font-size: 20px;
 }
 
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.publish-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 999px;
+  background: #ebaa28;
+  color: #1f2937;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.publish-btn:hover {
+  background: #d99a1f;
+}
+
+.head-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+.head-close:hover {
+  background: var(--btn-hover);
+  color: var(--text-color);
+}
+
 .message-body {
   flex: 1;
   min-height: 0;
@@ -162,12 +445,204 @@ defineExpose({ close })
   padding: 0;
 }
 
-.message-list li {
-  padding: 12px 0;
+.message-item {
+  padding: 14px 0;
   border-bottom: 1px solid rgba(148, 163, 184, 0.15);
 }
 
-.message-list li:last-child {
+.message-item:last-child {
   border-bottom: none;
+}
+
+.message-head-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+  padding: 2px 0;
+  border-radius: 8px;
+  transition: background-color 0.15s ease;
+}
+
+.message-head-row:hover {
+  background: var(--btn-hover);
+}
+
+.message-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.message-time {
+  font-size: 12px;
+  color: var(--links-color);
+}
+
+.delete-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.delete-btn:hover {
+  background: var(--btn-hover);
+  color: #e5484d;
+}
+
+/* 标为已读按钮：未读可点，已读置灰 */
+.read-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.read-btn:hover {
+  background: var(--btn-hover);
+  color: var(--text-color);
+}
+
+.read-btn.read {
+  color: #2e9e5b;
+  cursor: default;
+}
+
+.read-btn.read:hover {
+  background: transparent;
+}
+
+/* 发布消息对话框（独立顶层遮罩，与其它对话框一致） */
+.publish-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  box-sizing: border-box;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+
+.publish-dialog {
+  width: min(520px, 100%);
+  padding: 24px;
+  border-radius: 16px;
+  /* 与消息盒一致的毛玻璃半透明背景 */
+  background: var(--navbar-bg);
+  border: 1px solid rgba(148, 163, 184, 0.15);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+  color: var(--text-color);
+}
+
+.publish-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.publish-title-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-weight: 600;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.publish-title-input:focus {
+  border-color: var(--text-color);
+}
+
+.publish-input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 160px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  line-height: 1.6;
+  resize: vertical;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.publish-input:focus {
+  border-color: var(--text-color);
+}
+
+/* 按钮靠左：取消在前，发布在后 */
+.publish-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.btn.cancel {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--text-color);
+}
+
+.btn.primary {
+  border: none;
+  background: var(--text-color);
+  color: var(--bg-color);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

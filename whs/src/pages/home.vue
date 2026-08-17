@@ -1,19 +1,26 @@
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import RegisterForm from '../components/register.vue'
 
-import defaultBg from '../assets/background.png'
+import { useAuth } from '../composables/useAuth'
 
 const { t } = useI18n()
 
-const bgImage = ref(defaultBg)
+const bgImage = ref('')      // 懒加载：初始为空，图片加载完成后再填充
+const bgLoaded = ref(false)  // 背景是否加载完成（用于淡入）
 
 const email = ref('')
 const showRegister = ref(false)
+
+const { state, fetchMe } = useAuth()
+const isLoggedIn = computed(() => !!state.token)
+const user = computed(() => state.user)
+const username = computed(() => user.value?.username || 'User')
+const fullname = computed(() => user.value?.fullname || '')
 
 function onSignup() {
   showRegister.value = true
@@ -26,13 +33,28 @@ function handleKeydown(event) {
 }
 
 onMounted(() => {
-  // 从现有图片中随机抽取一张作为 hero 背景（每次刷新随机）
-  const modules = import.meta.glob('../assets/wanghai_web/*.png', { eager: true })
-  const wanghaiImages = Object.values(modules).map((m) => m.default)
-  const allImages = [defaultBg, ...wanghaiImages]
-  bgImage.value = allImages[Math.floor(Math.random() * allImages.length)]
+  // 懒加载 hero 背景：随机抽取一张后按需动态导入，不再 eager 一次性解析全部大图
+  const modules = import.meta.glob([
+    '../assets/background.png',
+    '../assets/wanghai_web/*.png'
+  ])
+  const keys = Object.keys(modules)
+  if (keys.length) {
+    const key = keys[Math.floor(Math.random() * keys.length)]
+    modules[key]().then((mod) => {
+      const url = mod.default
+      const img = new Image()
+      img.onload = () => {
+        bgImage.value = url
+        bgLoaded.value = true
+      }
+      img.src = url
+    })
+  }
 
   document.addEventListener('keydown', handleKeydown)
+
+  if (isLoggedIn.value) fetchMe()
 })
 
 onUnmounted(() => {
@@ -43,14 +65,20 @@ onUnmounted(() => {
 <template>
     <Top_navbar />
 
-    <section class="hero" :style="{ backgroundImage: `url(${bgImage})` }">
+    <section class="hero">
+        <div
+          class="hero-bg"
+          :class="{ loaded: bgLoaded }"
+          :style="bgImage ? { backgroundImage: `url(${bgImage})` } : {}"
+        ></div>
         <div class="hero-overlay">
             <h1>{{ t('pages.home.title') }}</h1>
             <p>{{ t('pages.home.description') }}</p>
-            <form class="signup" novalidate @submit.prevent="onSignup">
+            <form v-if="!isLoggedIn" class="signup" novalidate @submit.prevent="onSignup">
                 <input v-model="email" type="email" :placeholder="t('pages.home.email_placeholder')" />
                 <button type="submit">{{ t('pages.home.signup') }}</button>
             </form>
+            <p v-else class="welcome">{{ t('pages.home.welcome', { name: fullname || username }) }}</p>
         </div>
     </section>
 
@@ -74,9 +102,22 @@ onUnmounted(() => {
   position: relative;
   width: 100%;
   min-height: 100vh;
+  background-color: var(--bg-color); /* 图片懒加载完成前的占位底色 */
+}
+
+/* 懒加载背景层：先透明，图片加载完成后淡入 */
+.hero-bg {
+  position: absolute;
+  inset: 0;
   background-size: cover;
   background-repeat: no-repeat;
   background-position: center;
+  opacity: 0;
+  transition: opacity 0.6s ease;
+}
+
+.hero-bg.loaded {
+  opacity: 1;
 }
 
 .hero-overlay {
@@ -148,6 +189,14 @@ onUnmounted(() => {
 
 .signup button:hover {
   background: #d99a1f;
+}
+
+/* 已登录时的欢迎语 */
+.welcome {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: #ffffff;
 }
 
 /* 注册弹窗 */

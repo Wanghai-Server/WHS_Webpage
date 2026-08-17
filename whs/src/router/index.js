@@ -42,6 +42,12 @@ const routes = [
     name: 'JoinUs',
     component: () => import("../pages/joinus.vue"),
     meta: { titleKey: 'pageTitle.joinus'}
+  },
+  {
+    path: '/joinus/exam',
+    name: 'Exam',
+    component: () => import("../pages/exam.vue"),
+    meta: { titleKey: 'pageTitle.joinus'}
   }
 ]
 
