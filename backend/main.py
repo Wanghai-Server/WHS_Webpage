@@ -1398,6 +1398,24 @@ def exam_reset(user: dict | None = Depends(get_current_user)):
     return {"success": True}
 
 
+def _apply_exam_pass(uid: int) -> str | None:
+    """及格处理：注入 player_name + 权限升级（仅 <2 时）+ 标记 passed。
+    成功返回 None；失败返回错误码（exam_profile_incomplete / player_name_exists）。"""
+    profile = exam_db.get_profile(uid) or {}
+    pname = (profile.get("player_name") or "").strip()
+    if not pname:
+        return "exam_profile_incomplete"
+    own = (user_info_db.get_user_info(uid) or {}).get("player_name")
+    if pname != own and user_info_db.player_name_exists(pname):
+        return "player_name_exists"
+    user_info_db.set_player_name(uid, pname)
+    current_permission = user_db.get_user(uid=uid).get("permission") or 0
+    if current_permission < 2:
+        user_db.set_permission(uid, 2)
+    exam_db.mark_passed(uid)
+    return None
+
+
 @app.post("/api/exam/finish")
 def exam_finish(user: dict | None = Depends(get_current_user)):
     """完成答卷：判分汇总、次数 +1；及格则注入 player_name 并升级为 player(2)。"""
@@ -1417,20 +1435,9 @@ def exam_finish(user: dict | None = Depends(get_current_user)):
     obtained = sum(rec.get("obtained_score", 0) for rec in answers.values())
     passed = obtained >= total * 0.6
     if passed:
-        profile = exam_db.get_profile(user["uid"]) or {}
-        pname = (profile.get("player_name") or "").strip()
-        if not pname:
-            return _error_response("exam_profile_incomplete", 400)
-        # 游戏名占用检查（排除自己已持有的）
-        own = (user_info_db.get_user_info(user["uid"]) or {}).get("player_name")
-        if pname != own and user_info_db.player_name_exists(pname):
-            return _error_response("player_name_exists", 409)
-        user_info_db.set_player_name(user["uid"], pname)
-        # 仅当当前权限低于 player(2) 时才升级；管理员等高权限用户保持不变（防止被降级）
-        current_permission = user_db.get_user(uid=user["uid"]).get("permission") or 0
-        if current_permission < 2:
-            user_db.set_permission(user["uid"], 2)
-        exam_db.mark_passed(user["uid"])
+        err = _apply_exam_pass(user["uid"])
+        if err:
+            return _error_response(err, ERROR_STATUS.get(err, 400))
 
     attempts = exam_db.increment_attempts(user["uid"])
     return {
@@ -1578,17 +1585,26 @@ def admin_exam_score(payload: dict = Body(...), user: dict | None = Depends(get_
     if exam_db.get_answer(uid, question_id) is None:
         return _error_response("exam_answers_not_found", 404)
     exam_db.set_score(uid, question_id, int(score))
-    return {"success": True, "obtained_score": int(score)}
+    # 改分后重新汇总总分并判定及格状态（达标且未通过则应用及格处理）
+    records = exam_db.get_answers(uid)
+    obtained_total = sum(r.get("obtained_score", 0) for r in records.values())
+    passed_now = obtained_total >= cfg["total_score"] * 0.6
+    passed_flag = bool((exam_db.get_profile(uid) or {}).get("passed"))
+    if passed_now and not passed_flag:
+        err = _apply_exam_pass(uid)
+        if err:
+            return _error_response(err, ERROR_STATUS.get(err, 400))
+    return {"success": True, "obtained_score": int(score), "passed": passed_now}
 
 
 @app.delete("/api/admin/exam/answers/{uid}")
 def admin_exam_delete_answers(uid: int, user: dict | None = Depends(get_current_user)):
-    """删除某考生答卷（清空答题记录；次数限制保留）。"""
+    """删除某考生答卷（重置：清空答题记录、次数与及格标记，允许重新作答）。"""
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
         return _error_response("permission_denied", 403)
-    exam_db.delete_answers(uid)
+    exam_db.reset_candidate(uid)
     return {"success": True}
 
 

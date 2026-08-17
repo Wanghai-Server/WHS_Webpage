@@ -129,7 +129,7 @@ async function saveReviewScore() {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     showTip('info', t('exam.scoreSaved'))
-    emit('score-saved', { question_id: props.question.id, score })
+    emit('score-saved', { question_id: props.question.id, score, passed: data.passed })
   } else {
     showTip('error', localMessage(data))
   }

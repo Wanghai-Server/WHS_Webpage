@@ -213,7 +213,7 @@ onUnmounted(() => {
       </div>
 
       <button type="submit" class="submit" :disabled="loading">
-        {{ t('auth.login_register') }}
+        {{ t('auth.login') }}
       </button>
     </form>
 

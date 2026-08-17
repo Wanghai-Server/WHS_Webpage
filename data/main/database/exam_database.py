@@ -146,6 +146,17 @@ class ExamDatabase(UserDatabase):
         self._conn.commit()
         return cursor.rowcount > 0
 
+    def reset_candidate(self, uid: int) -> None:
+        """重置考生：清空答题记录，并清零完成次数与及格标记（允许重新答题）。"""
+        self.delete_answers(uid)
+        profile = self.get_profile(uid)
+        if profile is not None:
+            self._conn.execute(
+                "UPDATE exam_profiles SET attempts = 0, passed = 0, updated_at = ? WHERE uid = ?",
+                (datetime.datetime.now().isoformat(timespec="seconds"), uid),
+            )
+            self._conn.commit()
+
     def set_score(self, uid: int, question_id: int, score: int) -> None:
         """仅更新某题实际得分（管理员改分用，不触碰答案/附件）。"""
         self._conn.execute(

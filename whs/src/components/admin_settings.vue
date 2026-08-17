@@ -275,14 +275,17 @@ const sheetQuestionIds = computed(() => {
     .sort((a, b) => a - b)
 })
 
-function onSheetScoreSaved() {
-  // 刷新总分
+function onSheetScoreSaved(payload) {
+  // 刷新总分与通过状态
   if (!sheet.value) return
   const answered = sheet.value.answers
   sheet.value.obtained_score = sheetQuestionIds.value.reduce(
     (sum, qid) => sum + (answered[qid].obtained_score || 0),
     0
   )
+  if (payload && typeof payload.passed === 'boolean') {
+    sheet.value.profile = { ...(sheet.value.profile || {}), passed: payload.passed }
+  }
 }
 
 // ESC：依次关闭答题卡 / 考试管理 / 用户管理
@@ -499,7 +502,10 @@ onUnmounted(() => {
               <div v-if="sheetLoading" class="table-empty">{{ t('admin.loading') }}</div>
               <template v-else-if="sheet">
                 <div class="sheet-meta">
-                  <span>{{ t('admin.examTotalScore', { obtained: sheet.obtained_score, total: sheet.total_score }) }}</span>
+                  <span class="meta-left">
+                    {{ t('admin.examTotalScore', { obtained: sheet.obtained_score, total: sheet.total_score }) }}
+                    <span v-if="sheet.profile && sheet.profile.passed" class="sheet-passed">{{ t('admin.examPassed') }}</span>
+                  </span>
                   <span v-if="sheet.profile" class="sheet-profile">
                     {{ sheet.profile.player_name || '' }} · {{ sheet.profile.qq_name || '' }} · {{ sheet.profile.qq_number || '' }}
                   </span>
@@ -857,6 +863,21 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-color);
+}
+
+.meta-left {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.sheet-passed {
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(46, 158, 91, 0.15);
+  color: #2e9e5b;
 }
 
 .sheet-profile {
