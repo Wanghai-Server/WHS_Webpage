@@ -589,7 +589,6 @@ async def register(payload: dict = Body(...)):
     username = (payload.get("username") or "").strip()
     code = (payload.get("code") or "").strip()
     password = payload.get("password") or ""
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
 
     if not EMAIL_RE.fullmatch(email):
         return _error_response("email_invalid", 400)
@@ -597,8 +596,7 @@ async def register(payload: dict = Body(...)):
         return _error_response("username_invalid", 400)
     if not re.fullmatch(r"[0-9a-f]{64}", password):
         return _error_response("password_invalid", 400)
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
+    # 注册必须填写邮箱验证码（发码时已通过人机验证），提交时不再重复验证
     rec = VERIFY_CODES.get(email)
     if not rec or rec["exp"] < time.time() or rec["code"] != code:
         return _error_response("code_invalid", 400)
@@ -613,10 +611,8 @@ async def register(payload: dict = Body(...)):
 
 @app.post("/api/user/login")
 async def login(payload: dict = Body(...)):
-    """登录：账密模式（identifier + password）或邮箱验证码模式（email + code）。"""
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
+    """登录：账密模式（identifier + password）或邮箱验证码模式（email + code）。
+    仅账密模式（不填邮箱验证码）在提交时校验人机验证；验证码模式发码时已验过，不重复验证。"""
     identifier = (payload.get("identifier") or "").strip()
     password = payload.get("password")
     code = payload.get("code")
@@ -639,7 +635,10 @@ async def login(payload: dict = Body(...)):
             return _error_response("code_invalid", 400)
         VERIFY_CODES.pop(identifier, None)
     elif password is not None:
-        # 账密模式：email / UID / username
+        # 账密模式：email / UID / username（不填验证码，提交时校验人机验证）
+        hcaptcha_response = payload.get("hcaptcha_response") or ""
+        if not await _verify_hcaptcha(hcaptcha_response):
+            return _error_response("captcha_invalid", 400)
         user = _find_by_identifier(identifier)
         if user is None:
             return _error_response("user_not_found", 404)
@@ -858,9 +857,6 @@ async def change_email(uid: int, payload: dict = Body(...), user: dict | None = 
     target = user_db.get_user(uid=uid)
     if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
     email = (payload.get("email") or "").strip()
     code = (payload.get("code") or "").strip()
     if not EMAIL_RE.fullmatch(email):
@@ -883,13 +879,10 @@ async def password_reset_verify(payload: dict = Body(...)):
     """忘记密码第一页：验证 邮箱 + 邮箱验证码 + 人机验证（不消费验证码，第二页提交时消费）。"""
     email = (payload.get("email") or "").strip()
     code = (payload.get("code") or "").strip()
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
     if not EMAIL_RE.fullmatch(email):
         return _error_response("email_invalid", 400)
     if user_db.get_user(email=email) is None:
         return _error_response("user_not_found", 404)
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
     rec = VERIFY_CODES.get(email)
     if not rec or rec["exp"] < time.time() or rec["code"] != code:
         return _error_response("code_invalid", 400)
@@ -930,9 +923,6 @@ async def verify_password_change(uid: int, payload: dict = Body(...), user: dict
     target = user_db.get_user(uid=uid)
     if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
     code = (payload.get("code") or "").strip()
     old_hash = payload.get("old_password") or ""
     # 验证码发送到用户当前邮箱（前端不展示邮箱，后端取本人邮箱校验）
@@ -976,9 +966,6 @@ async def cancel_account(uid: int, payload: dict = Body(...), user: dict | None 
     target = user_db.get_user(uid=uid)
     if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
     code = (payload.get("code") or "").strip()
     old_hash = payload.get("old_password") or ""
     email = target["email"]
