@@ -13,7 +13,7 @@ const props = defineProps({
 const emit = defineEmits(['close', 'done'])
 
 const { t, locale } = useI18n()
-const { state: authState } = useAuth()
+const { state: authState, fetchMe } = useAuth()
 const { showTip } = useTips()
 const hcaptchaSiteKey = useHcaptchaSiteKey()
 
@@ -153,6 +153,7 @@ async function changePassword() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.passwordSaved'))
+      fetchMe() // 密码变更：刷新公共用户数据
       // 先播放离开动画，动画结束后再通知父组件卸载
       visible.value = false
       setTimeout(() => emit('done'), CLOSE_MS)

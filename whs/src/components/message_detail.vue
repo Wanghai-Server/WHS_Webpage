@@ -84,6 +84,9 @@ onUnmounted(() => {
 
           <div class="detail-meta">
             <span>{{ t('message.publishedAt') }}: {{ formatTime(props.message.created_at) }}</span>
+            <span v-if="props.message.updated_at" class="updated-meta">
+              {{ t('message.updatedAt') }}: {{ formatTime(props.message.updated_at) }}
+            </span>
           </div>
 
           <div class="detail-body">
@@ -189,10 +192,17 @@ onUnmounted(() => {
 }
 
 .detail-meta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
   padding: 10px 20px;
   font-size: 12px;
   color: var(--links-color);
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+}
+
+.updated-meta {
+  opacity: 0.85;
 }
 
 .detail-body {

@@ -25,6 +25,7 @@ MESSAGE_TABLE_COLUMNS: dict[str, str] = {
     "author_uid": "INTEGER NOT NULL",  # 发布者 uid
     "read_uids": "TEXT",               # JSON 数组：已读该消息的用户 uid 列表
     "created_at": "TEXT NOT NULL",     # ISO 8601 时间字符串
+    "updated_at": "TEXT",              # 最近编辑时间（ISO 8601），从未编辑为 NULL
 }
 
 
@@ -92,6 +93,23 @@ class MessageDatabase(UserDatabase):
         """按 id 删除消息，返回是否真的删除了。"""
         cursor = self._conn.execute(
             f"DELETE FROM {self.TABLE_NAME} WHERE id = ?", (message_id,)
+        )
+        self._conn.commit()
+        return cursor.rowcount > 0
+
+    def update_message(self, message_id: int, title: str, content: str) -> bool:
+        """更新消息的标题与内容，并记录编辑时间；返回是否真的更新了。
+
+        编辑会清空 ``read_uids``（置 NULL）：消息内容已变更，
+        所有用户（含发布者本人）都需要重新阅读。
+        """
+        if self.get_message(message_id) is None:
+            return False
+        updated_at = datetime.datetime.now().isoformat(timespec="seconds")
+        cursor = self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET title = ?, content = ?, updated_at = ?, "
+            f"read_uids = NULL WHERE id = ?",
+            (title, content, updated_at, message_id),
         )
         self._conn.commit()
         return cursor.rowcount > 0

@@ -9,7 +9,7 @@ import re
 import sqlite3
 from typing import Any
 
-from .basic_database import BasicDatabase
+from .basic_database import BasicDatabase, _LockedConnection
 
 # 用户名仅允许：英文字母、数字、下划线，且至少一个字符。
 USERNAME_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
@@ -147,17 +147,27 @@ class UserDatabase(BasicDatabase):
 
     def __init__(self, database_path: str = "basic_user_data.db") -> None:
         super().__init__(database_path)
-        self._connection: sqlite3.Connection | None = None
+        self._connection: _LockedConnection | None = None
 
     # ------------------------------------------------------------------
     # 生命周期
     # ------------------------------------------------------------------
 
     def connect(self) -> None:
-        """打开数据库并确保 ``users`` 表存在。"""
+        """打开数据库并确保 ``users`` 表存在。
+
+        连接以 ``_LockedConnection`` 包装并禁用语句缓存
+        （``cached_statements=0``），使其可被 FastAPI 线程池中的多个线程
+        安全地并发访问（否则会出现 ``sqlite3.InterfaceError``）。
+        """
         super().connect()
-        self._connection = sqlite3.connect(self.database_path, check_same_thread=False)
-        self._connection.row_factory = sqlite3.Row
+        raw = sqlite3.connect(
+            self.database_path,
+            check_same_thread=False,
+            cached_statements=0,
+        )
+        raw.row_factory = sqlite3.Row
+        self._connection = _LockedConnection(raw, self._lock)
         self.create_table(self.TABLE_NAME, self.TABLE_COLUMNS, if_not_exists=True)
         self._migrate()
 
@@ -188,8 +198,8 @@ class UserDatabase(BasicDatabase):
     # ------------------------------------------------------------------
 
     @property
-    def _conn(self) -> sqlite3.Connection:
-        """返回当前连接；未连接时抛出异常。"""
+    def _conn(self) -> _LockedConnection:
+        """返回线程安全包装后的连接；未连接时抛出异常。"""
         if self._connection is None or not self._connected:
             raise RuntimeError("数据库尚未连接，请先调用 connect()")
         return self._connection

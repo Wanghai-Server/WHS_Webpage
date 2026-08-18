@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import Top_navbar from '../components/top_navbar.vue'
@@ -9,6 +10,7 @@ import RegisterForm from '../components/register.vue'
 import { useAuth } from '../composables/useAuth'
 
 const { t } = useI18n()
+const router = useRouter()
 
 const bgImage = ref('')      // 懒加载：初始为空，图片加载完成后再填充
 const bgLoaded = ref(false)  // 背景是否加载完成（用于淡入）
@@ -16,11 +18,19 @@ const bgLoaded = ref(false)  // 背景是否加载完成（用于淡入）
 const email = ref('')
 const showRegister = ref(false)
 
-const { state, fetchMe } = useAuth()
+const { state } = useAuth()
 const isLoggedIn = computed(() => !!state.token)
 const user = computed(() => state.user)
 const username = computed(() => user.value?.username || 'User')
 const fullname = computed(() => user.value?.fullname || '')
+
+// 正式成员判定：权限等级 >= 2（player）即视为已完成入服考试、成为正式成员。
+// 登录响应与 /api/user/me 均返回 permission 字段，无需额外请求即可判断。
+const isMember = computed(() => (user.value?.permission ?? 0) >= 2)
+
+function goExam() {
+  router.push('/joinus/exam')
+}
 
 function onSignup() {
   showRegister.value = true
@@ -53,8 +63,6 @@ onMounted(() => {
   }
 
   document.addEventListener('keydown', handleKeydown)
-
-  if (isLoggedIn.value) fetchMe()
 })
 
 onUnmounted(() => {
@@ -78,6 +86,9 @@ onUnmounted(() => {
                 <input v-model="email" type="email" :placeholder="t('pages.home.email_placeholder')" />
                 <button type="submit">{{ t('pages.home.signup') }}</button>
             </form>
+            <button v-else-if="!isMember" type="button" class="member-cta" @click="goExam">
+                {{ t('pages.home.become_member') }}
+            </button>
             <p v-else class="welcome">{{ t('pages.home.welcome', { name: fullname || username }) }}</p>
         </div>
     </section>
@@ -188,6 +199,30 @@ onUnmounted(() => {
 }
 
 .signup button:hover {
+  background: #d99a1f;
+}
+
+/* 已登录但未成为正式成员：引导参加入服考试。
+   与上方"输入框 + 注册按钮"组合等宽（.signup 为 max-width: 480px 的 flex） */
+.member-cta {
+  display: block;
+  width: 100%;
+  max-width: 480px;
+  padding: 14px 28px;
+  border: none;
+  border-radius: 999px;
+  background: #ebaa28;
+  color: #1f2937;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.2s ease;
+}
+
+.member-cta:hover {
   background: #d99a1f;
 }
 

@@ -13,7 +13,7 @@ const emit = defineEmits(['switch-register'])
 
 const { t, locale } = useI18n()
 const router = useRouter()
-const { setAuth } = useAuth()
+const { setAuth, fetchMe } = useAuth()
 const { showTip } = useTips()
 
 // 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)
@@ -90,6 +90,7 @@ async function submit() {
 
     if (res.ok) {
       setAuth(data.token, data.user)
+      fetchMe() // 登录成功：刷新公共用户数据（操作变更后统一重新拉取）
       router.push(`/user/${data.user.uid}`)
       return
     }

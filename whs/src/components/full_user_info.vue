@@ -13,7 +13,7 @@ const emit = defineEmits(['done'])
 
 const { t, locale } = useI18n()
 const router = useRouter()
-const { state: authState } = useAuth()
+const { state: authState, fetchMe } = useAuth()
 const { showTip } = useTips()
 
 const gender = ref(null) // 'male' | 'female' | null
@@ -98,6 +98,7 @@ async function submit() {
       showTip('error', localMessage(data))
       return
     }
+    fetchMe() // 注册资料完善：刷新公共用户数据（昵称/头像/性别/生日已更新）
     emit('done')
     router.push('/joinus')
   } catch (e) {

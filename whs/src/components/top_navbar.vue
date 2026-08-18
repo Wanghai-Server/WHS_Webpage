@@ -16,14 +16,14 @@ const props = defineProps({
 
 const { t } = useI18n()
 const router = useRouter()
-const { state: authState, fetchMe } = useAuth()
+const { state: authState } = useAuth()
 
 // 登录态与头像
 const isLoggedIn = computed(() => !!authState.token)
 const avatarSrc = computed(() => (authState.user && authState.user.avatar ? `/api/user/${authState.user.uid}/avatar` : ''))
 const userLink = computed(() => (authState.user ? `/user/${authState.user.uid}` : '/login'))
 
-// 导航链接：默认 /news + /about，可被 navRoutes 覆盖。
+// 导航链接：默认 /forum + /wiki + /about，可被 navRoutes 覆盖。
 // navRoutes 值支持两种：字符串（路由，标签用 i18n key）或 {label, route} 对象（route 可为空字符串=纯文本）。
 const links = computed(() => {
   if (props.navRoutes) {
@@ -35,7 +35,8 @@ const links = computed(() => {
     })
   }
   return [
-    { key: 'nav.news', label: t('nav.news'), route: '/news' },
+    { key: 'nav.forum', label: t('nav.forum'), route: '/forum' },
+    { key: 'nav.wiki', label: t('nav.wiki'), route: '/wiki' },
     { key: 'nav.about', label: t('nav.about'), route: '/about' },
   ]
 })
@@ -293,7 +294,6 @@ function playEntranceAnimation() {
 }
 
 onMounted(() => {
-  if (isLoggedIn.value) fetchMe()
   fetchUnreadCount()
   handleScroll() // 初始化滚动状态与登录按钮状态（不播放动画）
   ready = true

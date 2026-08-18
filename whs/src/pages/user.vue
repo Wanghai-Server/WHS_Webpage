@@ -14,7 +14,7 @@ import { useTips } from '../composables/useTips'
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
-const { state: authState, fetchMe } = useAuth()
+const { state: authState } = useAuth()
 const { showTip } = useTips()
 
 const user = ref(null)
@@ -26,15 +26,17 @@ const uid = computed(() => Number(route.params.uid))
 
 const isSelf = computed(() => !!user.value?.is_self)
 const isAdmin = computed(() => (user.value?.permission ?? 0) >= 3)
+// 当前登录用户是否为管理员（管理员可代管他人设置页）
+const viewerIsAdmin = computed(() => (authState.user?.permission ?? 0) >= 3)
 
-// 标签：profile 恒有；settings 仅本人；admin settings 仅本人且为管理员
+// 标签：profile 恒有；settings 仅本人或管理员代管；admin settings 仅本人且为管理员
 const tabs = computed(() => {
   const list = [{ key: 'profile', label: t('user.tabProfile') }]
-  if (isSelf.value) {
+  if (isSelf.value || viewerIsAdmin.value) {
     list.push({ key: 'settings', label: t('user.tabSettings') })
-    if (isAdmin.value) {
-      list.push({ key: 'admin', label: t('user.tabAdmin') })
-    }
+  }
+  if (isSelf.value && isAdmin.value) {
+    list.push({ key: 'admin', label: t('user.tabAdmin') })
   }
   return list
 })
@@ -54,8 +56,6 @@ async function fetchUser() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       user.value = data
-      // 浏览自己时同步全局登录态（导航栏头像/用户名）
-      if (data.is_self && authState.token) fetchMe()
       // 根据 URL query 校正标签（?tab=profile|settings|admin）
       applyTabFromQuery()
     } else {
@@ -71,10 +71,10 @@ async function fetchUser() {
   }
 }
 
-// 标签合法性：settings 仅本人；admin 仅本人且为管理员；否则回退 profile
+// 标签合法性：settings 仅本人或管理员代管；admin 仅本人且为管理员；否则回退 profile
 function resolveTab(tab) {
   const t = String(tab || 'profile')
-  if (t === 'settings') return isSelf.value ? 'settings' : 'profile'
+  if (t === 'settings') return isSelf.value || viewerIsAdmin.value ? 'settings' : 'profile'
   if (t === 'admin') {
     if (!isSelf.value) return 'profile'
     return isAdmin.value ? 'admin' : 'settings'

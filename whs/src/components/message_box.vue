@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { animate } from 'animejs'
-import { Plus, Trash2, X, Check } from 'lucide-vue-next'
+import { Plus, Trash2, X, Check, Pencil } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 
@@ -23,6 +23,8 @@ const isLoggedIn = computed(() => !!authState.token)
 
 // 发布消息对话框
 const showPublish = ref(false)
+// 正在编辑的消息对象（非 null 表示处于编辑模式，复用发布对话框）
+const editingMessage = ref(null)
 const publishTitle = ref('')
 const publishContent = ref('')
 const publishing = ref(false)
@@ -126,6 +128,38 @@ async function publish() {
   }
   publishing.value = true
   try {
+    // 编辑模式：PUT 更新自己发布的系统消息
+    if (editingMessage.value) {
+      const target = editingMessage.value
+      const res = await fetch(`/api/admin/messages/${target.id}`, {
+        method: 'PUT',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          title: publishTitle.value.trim(),
+          content: publishContent.value,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        showTip('info', t('message.updated'))
+        const updated = data.message
+        if (updated) {
+          const idx = messages.value.findIndex((x) => x.id === updated.id)
+          if (idx >= 0) {
+            // 编辑后所有人需重读：就地更新内容并重置为未读
+            messages.value[idx] = { ...messages.value[idx], ...updated, is_read: false }
+            messages.value.sort((a, b) => Number(a.is_read ?? 0) - Number(b.is_read ?? 0))
+          }
+        }
+        emit('read-changed') // 刷新导航栏未读红点
+        closeDialog()
+      } else {
+        showTip('error', localMessage(data))
+      }
+      return
+    }
+
+    // 发布模式：POST 新建系统消息
     const res = await fetch('/api/admin/messages', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
@@ -149,6 +183,21 @@ async function publish() {
   }
 }
 
+// 打开编辑对话框：预填当前标题与内容
+function startEdit(m) {
+  editingMessage.value = m
+  publishTitle.value = m.title || ''
+  publishContent.value = m.content || ''
+}
+
+// 关闭发布/编辑对话框并清空表单
+function closeDialog() {
+  showPublish.value = false
+  editingMessage.value = null
+  publishTitle.value = ''
+  publishContent.value = ''
+}
+
 // 点击标题行：未读则先发送已读请求，再关闭消息盒并打开详情窗口
 function openDetail(m) {
   if (isLoggedIn.value && !m.is_read) {
@@ -165,9 +214,13 @@ function openDetail(m) {
   emit('open-detail', m)
 }
 
-// 仅管理员可删除自己发布的消息
+// 仅管理员可编辑/删除自己发布的消息
 function canDelete(m) {
   return isAdmin.value && m.author_uid === authState.user?.uid
+}
+
+function canEdit(m) {
+  return canDelete(m)
 }
 
 async function removeMessage(m) {
@@ -215,11 +268,11 @@ onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
 })
 
-// ESC：优先关闭发布对话框，其次关闭消息盒
+// ESC：优先关闭发布/编辑对话框，其次关闭消息盒
 function handleKeydown(event) {
   if (event.key !== 'Escape') return
-  if (showPublish.value) {
-    showPublish.value = false
+  if (showPublish.value || editingMessage.value) {
+    closeDialog()
   } else {
     close()
   }
@@ -279,6 +332,8 @@ defineExpose({ close })
                 <span class="message-title">{{ m.title || t('message.untitled') }}</span>
                 <div class="message-meta">
                   <span class="message-time">{{ formatTime(m.created_at) }}</span>
+                  <!-- 已编辑标记 -->
+                  <span v-if="m.updated_at" class="edited-tag">{{ t('message.edited') }}</span>
                   <!-- 标为已读：未读可点；已读置灰 -->
                   <button
                     v-if="isLoggedIn"
@@ -290,6 +345,16 @@ defineExpose({ close })
                     @click.stop="markRead(m)"
                   >
                     <Check :size="15" />
+                  </button>
+                  <button
+                    v-if="canEdit(m)"
+                    type="button"
+                    class="edit-btn"
+                    :title="t('message.edit')"
+                    :aria-label="t('message.edit')"
+                    @click.stop="startEdit(m)"
+                  >
+                    <Pencil :size="15" />
                   </button>
                   <button
                     v-if="canDelete(m)"
@@ -309,11 +374,17 @@ defineExpose({ close })
       </div>
     </div>
 
-    <!-- 发布消息对话框 -->
+    <!-- 发布/编辑消息对话框 -->
     <Transition name="dialog-fade">
-      <div v-if="showPublish" class="publish-overlay" @click.self="showPublish = false">
+      <div
+        v-if="showPublish || editingMessage"
+        class="publish-overlay"
+        @click.self="closeDialog"
+      >
         <div class="publish-dialog">
-          <h3 class="publish-title">{{ t('message.publish') }}</h3>
+          <h3 class="publish-title">
+            {{ editingMessage ? t('message.editTitle') : t('message.publish') }}
+          </h3>
           <input
             v-model="publishTitle"
             type="text"
@@ -326,11 +397,11 @@ defineExpose({ close })
             :placeholder="t('message.publishPlaceholder')"
           ></textarea>
           <div class="publish-actions">
-            <button type="button" class="btn cancel" :disabled="publishing" @click="showPublish = false">
+            <button type="button" class="btn cancel" :disabled="publishing" @click="closeDialog">
               {{ t('admin.cancel') }}
             </button>
             <button type="button" class="btn primary" :disabled="publishing" @click="publish">
-              {{ t('message.publish') }}
+              {{ editingMessage ? t('message.save') : t('message.publish') }}
             </button>
           </div>
         </div>
@@ -489,6 +560,35 @@ defineExpose({ close })
 .message-time {
   font-size: 12px;
   color: var(--links-color);
+}
+
+/* 已编辑标记 */
+.edited-tag {
+  font-size: 11px;
+  color: var(--links-color);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  padding: 1px 6px;
+  border-radius: 999px;
+  opacity: 0.85;
+}
+
+.edit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.edit-btn:hover {
+  background: var(--btn-hover);
+  color: var(--text-color);
 }
 
 .delete-btn {

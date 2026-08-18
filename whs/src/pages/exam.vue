@@ -2,21 +2,33 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import MarkdownIt from 'markdown-it'
+import { FileText } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import ExamQuestion from '../components/exam_question.vue'
+import DocViewer from '../components/doc_viewer.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
-const { state: authState } = useAuth()
+const { state: authState, fetchMe } = useAuth()
 const { showTip } = useTips()
 
-// 阶段：profile（个人信息）-> answering（答题）-> done（完成）
-const stage = ref('profile')
+// Markdown 渲染（试卷说明 tips；html: false 防 XSS）
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+function renderTips(content) {
+  return md.render(content || '')
+}
+
+// 阶段：notice（试卷说明）-> profile（个人信息）-> answering（答题）-> done（完成）
+const stage = ref('notice')
 const loading = ref(true)
+
+// 试卷说明文档悬浮窗
+const showDocViewer = ref(false)
 
 // 个人信息
 const profile = ref({ player_name: '', qq_name: '', qq_number: '', attempts: 0, passed: false, can_answer: true })
@@ -25,11 +37,17 @@ const qqName = ref('')
 const qqNumber = ref('')
 let profileTimer = null
 
+// 重审申请（防连点）：本答卷周期内只允许申请一次；重做（新答卷周期）后重置
+const reviewRequested = ref(false)
+const reviewing = ref(false)
+
 // 考试数据
 const examConfig = ref(null)   // {total_score, questions}
 const progress = ref(null)     // {answered, answered_count, all_answered}
 // 每题答案（本地维护，回显 + 组件 v-model 双向绑定）
 const answers = ref({})
+// 每题已上传附件文件名（从服务器进度回显，供重新进入题目时展示）
+const attachments = ref({})
 
 const questionIds = computed(() => (examConfig.value ? examConfig.value.questions.map((q) => q.id) : []))
 const currentId = ref(null)
@@ -65,9 +83,10 @@ async function fetchProgress() {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     progress.value = data
-    // 用已答内容回显每题答案
+    // 用已答内容回显每题答案与附件
     for (const [qid, rec] of Object.entries(data.answered || {})) {
       answers.value[qid] = rec.answer
+      attachments.value[qid] = rec.attachment || ''
     }
   }
   return data
@@ -86,16 +105,18 @@ async function fetchAll() {
     playerName.value = data.player_name || ''
     qqName.value = data.qq_name || ''
     qqNumber.value = data.qq_number || ''
+    // 从后端同步本答卷周期的重审申请状态（刷新页面后仍保持禁用）
+    reviewRequested.value = !!data.review_requested
     await fetchExam()
     await fetchProgress()
     if (examConfig.value && questionIds.value.length) {
       currentId.value = Number(route.query.question) || questionIds.value[0]
     }
-    // 已通过 / 次数用完 -> 直接完成页
+    // 已通过 / 次数用完 -> 直接完成页；否则先看试卷说明
     if (profile.value.passed || (!profile.value.can_answer && profile.value.attempts >= 2)) {
       stage.value = 'done'
     } else {
-      stage.value = 'profile'
+      stage.value = 'notice'
     }
   } finally {
     loading.value = false
@@ -158,6 +179,9 @@ async function finishExam() {
     profile.value.passed = data.passed
     profile.value.can_answer = data.can_answer
     stage.value = 'done'
+    // 交卷（及格后权限升级为 player=2）：刷新公共用户数据，
+    // 使首页等处的"正式成员"判断立即生效
+    fetchMe()
   } else {
     showTip('error', localMessage(data))
   }
@@ -174,6 +198,8 @@ async function retake() {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     answers.value = {}
+    attachments.value = {}
+    reviewRequested.value = false // 新答卷周期：允许再申请一次重审
     await fetchProgress()
     currentId.value = questionIds.value[0]
     router.replace('/joinus/exam?question=' + questionIds.value[0])
@@ -185,12 +211,20 @@ async function retake() {
 }
 
 async function requestReview() {
-  const res = await fetch('/api/exam/review', { method: 'POST', headers: authHeaders() })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    showTip('info', t('exam.reviewSent'))
-  } else {
-    showTip('error', localMessage(data))
+  // 防连点：本答卷周期已申请过 / 请求进行中时忽略重复点击
+  if (reviewRequested.value || reviewing.value) return
+  reviewing.value = true
+  try {
+    const res = await fetch('/api/exam/review', { method: 'POST', headers: authHeaders() })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      reviewRequested.value = true
+      showTip('info', t('exam.reviewSent'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    reviewing.value = false
   }
 }
 
@@ -219,6 +253,33 @@ onUnmounted(() => {
 
   <main class="exam-page">
     <div v-if="loading" class="placeholder">{{ t('admin.loading') }}</div>
+
+    <!-- 试卷说明（看完后才能填写个人信息并开始答题） -->
+    <template v-else-if="stage === 'notice'">
+      <section class="exam-card load-in">
+        <h1 class="exam-title">{{ t('exam.noticeTitle') }}</h1>
+        <div v-if="examConfig?.tips" class="notice-content" v-html="renderTips(examConfig.tips)"></div>
+        <p v-else class="notice-empty">{{ t('exam.noticeEmpty') }}</p>
+        <button
+          v-if="examConfig?.tips_doc"
+          type="button"
+          class="doc-view-btn"
+          @click="showDocViewer = true"
+        >
+          <FileText :size="16" /> {{ t('exam.docView') }}
+        </button>
+        <button type="button" class="start-btn" @click="stage = 'profile'">
+          {{ t('exam.noticeNext') }}
+        </button>
+      </section>
+
+      <!-- 试卷文档悬浮窗 -->
+      <DocViewer
+        v-if="showDocViewer"
+        :url="examConfig.tips_doc"
+        @close="showDocViewer = false"
+      />
+    </template>
 
     <!-- 个人信息 -->
     <template v-else-if="stage === 'profile'">
@@ -254,6 +315,7 @@ onUnmounted(() => {
         :key="currentId"
         :question="currentQuestion"
         :model-value="currentAnswer"
+        :attachment="attachments[currentId] || ''"
         :mode="'answer'"
         @update:model-value="(v) => { answers[currentId] = v }"
         @saved="onAnswerSaved"
@@ -272,16 +334,17 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <div v-if="!profile.passed && profile.attempts < 2" class="done-actions">
-          <button type="button" class="btn retake" @click="retake">{{ t('exam.retake') }}</button>
+        <!-- 仅不及格时显示操作区；及格后成绩单只展示成绩 -->
+        <div v-if="!profile.passed" class="done-actions">
+          <button v-if="profile.attempts < 2" type="button" class="btn retake" @click="retake">{{ t('exam.retake') }}</button>
+          <button
+            type="button"
+            class="btn review"
+            :disabled="reviewRequested || reviewing"
+            @click="requestReview"
+          >{{ reviewRequested ? t('exam.reviewRequested') : t('exam.reviewRequest') }}</button>
         </div>
-        <p v-else-if="!profile.passed" class="exhausted-hint">{{ t('exam.exhausted') }}</p>
-
-        <div class="done-actions">
-          <button type="button" class="btn review" @click="requestReview">{{ t('exam.reviewRequest') }}</button>
-        </div>
-
-        <RouterLink to="/joinus" class="back-link">{{ t('nav.back') }}</RouterLink>
+        <p v-if="!profile.passed && profile.attempts >= 2" class="exhausted-hint">{{ t('exam.exhausted') }}</p>
       </section>
     </template>
   </main>
@@ -318,6 +381,89 @@ onUnmounted(() => {
   font-weight: 700;
   color: var(--text-color);
   text-align: center;
+}
+
+/* 试卷说明（Markdown 渲染） */
+.notice-content {
+  margin-bottom: 20px;
+  text-align: left;
+  font-size: 15px;
+  line-height: 1.8;
+  color: var(--text-color);
+  word-break: break-word;
+}
+
+.notice-content :deep(p) {
+  margin: 0 0 12px;
+}
+
+.notice-content :deep(h1),
+.notice-content :deep(h2),
+.notice-content :deep(h3) {
+  margin: 16px 0 10px;
+  color: var(--text-color);
+}
+
+.notice-content :deep(ul),
+.notice-content :deep(ol) {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+.notice-content :deep(li) {
+  margin-bottom: 4px;
+}
+
+.notice-content :deep(img) {
+  max-width: 100%;
+  border-radius: 10px;
+  margin: 8px 0;
+}
+
+.notice-content :deep(a) {
+  color: var(--links-color);
+}
+
+.notice-content :deep(code) {
+  background: var(--btn-hover);
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-size: 13px;
+}
+
+.notice-content :deep(pre) {
+  background: var(--btn-hover);
+  padding: 12px;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+
+.notice-empty {
+  margin: 0 0 20px;
+  text-align: center;
+  color: var(--links-color);
+}
+
+/* 查看试卷文档按钮 */
+.doc-view-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 28px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: var(--links-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  margin-bottom: 14px;
+  transition: all 0.15s ease;
+}
+
+.doc-view-btn:hover {
+  color: var(--text-color);
+  background: var(--btn-hover);
 }
 
 .field {
@@ -440,15 +586,8 @@ onUnmounted(() => {
   color: var(--links-color);
 }
 
-.back-link {
-  display: inline-block;
-  margin-top: 8px;
-  color: var(--links-color);
-  text-decoration: none;
-  font-size: 14px;
-}
-
-.back-link:hover {
-  color: var(--text-color);
+.btn.review:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

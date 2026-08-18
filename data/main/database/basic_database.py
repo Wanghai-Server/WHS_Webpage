@@ -8,6 +8,7 @@
 ``data`` 目录，与运行时工作目录无关），并以 ``.db`` 作为后缀。
 """
 
+import threading
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,80 @@ from typing import Any
 DATABASE_DIR = Path(__file__).resolve().parent.parent.parent / "database"
 
 
+class _LockedCursor:
+    """线程安全游标包装。
+
+    ``fetchone`` / ``fetchall`` / ``lastrowid`` / ``rowcount`` 与底层连接
+    共用同一把锁，保证同一时刻至多一个线程触碰底层 sqlite3 连接。
+    """
+
+    def __init__(self, cursor, lock) -> None:
+        object.__setattr__(self, "_inner", cursor)
+        object.__setattr__(self, "_lock", lock)
+
+    def _inner_cursor(self):
+        return object.__getattribute__(self, "_inner")
+
+    def _lock_obj(self):
+        return object.__getattribute__(self, "_lock")
+
+    def fetchone(self):
+        with self._lock_obj():
+            return self._inner_cursor().fetchone()
+
+    def fetchall(self):
+        with self._lock_obj():
+            return self._inner_cursor().fetchall()
+
+    @property
+    def lastrowid(self):
+        with self._lock_obj():
+            return self._inner_cursor().lastrowid
+
+    @property
+    def rowcount(self):
+        with self._lock_obj():
+            return self._inner_cursor().rowcount
+
+
+class _LockedConnection:
+    """线程安全连接包装：把 ``execute`` / ``commit`` / ``close`` 放入同一把锁。
+
+    使用场景：FastAPI 的同步端点运行在线程池中，多个请求会并发访问同一个
+    sqlite3 连接。若不加保护，会出现
+    ``sqlite3.InterfaceError: bad parameter or other API misuse``（SQLITE_MISUSE）。
+
+    必须配合 ``sqlite3.connect(..., cached_statements=0)`` 使用：
+    Python sqlite3 默认按 SQL 文本缓存 ``sqlite3_stmt``，两个线程并发执行
+    相同 SQL 会共享同一句柄，相互 reset/step 导致数据错乱或 MISUSE；
+    禁用缓存后每条 SQL 使用独立的语句，加上本包装的锁即完全线程安全。
+    """
+
+    def __init__(self, connection, lock) -> None:
+        object.__setattr__(self, "_inner", connection)
+        object.__setattr__(self, "_lock", lock)
+
+    def _inner_conn(self):
+        return object.__getattribute__(self, "_inner")
+
+    def _lock_obj(self):
+        return object.__getattribute__(self, "_lock")
+
+    def execute(self, sql, parameters=()):
+        with self._lock_obj():
+            return _LockedCursor(
+                self._inner_conn().execute(sql, parameters), self._lock_obj()
+            )
+
+    def commit(self):
+        with self._lock_obj():
+            self._inner_conn().commit()
+
+    def close(self):
+        with self._lock_obj():
+            self._inner_conn().close()
+
+
 class BasicDatabase(ABC):
     """所有数据库实现的公共抽象接口。"""
 
@@ -25,6 +100,8 @@ class BasicDatabase(ABC):
         super().__init__()
         # 无论传入何种路径，最终都统一规范化到 data/database/<名称>.db。
         self.database_path = self._normalize_database_path(database_path)
+        # 连接级线程锁：串行化对该连接的所有 SQL 调用（见 _LockedConnection）。
+        self._lock = threading.RLock()
         self._connection = None
         self._connected = False
 

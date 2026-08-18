@@ -32,6 +32,7 @@ EXAM_PROFILE_TABLE_COLUMNS: dict[str, str] = {
     "qq_number": "TEXT NOT NULL DEFAULT ''",
     "attempts": "INTEGER NOT NULL DEFAULT 0",   # 已完成答卷次数（上限 2）
     "passed": "INTEGER NOT NULL DEFAULT 0",     # 是否已及格（1/0）
+    "review_requested": "INTEGER NOT NULL DEFAULT 0",  # 本答卷周期是否已申请重审（1/0）
     "updated_at": "TEXT NOT NULL DEFAULT ''",
 }
 
@@ -147,12 +148,12 @@ class ExamDatabase(UserDatabase):
         return cursor.rowcount > 0
 
     def reset_candidate(self, uid: int) -> None:
-        """重置考生：清空答题记录，并清零完成次数与及格标记（允许重新答题）。"""
+        """重置考生：清空答题记录，并清零完成次数、及格标记与重审申请（允许重新答题）。"""
         self.delete_answers(uid)
         profile = self.get_profile(uid)
         if profile is not None:
             self._conn.execute(
-                "UPDATE exam_profiles SET attempts = 0, passed = 0, updated_at = ? WHERE uid = ?",
+                "UPDATE exam_profiles SET attempts = 0, passed = 0, review_requested = 0, updated_at = ? WHERE uid = ?",
                 (datetime.datetime.now().isoformat(timespec="seconds"), uid),
             )
             self._conn.commit()
@@ -228,3 +229,23 @@ class ExamDatabase(UserDatabase):
         if profile is None:
             return True
         return int(profile.get("attempts", 0)) < 2 and not bool(profile.get("passed"))
+
+    # ------------------------------------------------------------------
+    # 重审申请（防连点：本答卷周期内最多申请一次，重做后重置）
+    # ------------------------------------------------------------------
+
+    def is_review_requested(self, uid: int) -> bool:
+        """本答卷周期是否已申请过重审。"""
+        profile = self.get_profile(uid)
+        return bool(profile and profile.get("review_requested"))
+
+    def set_review_requested(self, uid: int, value: bool) -> None:
+        """设置本答卷周期的重审申请标记（True 已申请 / False 清除）。"""
+        profile = self.get_profile(uid)
+        if profile is None:
+            self.save_profile(uid, "", "", "")
+        self._conn.execute(
+            "UPDATE exam_profiles SET review_requested = ?, updated_at = ? WHERE uid = ?",
+            (1 if value else 0, datetime.datetime.now().isoformat(timespec="seconds"), uid),
+        )
+        self._conn.commit()

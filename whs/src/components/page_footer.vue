@@ -57,7 +57,11 @@ onMounted(() => {
           <h3 class="footer-title">{{ t('footer.quick_links') }}</h3>
           <ul class="quick-links">
             <li>
-              <RouterLink to="/news">{{ t('nav.news') }}</RouterLink>
+              <RouterLink to="/forum">{{ t('nav.forum') }}</RouterLink>
+              <!-- 附属内容（暂无） -->
+            </li>
+            <li>
+              <RouterLink to="/wiki">{{ t('nav.wiki') }}</RouterLink>
               <!-- 附属内容（暂无） -->
             </li>
             <li>

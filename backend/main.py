@@ -24,7 +24,12 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from data import read_config, read_whs_config
-from data.exam import ExamConfigError, load_exam_config
+from data.exam import (
+    ExamConfigError,
+    fill_blank_blanks,
+    load_exam_config,
+    save_exam_config,
+)
 from data.main.database.exam_database import ExamDatabase
 from data.main.database.message_database import MessageDatabase
 from data.main.database.user_database import (
@@ -54,13 +59,26 @@ AVATAR_CONTENT_TYPES = {
 
 # 考试附件（图片）存储目录、大小上限、允许的 MIME 类型。
 EXAM_UPLOAD_DIR = PROJECT_ROOT / "data" / "exam_upload"
-MAX_EXAM_UPLOAD_SIZE = 5 * 1024 * 1024  # 5MB
+MAX_EXAM_UPLOAD_SIZE = 20 * 1024 * 1024  # 20MB
 EXAM_UPLOAD_CONTENT_TYPES = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
+
+# 试卷附图（题目/选项图片，管理员上传）存储目录、大小上限、允许的 MIME 类型。
+EXAM_IMAGE_DIR = PROJECT_ROOT / "data" / "exam_image"
+MAX_EXAM_IMAGE_SIZE = 5 * 1024 * 1024  # 5MB
+EXAM_IMAGE_CONTENT_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+# 试卷说明文档（仅 .docx，管理员上传），与附图共用 exam_image 目录。
+MAX_EXAM_DOC_SIZE = 10 * 1024 * 1024  # 10MB
 
 # 与数据层一致：邮箱 / 密码格式。
 # 三段式邮箱：本地部分 + 单个@ + 域名(至少一个点)。
@@ -169,17 +187,50 @@ def _find_by_identifier(identifier: str):
     return user_db.get_user(username=identifier)
 
 
+class UserNotActiveError(Exception):
+    """账号被封禁或锁定时抛出，携带错误码（account_banned / account_locked）。
+
+    由全局异常处理器统一翻译成 403 + 双语错误体。
+    """
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def check_user_active(user: dict | None) -> str | None:
+    """复用函数：判断用户是否被封禁 / 锁定。
+
+    :param user: 用户记录（可为 None）。
+    :return: 正常返回 None；被封禁返回 ``"account_banned"``，
+             被锁定返回 ``"account_locked"``。
+    """
+    if user is None:
+        return None
+    if user.get("banned"):
+        return "account_banned"
+    if user.get("locked"):
+        return "account_locked"
+    return None
+
+
 def get_current_user(authorization: str = Header(None)):
-    """FastAPI 依赖：从 Authorization: Bearer <token> 解析当前登录用户；未登录返回 None。"""
+    """FastAPI 依赖：从 Authorization: Bearer <token> 解析当前登录用户；未登录返回 None。
+
+    被封禁 / 锁定的账号在此统一拒绝（抛 UserNotActiveError -> 403 错误码），
+    因此所有 ``Depends(get_current_user)`` 的受保护接口都会拦截。
+    """
     if not authorization or not authorization.startswith("Bearer "):
         return None
     payload = verify_token(authorization[7:])
     if payload is None:
         return None
     user = user_db.get_user(uid=payload.get("uid"))
-    # 被封禁用户的 token 视为失效（等同于登出）
-    if user is None or user.get("banned"):
+    if user is None:
         return None
+    err = check_user_active(user)
+    if err:
+        raise UserNotActiveError(err)
     return user
 
 
@@ -334,6 +385,10 @@ ERROR_MESSAGES = {
         "zh": "不能操作权限不低于自己的用户",
         "en": "You cannot manage users with permission equal or higher than yours",
     },
+    "new_permission_higher": {
+        "zh": "不能把用户权限设置得高于自己的权限",
+        "en": "Cannot set a permission higher than your own",
+    },
     "email_same": {
         "zh": "新邮箱不能与当前邮箱相同",
         "en": "New email must be different from the current one",
@@ -349,6 +404,10 @@ ERROR_MESSAGES = {
     "exam_config_error": {
         "zh": "考试配置错误，请联系管理员",
         "en": "Exam config error, please contact an administrator",
+    },
+    "exam_config_invalid": {
+        "zh": "试卷配置不合法，请检查后重试",
+        "en": "Invalid exam configuration, please check and retry",
     },
     "exam_question_not_found": {
         "zh": "题目不存在",
@@ -367,8 +426,32 @@ ERROR_MESSAGES = {
         "en": "Only jpg/png/webp/gif images are supported",
     },
     "exam_upload_too_large": {
-        "zh": "附件大小不能超过 5MB",
-        "en": "Attachment must not exceed 5MB",
+        "zh": "附件大小不能超过 20MB",
+        "en": "Attachment must not exceed 20MB",
+    },
+    "exam_image_unsupported": {
+        "zh": "仅支持上传图片（jpg/png/webp/gif）",
+        "en": "Only jpg/png/webp/gif images are supported",
+    },
+    "exam_image_too_large": {
+        "zh": "图片大小不能超过 5MB",
+        "en": "Image must not exceed 5MB",
+    },
+    "exam_image_not_found": {
+        "zh": "图片不存在",
+        "en": "Image not found",
+    },
+    "exam_doc_unsupported": {
+        "zh": "仅支持上传 .docx 文档",
+        "en": "Only .docx documents are supported",
+    },
+    "exam_doc_too_large": {
+        "zh": "文档大小不能超过 10MB",
+        "en": "Document must not exceed 10MB",
+    },
+    "exam_doc_not_found": {
+        "zh": "文档不存在",
+        "en": "Document not found",
     },
     "exam_not_finished": {
         "zh": "还有题目未作答，请完成全部题目",
@@ -397,6 +480,10 @@ ERROR_MESSAGES = {
     "exam_attachment_not_found": {
         "zh": "附件不存在",
         "en": "Attachment not found",
+    },
+    "exam_review_already_requested": {
+        "zh": "本次答卷已提交过重审申请，请勿重复提交",
+        "en": "A review request has already been submitted for this attempt",
     },
     "message_not_found": {
         "zh": "消息不存在",
@@ -434,16 +521,24 @@ ERROR_STATUS: dict[str, int] = {
     "cannot_ban_self": 400,
     "cannot_change_own_permission": 400,
     "cannot_modify_higher_permission": 403,
+    "new_permission_higher": 400,
     "email_same": 400,
     "message_content_empty": 400,
     "message_title_empty": 400,
     "message_not_found": 404,
     "exam_config_error": 500,
+    "exam_config_invalid": 400,
     "exam_question_not_found": 404,
     "exam_answer_invalid": 400,
     "exam_upload_not_allowed": 400,
     "exam_upload_unsupported": 400,
     "exam_upload_too_large": 413,
+    "exam_image_unsupported": 400,
+    "exam_image_too_large": 413,
+    "exam_image_not_found": 404,
+    "exam_doc_unsupported": 400,
+    "exam_doc_too_large": 413,
+    "exam_doc_not_found": 404,
     "exam_not_finished": 400,
     "exam_attempts_exhausted": 400,
     "exam_cannot_answer": 403,
@@ -451,6 +546,7 @@ ERROR_STATUS: dict[str, int] = {
     "exam_answers_not_found": 404,
     "exam_score_invalid": 400,
     "exam_attachment_not_found": 404,
+    "exam_review_already_requested": 400,
 }
 
 # 未收录错误码时的兜底双语消息。
@@ -476,6 +572,7 @@ async def lifespan(app: FastAPI):
     exam_db.connect()
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     yield
     user_db.close()
     user_info_db.close()
@@ -498,6 +595,18 @@ async def user_database_error_handler(request: Request, exc: UserDatabaseError):
     )
 
 
+@app.exception_handler(UserNotActiveError)
+async def user_not_active_error_handler(request: Request, exc: UserNotActiveError):
+    """封禁 / 锁定账号的统一拒绝：403 + 结构化双语错误码（前端用 tips 提示）。"""
+    return JSONResponse(
+        status_code=ERROR_STATUS.get(exc.code, 403),
+        content={
+            "code": exc.code,
+            "message": ERROR_MESSAGES.get(exc.code, _DEFAULT_ERROR_MESSAGE),
+        },
+    )
+
+
 @app.get("/")
 def root():
     return {"message": "Server API", "status": "OK"}
@@ -509,6 +618,8 @@ def title():
     return {
         "title_suffix": cfg.get("title_suffix", {}),
         "hcaptcha_site_key": cfg.get("hcaptcha", {}).get("site_key", ""),
+        # 非法链接统一跳转目标（站内路由路径或 http(s):// 外部链接）
+        "301": cfg.get("301", ""),
     }
 
 
@@ -629,10 +740,9 @@ async def login(payload: dict = Body(...)):
         user = user_db.get_user(email=identifier)
         if user is None:
             return _error_response("user_not_found", 404)
-        if user.get("banned"):
-            return _error_response("account_banned", 403)
-        if user.get("locked"):
-            return _error_response("account_locked", 403)
+        err = check_user_active(user)
+        if err:
+            return _error_response(err, ERROR_STATUS.get(err, 403))
         rec = VERIFY_CODES.get(identifier)
         if not rec or rec["exp"] < time.time() or rec["code"] != code:
             if _record_failure(user["uid"], "code"):
@@ -647,10 +757,9 @@ async def login(payload: dict = Body(...)):
         user = _find_by_identifier(identifier)
         if user is None:
             return _error_response("user_not_found", 404)
-        if user.get("banned"):
-            return _error_response("account_banned", 403)
-        if user.get("locked"):
-            return _error_response("account_locked", 403)
+        err = check_user_active(user)
+        if err:
+            return _error_response(err, ERROR_STATUS.get(err, 403))
         if not _verify_password(user["password"], password):
             if _record_failure(user["uid"], "password"):
                 return _error_response("account_locked", 403)
@@ -794,8 +903,8 @@ def user_profile(uid: int, user: dict | None = Depends(get_current_user)):
         "is_self": is_self,
         "is_following": is_following,
     }
-    # 仅本人可见的敏感字段（供设置页 / 管理员标签使用）
-    if is_self:
+    # 仅本人或管理员可见的敏感字段（供设置页 / 管理员代管他人设置使用）
+    if is_self or (user is not None and (user.get("permission") or 0) >= 3):
         data["email"] = target["email"]
         data["permission"] = target.get("permission", 1)
         data["locked"] = bool(target.get("locked"))
@@ -998,7 +1107,7 @@ async def cancel_account(uid: int, payload: dict = Body(...), user: dict | None 
 
 @app.post("/api/user/{uid}/ban")
 def set_user_banned(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """封禁 / 解封用户；仅管理员，且不能操作权限不低于自己的用户。"""
+    """封禁 / 解封用户；仅管理员，且只能封禁权限【严格低于自己】的用户（同级及以上不可封禁）。"""
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
@@ -1017,7 +1126,11 @@ def set_user_banned(uid: int, payload: dict = Body(...), user: dict | None = Dep
 
 @app.post("/api/user/{uid}/permission")
 def set_user_permission(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """设置用户权限等级；仅管理员，不能改自己，也不能操作权限不低于自己的用户。"""
+    """设置用户权限等级；仅管理员，不能改自己。
+
+    权限判断（与封禁略有差异）：改权限允许操作【同级 / 下级】（仅禁止高于自己），
+    且新权限值最高等于自己（不能把用户设置成自己的上级）。
+    """
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
@@ -1027,11 +1140,15 @@ def set_user_permission(uid: int, payload: dict = Body(...), user: dict | None =
     target = user_db.get_user(uid=uid)
     if target is None:
         raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    if (user.get("permission") or 0) <= (target.get("permission") or 0):
+    # 权限判断（改权限）：仅禁止操作权限【高于自己】的用户（同级 / 下级均可操作）
+    if (user.get("permission") or 0) < (target.get("permission") or 0):
         return _error_response("cannot_modify_higher_permission", 403)
     permission = payload.get("permission")
     if not isinstance(permission, int) or isinstance(permission, bool) or not (0 <= permission <= 4):
         return _error_response("invalid_permission", 400)
+    # 新权限值判断：不能把用户设置得高于自己的权限（最高等于自己），防止下级造出上级
+    if permission > (user.get("permission") or 0):
+        return _error_response("new_permission_higher", 400)
     user_db.set_permission(uid, permission)
     return {"success": True, "permission": permission}
 
@@ -1183,8 +1300,20 @@ def _grade_exam_question(q: dict, answer) -> tuple[int, bool | None]:
         correct = isinstance(answer, list) and sorted(answer) == sorted(ans)
         return (score if correct else 0), correct
     if qtype == "fill_blank":
-        text = str(answer).strip()
-        correct = any(text == str(a).strip() for a in ans)
+        blanks = fill_blank_blanks(ans)  # 每空的可接受答案
+        if len(blanks) == 1:
+            # 单项填空：考生答案为一个字符串
+            text = str(answer).strip()
+            correct = any(text == str(a).strip() for a in blanks[0])
+        else:
+            # 多项填空：考生答案为每空字符串组成的列表，全部匹配才得分
+            if not isinstance(answer, list) or len(answer) != len(blanks):
+                correct = False
+            else:
+                correct = all(
+                    any(str(answer[i]).strip() == str(a).strip() for a in blanks[i])
+                    for i in range(len(blanks))
+                )
         return (score if correct else 0), correct
     return 0, None
 
@@ -1197,9 +1326,14 @@ def _exam_question_public(qid: int, q: dict) -> dict:
         "subject": q["subject"],
         "score": int(q.get("score", 0)),
         "subjective": bool(q.get("subjective", False)),
-        "image": q.get("image") or "",
+        # 附图（多张；兼容旧单个 image 字段）
+        "images": [i for i in (q.get("images") or []) if isinstance(i, str)]
+        or ([q["image"]] if q.get("image") else []),
         "allow_upload": bool(q.get("allow_upload", False)),
     }
+    if q["type"] == "fill_blank":
+        # 填空数（多项填空 > 1；单项填空恒为 1），供前端渲染对应数量的输入框
+        item["blank_count"] = len(fill_blank_blanks(q.get("answer")))
     if q.get("options"):
         item["options"] = [
             {"key": k, "text": opt.get("text", ""), "image": opt.get("image", "")}
@@ -1218,7 +1352,12 @@ def exam_config(user: dict | None = Depends(get_current_user)):
         return _error_response("exam_config_error", 500)
     questions = [_exam_question_public(qid, q) for qid, q in cfg["questions"].items()]
     questions.sort(key=lambda x: x["id"])
-    return {"total_score": cfg["total_score"], "questions": questions}
+    return {
+        "total_score": cfg["total_score"],
+        "tips": cfg.get("tips", ""),
+        "tips_doc": cfg.get("tips_doc", ""),
+        "questions": questions,
+    }
 
 
 @app.get("/api/exam/progress")
@@ -1278,7 +1417,10 @@ def exam_answer(payload: dict = Body(...), user: dict | None = Depends(get_curre
         ):
             return _error_response("exam_answer_invalid", 400)
     elif q["type"] == "fill_blank":
-        if not isinstance(answer, str):
+        # 单项填空：字符串；多项填空：每空一个字符串组成的列表
+        if not isinstance(answer, str) and not (
+            isinstance(answer, list) and all(isinstance(x, str) for x in answer)
+        ):
             return _error_response("exam_answer_invalid", 400)
     else:  # subjective 主观题：文本作答，不计分
         if not isinstance(answer, str):
@@ -1345,6 +1487,81 @@ def exam_attachment(filename: str, user: dict | None = Depends(get_current_user)
     return FileResponse(path)
 
 
+@app.post("/api/admin/exam/image")
+async def admin_upload_exam_image(
+    file: UploadFile = File(...),
+    user: dict | None = Depends(get_current_user),
+):
+    """试卷管理：上传试卷附图（题目/选项图片），保存到 data/exam_image，仅管理员。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    if (user.get("permission") or 0) < 3:
+        return _error_response("permission_denied", 403)
+    ext = EXAM_IMAGE_CONTENT_TYPES.get(file.content_type)
+    if ext is None:
+        return _error_response("exam_image_unsupported", 400)
+    data = await file.read(MAX_EXAM_IMAGE_SIZE + 1)
+    if len(data) > MAX_EXAM_IMAGE_SIZE:
+        return _error_response("exam_image_too_large", 413)
+    filename = f"cfg_{uuid.uuid4().hex}{ext}"
+    EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    (EXAM_IMAGE_DIR / filename).write_bytes(data)
+    return {
+        "success": True,
+        "filename": filename,
+        "url": f"/api/exam/image/{filename}",
+    }
+
+
+@app.get("/api/exam/image/{filename}")
+def exam_image(filename: str):
+    """读取试卷附图（公开，供考试页面显示题目/选项图片）。"""
+    name = Path(filename).name
+    if name != filename or not re.match(r"^cfg_[0-9a-f]+\.(jpg|png|webp|gif)$", name):
+        return _error_response("exam_image_not_found", 404)
+    path = EXAM_IMAGE_DIR / name
+    if not path.is_file():
+        return _error_response("exam_image_not_found", 404)
+    return FileResponse(path)
+
+
+@app.post("/api/admin/exam/doc")
+async def admin_upload_exam_doc(
+    file: UploadFile = File(...),
+    user: dict | None = Depends(get_current_user),
+):
+    """试卷管理：上传试卷说明文档（仅 .docx），与附图共用 data/exam_image，仅管理员。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    if (user.get("permission") or 0) < 3:
+        return _error_response("permission_denied", 403)
+    if file.content_type != "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+        return _error_response("exam_doc_unsupported", 400)
+    data = await file.read(MAX_EXAM_DOC_SIZE + 1)
+    if len(data) > MAX_EXAM_DOC_SIZE:
+        return _error_response("exam_doc_too_large", 413)
+    filename = f"cfg_doc_{uuid.uuid4().hex}.docx"
+    EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    (EXAM_IMAGE_DIR / filename).write_bytes(data)
+    return {
+        "success": True,
+        "filename": filename,
+        "url": f"/api/exam/doc/{filename}",
+    }
+
+
+@app.get("/api/exam/doc/{filename}")
+def exam_doc(filename: str):
+    """读取试卷说明文档（公开，供考生在线浏览/下载）。"""
+    name = Path(filename).name
+    if name != filename or not re.match(r"^cfg_doc_[0-9a-f]+\.docx$", name):
+        return _error_response("exam_doc_not_found", 404)
+    path = EXAM_IMAGE_DIR / name
+    if not path.is_file():
+        return _error_response("exam_doc_not_found", 404)
+    return FileResponse(path)
+
+
 @app.post("/api/exam/submit")
 def exam_submit(user: dict | None = Depends(get_current_user)):
     """交卷汇总：返回总分 / 已得分数 / 完成情况。"""
@@ -1373,7 +1590,7 @@ def exam_submit(user: dict | None = Depends(get_current_user)):
 
 @app.get("/api/exam/profile")
 def exam_profile(user: dict | None = Depends(get_current_user)):
-    """当前考生信息（游戏名 / QQ / 次数 / 是否及格）。"""
+    """当前考生信息（游戏名 / QQ / 次数 / 是否及格 / 本答卷是否已申请重审）。"""
     if user is None:
         return _error_response("unauthorized", 401)
     profile = exam_db.get_profile(user["uid"]) or {}
@@ -1383,6 +1600,7 @@ def exam_profile(user: dict | None = Depends(get_current_user)):
         "qq_number": profile.get("qq_number", ""),
         "attempts": int(profile.get("attempts", 0)),
         "passed": bool(profile.get("passed")),
+        "review_requested": bool(profile.get("review_requested")),
         "can_answer": exam_db.can_answer(user["uid"]),
     }
 
@@ -1403,12 +1621,14 @@ def exam_save_profile(payload: dict = Body(...), user: dict | None = Depends(get
 
 @app.post("/api/exam/reset")
 def exam_reset(user: dict | None = Depends(get_current_user)):
-    """重新作答：清空本人的答题记录（次数限制内允许）。"""
+    """重新作答：清空本人的答题记录（次数限制内允许），并重置本答卷的重审申请标记。"""
     if user is None:
         return _error_response("unauthorized", 401)
     if not exam_db.can_answer(user["uid"]):
         return _error_response("exam_cannot_answer", 403)
     exam_db.delete_answers(user["uid"])
+    # 重做 = 进入新的答卷周期：允许再申请一次重审
+    exam_db.set_review_requested(user["uid"], False)
     return {"success": True}
 
 
@@ -1428,6 +1648,29 @@ def _apply_exam_pass(uid: int) -> str | None:
         user_db.set_permission(uid, 2)
     exam_db.mark_passed(uid)
     return None
+
+
+def _notify_exam_passed(uid: int, admin_uid: int) -> None:
+    """复审通过后通知考生：定向消息（消息盒子可见）+ 邮件。
+
+    :param uid: 考生 uid。
+    :param admin_uid: 执行复审并通过的管理员 uid（作为消息作者）。
+    """
+    target = user_db.get_user(uid=uid)
+    if target is None:
+        return
+    title = "入服考试通过通知"
+    content = (
+        f"恭喜 {target['username']}！经管理员复审，你已通过"
+        f"《望海服务器二周目审核问卷》，正式加入望海服务器，祝你游戏愉快！"
+    )
+    message_db.create_message(title, content, admin_uid, scope="user", target_uid=uid)
+    _send_email(
+        target["email"],
+        f"[望海服务器] 入服考试通过 - {target['username']}",
+        content,
+        "zh",
+    )
 
 
 @app.post("/api/exam/finish")
@@ -1466,9 +1709,15 @@ def exam_finish(user: dict | None = Depends(get_current_user)):
 
 @app.post("/api/exam/review")
 def exam_review(user: dict | None = Depends(get_current_user)):
-    """申请重审答题卡：向所有管理员推送定向消息并发送邮件。"""
+    """申请重审答题卡：向所有管理员推送定向消息并发送邮件。
+
+    防连点：本答卷周期（一次答题机会）内只允许申请一次；
+    重做（/api/exam/reset）进入新答卷周期后允许再次申请。
+    """
     if user is None:
         return _error_response("unauthorized", 401)
+    if exam_db.is_review_requested(user["uid"]):
+        return _error_response("exam_review_already_requested", 400)
     cfg = _load_exam()
     if cfg is None:
         return _error_response("exam_config_error", 500)
@@ -1501,6 +1750,7 @@ def exam_review(user: dict | None = Depends(get_current_user)):
             "zh",
         )
         sent += 1
+    exam_db.set_review_requested(user["uid"], True)
     return {"success": True, "notified": sent}
 
 
@@ -1536,6 +1786,34 @@ def admin_exam_candidates(
             "answered_count": len(exam_db.get_answers(uid)),
         })
     return {"total": total, "page": page, "page_size": page_size, "candidates": result}
+
+
+@app.get("/api/admin/exam/config")
+def admin_exam_config(user: dict | None = Depends(get_current_user)):
+    """试卷管理：管理员获取完整试卷配置（含标准答案，用于在线编辑）。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    if (user.get("permission") or 0) < 3:
+        return _error_response("permission_denied", 403)
+    cfg = _load_exam()
+    if cfg is None:
+        return _error_response("exam_config_error", 500)
+    return cfg
+
+
+@app.put("/api/admin/exam/config")
+def admin_save_exam_config(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
+    """试卷管理：管理员保存试卷配置（校验通过后写回 exam.yml，即时生效）。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    if (user.get("permission") or 0) < 3:
+        return _error_response("permission_denied", 403)
+    try:
+        validated = save_exam_config(payload)
+    except ExamConfigError as exc:
+        print(f"[exam-config] 保存失败: {exc}", flush=True)
+        return _error_response("exam_config_invalid", 400)
+    return {"success": True, "config": validated}
 
 
 @app.get("/api/admin/exam/answers/{uid}")
@@ -1608,6 +1886,8 @@ def admin_exam_score(payload: dict = Body(...), user: dict | None = Depends(get_
         err = _apply_exam_pass(uid)
         if err:
             return _error_response(err, ERROR_STATUS.get(err, 400))
+        # 复审通过：通知考生（消息盒子定向消息 + 邮件）
+        _notify_exam_passed(uid, user["uid"])
     return {"success": True, "obtained_score": int(score), "passed": passed_now}
 
 
@@ -1656,6 +1936,30 @@ def publish_message(payload: dict = Body(...), user: dict | None = Depends(get_c
     title = title.strip()[:100]
     content = content.strip()[:20000]
     message_id = message_db.create_message(title, content, user["uid"], scope="system")
+    return {"success": True, "message": message_db.get_message(message_id)}
+
+
+@app.put("/api/admin/messages/{message_id}")
+def edit_message(message_id: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
+    """管理员编辑自己发布的系统消息（标题 + Markdown 内容）。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    if (user.get("permission") or 0) < 3:
+        return _error_response("permission_denied", 403)
+    msg = message_db.get_message(message_id)
+    if msg is None:
+        return _error_response("message_not_found", 404)
+    if msg["author_uid"] != user["uid"]:
+        return _error_response("permission_denied", 403)
+    title = payload.get("title") or ""
+    content = payload.get("content") or ""
+    if not isinstance(title, str) or not title.strip():
+        return _error_response("message_title_empty", 400)
+    if not isinstance(content, str) or not content.strip():
+        return _error_response("message_content_empty", 400)
+    title = title.strip()[:100]
+    content = content.strip()[:20000]
+    message_db.update_message(message_id, title, content)
     return {"success": True, "message": message_db.get_message(message_id)}
 
 

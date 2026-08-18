@@ -17,7 +17,7 @@ const emit = defineEmits(['switch-login'])
 
 const { t, locale } = useI18n()
 const router = useRouter()
-const { setAuth } = useAuth()
+const { setAuth, fetchMe } = useAuth()
 const { showTip } = useTips()
 
 // 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)
@@ -139,6 +139,7 @@ async function doRegister() {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     setAuth(data.token, { uid: data.uid })
+    fetchMe() // 注册成功：拉取完整用户信息填充公共变量（注册响应只有 uid）
     registeredUid.value = data.uid
     step.value = 'full_info'
     return true

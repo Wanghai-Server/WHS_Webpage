@@ -16,7 +16,7 @@ const props = defineProps({
 const emit = defineEmits(['saved'])
 
 const { t, locale } = useI18n()
-const { state: authState } = useAuth()
+const { state: authState, fetchMe } = useAuth()
 const { showTip } = useTips()
 const hcaptchaSiteKey = useHcaptchaSiteKey()
 
@@ -178,6 +178,7 @@ async function saveBasic() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.basicSaved'))
+      fetchMe() // 基本资料变更：刷新公共用户数据
       emit('saved')
     } else {
       showTip('error', localMessage(data))
@@ -202,6 +203,7 @@ async function saveProfile() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.profileSaved'))
+      fetchMe() // 简介变更：刷新公共用户数据
       emit('saved')
     } else {
       showTip('error', localMessage(data))
@@ -240,6 +242,7 @@ async function uploadAvatar() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.avatarSaved'))
+      fetchMe() // 头像变更：刷新公共用户数据（导航栏头像即时更新）
       showAvatarDialog.value = false
       emit('saved')
     } else {
@@ -333,6 +336,7 @@ async function changeEmail() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.emailSaved'))
+      fetchMe() // 邮箱变更：刷新公共用户数据
       emailCode.value = ''
       emailCaptchaToken.value = ''
       showEmailDialog.value = false
@@ -351,6 +355,7 @@ async function changeEmail() {
 // ---------- 密码对话框（change_password.vue 处理） ----------
 
 function onPasswordDone() {
+  // 密码变更的 fetchMe 已在 change_password.vue 成功后执行，这里只负责关闭弹窗
   showPasswordDialog.value = false
   emit('saved')
 }
@@ -448,7 +453,8 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="settings-card load-in" style="--load-delay: 320ms">
+    <!-- 修改密码：验证码发送到本人邮箱且需旧密码，仅本人可用（管理员代管时不显示） -->
+    <div v-if="user.is_self" class="settings-card load-in" style="--load-delay: 320ms">
       <div class="setting-row">
         <span class="row-title">{{ t('settings.password') }}</span>
         <button class="btn modify" @click="showPasswordDialog = true">
@@ -458,8 +464,8 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 注销账号（危险操作，红色样式） -->
-    <div class="settings-card load-in" style="--load-delay: 400ms">
+    <!-- 注销账号（危险操作，红色样式；仅本人，后端亦仅限本人） -->
+    <div v-if="user.is_self" class="settings-card load-in" style="--load-delay: 400ms">
       <div class="setting-row">
         <span class="row-title">{{ t('settings.cancelAccount') }}</span>
         <button class="btn modify danger" @click="showCancelDialog = true">

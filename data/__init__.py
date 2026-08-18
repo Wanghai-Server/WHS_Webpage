@@ -25,7 +25,7 @@ def _secret_default_config() -> dict:
 
 
 def _public_default_config() -> dict:
-    """公开默认配置（whs_config.json）：标题后缀 + hCaptcha 公钥 + SMTP 服务器信息。"""
+    """公开默认配置（whs_config.json）：标题后缀 + hCaptcha 公钥 + SMTP 服务器信息 + 301 跳转。"""
     return {
         "title_suffix": {
             "zh": " - 一个集生电、轨交、建筑于一体的自由、开放Minecraft服务器",
@@ -39,6 +39,9 @@ def _public_default_config() -> dict:
             "sender_name": {"zh": "望海服务器", "en": "WHS"},
             "use_ssl": False,
         },
+        # 非法链接（不存在的路由）统一跳转目标：
+        # 以 http(s):// 开头视为外部链接，否则视为站内路由路径；为空则跳转根路由 /。
+        "301": "",
     }
 
 

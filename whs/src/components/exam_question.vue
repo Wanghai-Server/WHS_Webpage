@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Upload, Check } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
@@ -9,6 +9,7 @@ const props = defineProps({
   question: { type: Object, required: true },  // {id,type,subject,score,subjective,image,options,allow_upload}
   modelValue: { type: [String, Array], default: null },  // 已答内容
   mode: { type: String, default: 'answer' },             // 'answer' | 'review'
+  attachment: { type: String, default: '' },             // 作答模式：服务器已保存的附件文件名（回显）
   reviewUid: { type: Number, default: null },            // 审阅模式：目标用户 uid
   reviewScore: { type: Number, default: null },          // 审阅模式：当前得分
   reviewAttachment: { type: String, default: '' },       // 审阅模式：附件文件名
@@ -21,17 +22,62 @@ const { showTip } = useTips()
 
 const isReview = computed(() => props.mode === 'review')
 
+// 填空题空数（多项填空 > 1）
+const blankCount = computed(() =>
+  props.question.type === 'fill_blank' ? Number(props.question.blank_count) || 1 : 1
+)
+
+// 题目附图（多张；兼容旧单图字段）
+const questionImages = computed(() => {
+  if (Array.isArray(props.question.images)) return props.question.images
+  return props.question.image ? [props.question.image] : []
+})
+
 const value = computed({
   get: () => props.modelValue,
   set: (v) => emit('update:modelValue', v),
 })
 
-// 附件（作答模式新上传的文件名）
-const attachment = ref(props.mode === 'answer' ? '' : props.reviewAttachment)
-const attachmentSrc = computed(() => {
-  const name = attachment.value || props.reviewAttachment
-  return name ? `/api/exam/attachment/${name}` : ''
-})
+// 附件（作答模式：新上传的文件名，或服务器已保存的回显文件名；审阅模式：考生附件）
+const attachment = ref(props.mode === 'answer' ? props.attachment : props.reviewAttachment)
+
+// 附件预览：附件接口需要登录鉴权（Authorization 头），而 <img> 无法携带该头，
+// 因此用带 token 的 fetch 拉取后转成 blob URL 展示；上传成功 / 回显变化时自动刷新。
+const previewUrl = ref('')
+let previewObjectUrl = null
+
+async function loadAttachmentPreview() {
+  const name = attachment.value
+  if (!name) {
+    previewUrl.value = ''
+    return
+  }
+  try {
+    const res = await fetch(`/api/exam/attachment/${name}`, { headers: authHeaders() })
+    if (!res.ok) {
+      previewUrl.value = ''
+      return
+    }
+    const blob = await res.blob()
+    if (previewObjectUrl) URL.revokeObjectURL(previewObjectUrl)
+    previewObjectUrl = URL.createObjectURL(blob)
+    previewUrl.value = previewObjectUrl
+  } catch (e) {
+    previewUrl.value = ''
+  }
+}
+
+watch(attachment, loadAttachmentPreview)
+
+// 父级回显（fetchProgress）更新时同步到本地附件名
+watch(
+  () => props.attachment,
+  (v) => {
+    if (props.mode === 'answer' && v && v !== attachment.value) {
+      attachment.value = v
+    }
+  }
+)
 
 function localMessage(data) {
   const m = data && data.message
@@ -89,11 +135,26 @@ function toggleMulti(key) {
   scheduleSave()
 }
 
-// 上传附件（仅填空题 allow_upload）
+// 多项填空：写入第 i 个空的答案（value 为每空字符串组成的数组）
+function setBlankValue(i, text) {
+  const arr = Array.isArray(value.value) ? [...value.value] : []
+  arr[i] = text
+  value.value = arr
+  scheduleSave()
+}
+
+// 上传附件（仅填空题 allow_upload）；与后端 MAX_EXAM_UPLOAD_SIZE 保持一致（20MB）
+const MAX_UPLOAD_SIZE = 20 * 1024 * 1024
+
 async function onFileChange(event) {
   if (isReview.value) return
   const f = event.target.files && event.target.files[0]
   if (!f) return
+  if (f.size > MAX_UPLOAD_SIZE) {
+    showTip('warning', t('exam.uploadTooLarge'))
+    event.target.value = ''
+    return
+  }
   const fd = new FormData()
   fd.append('question_id', props.question.id)
   fd.append('file', f)
@@ -105,8 +166,14 @@ async function onFileChange(event) {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     attachment.value = data.attachment
-    scheduleSave()
     showTip('info', t('exam.uploaded'))
+    // 仅当已填写答案时才保存；答案为空时等填写后随答案一起保存
+    // （避免向后端提交空答案触发"答案格式不合法"）
+    const hasAnswer = Array.isArray(value.value)
+      ? value.value.some((x) => String(x ?? '').trim() !== '')
+      : String(value.value ?? '').trim() !== ''
+    // 立即保存（不走防抖）：避免考生在防抖窗口内切题导致附件从未入库
+    if (hasAnswer) await saveAnswer()
   } else {
     showTip('error', localMessage(data))
   }
@@ -135,10 +202,18 @@ async function saveReviewScore() {
   }
 }
 
+onMounted(() => {
+  loadAttachmentPreview()
+})
+
 onUnmounted(() => {
   if (saveTimer) {
     clearTimeout(saveTimer)
     saveTimer = null
+  }
+  if (previewObjectUrl) {
+    URL.revokeObjectURL(previewObjectUrl)
+    previewObjectUrl = null
   }
 })
 </script>
@@ -153,7 +228,15 @@ onUnmounted(() => {
 
     <div class="q-subject">
       {{ question.subject }}
-      <img v-if="question.image" :src="question.image" class="q-image" alt="question image" />
+      <div v-if="questionImages.length" class="q-images">
+        <img
+          v-for="(src, i) in questionImages"
+          :key="i"
+          :src="src"
+          class="q-image"
+          alt="question image"
+        />
+      </div>
     </div>
 
     <!-- 单选题 -->
@@ -189,9 +272,22 @@ onUnmounted(() => {
       </label>
     </div>
 
-    <!-- 填空题 -->
+    <!-- 填空题（支持多项填空：一道题多个空） -->
     <div v-else-if="question.type === 'fill_blank'">
+      <div v-if="blankCount > 1" class="q-blanks">
+        <div v-for="i in blankCount" :key="i" class="q-blank-row">
+          <span class="q-blank-idx">{{ i }}.</span>
+          <input
+            :value="(value || [])[i - 1] ?? ''"
+            type="text"
+            class="q-input"
+            :disabled="isReview"
+            @input="setBlankValue(i - 1, $event.target.value)"
+          />
+        </div>
+      </div>
       <input
+        v-else
         :value="value ?? ''"
         type="text"
         class="q-input"
@@ -204,7 +300,7 @@ onUnmounted(() => {
           <Upload :size="16" />
           <span>{{ t('exam.uploadLabel') }}</span>
         </label>
-        <img v-if="attachmentSrc" :src="attachmentSrc" class="upload-preview" alt="attachment" />
+        <img v-if="previewUrl" :src="previewUrl" class="upload-preview" alt="attachment" />
       </div>
     </div>
 
@@ -277,6 +373,14 @@ onUnmounted(() => {
   white-space: pre-wrap;
 }
 
+.q-images {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* 防止 flex 交叉轴 stretch 把图片横向拉伸变形（保持原比例） */
+  align-items: flex-start;
+}
+
 .q-image {
   display: block;
   max-width: 100%;
@@ -325,6 +429,8 @@ onUnmounted(() => {
   max-height: 60px;
   max-width: 90px;
   border-radius: 8px;
+  /* 防止选项文字过长时 flex 压缩图片宽度导致变形 */
+  flex-shrink: 0;
 }
 
 .q-input {
@@ -341,6 +447,26 @@ onUnmounted(() => {
 
 .q-input:focus {
   border-color: var(--text-color);
+}
+
+/* 多项填空：每题一空一行 */
+.q-blanks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.q-blank-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.q-blank-idx {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--links-color);
+  flex-shrink: 0;
 }
 
 .q-textarea {
@@ -365,6 +491,7 @@ onUnmounted(() => {
 .q-upload {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 14px;
   margin-top: 12px;
 }
@@ -395,7 +522,8 @@ onUnmounted(() => {
   max-height: 120px;
   max-width: 180px;
   border-radius: 10px;
-  object-fit: cover;
+  /* 保持原比例展示：不裁切，也不被 flex 压缩变形 */
+  flex-shrink: 0;
 }
 
 .q-review {

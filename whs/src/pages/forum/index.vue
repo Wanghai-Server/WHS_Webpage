@@ -1,7 +1,7 @@
 <script setup>
 import { useI18n } from 'vue-i18n'
-import Top_navbar from '../components/top_navbar.vue'
-import Page_footer from '../components/page_footer.vue'
+import Top_navbar from '../../components/top_navbar.vue'
+import Page_footer from '../../components/page_footer.vue'
 
 const { t } = useI18n()
 </script>
@@ -9,10 +9,10 @@ const { t } = useI18n()
 <template>
   <Top_navbar />
 
-  <main class="about-hero">
-    <div class="about-inner load-in">
-      <h1 class="about-title">{{ t('pages.about.title') }}</h1>
-      <p class="about-subtitle">{{ t('pages.about.description') }}</p>
+  <main class="forum-hero">
+    <div class="forum-inner load-in">
+      <h1 class="forum-title">{{ t('pages.forum.title') }}</h1>
+      <p class="forum-subtitle">{{ t('pages.forum.description') }}</p>
     </div>
   </main>
 
@@ -20,7 +20,7 @@ const { t } = useI18n()
 </template>
 
 <style scoped>
-.about-hero {
+.forum-hero {
   min-height: 70vh;
   display: flex;
   align-items: center;
@@ -29,19 +29,19 @@ const { t } = useI18n()
   box-sizing: border-box;
 }
 
-.about-inner {
+.forum-inner {
   max-width: 640px;
   text-align: center;
 }
 
-.about-title {
+.forum-title {
   margin: 0 0 20px;
   font-size: 44px;
   font-weight: 800;
   color: var(--text-color);
 }
 
-.about-subtitle {
+.forum-subtitle {
   margin: 0;
   font-size: 18px;
   line-height: 1.7;
@@ -49,11 +49,11 @@ const { t } = useI18n()
 }
 
 @media (max-width: 768px) {
-  .about-title {
+  .forum-title {
     font-size: 32px;
   }
 
-  .about-subtitle {
+  .forum-subtitle {
     font-size: 16px;
   }
 }

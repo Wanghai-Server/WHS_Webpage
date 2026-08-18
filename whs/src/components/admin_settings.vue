@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import {
   Users,
   FileText,
+  BookOpen,
   Eye,
   Ban,
   CircleCheck,
@@ -17,6 +18,7 @@ import {
   X,
 } from 'lucide-vue-next'
 import ExamQuestion from './exam_question.vue'
+import ExamEditor from './exam_editor.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { copyText } from '../composables/clipboard'
@@ -33,6 +35,7 @@ const { showTip } = useTips()
 // 悬浮框开关
 const showUserPanel = ref(false)
 const showExamPanel = ref(false)
+const showExamConfigPanel = ref(false)
 const showAnswerSheet = ref(false)
 
 // ------------------------------------------------------------------
@@ -99,9 +102,27 @@ function isSelf(u) {
   return u.uid === props.selfUid
 }
 
+// 操作者自身权限（登录态 user 由 useAuth 公共变量提供）
+const myPermission = computed(() => authState.user?.permission ?? 0)
+
+// 与后端一致的两套权限判断（逻辑稍有差异）：
+// - 封禁：只能封禁权限【严格低于自己】的用户（同级及以上不可封禁）
+// - 改权限：可操作【同级 / 下级】，仅禁止操作权限高于自己的用户
+function canBan(u) {
+  return !isSelf(u) && myPermission.value > (u.permission ?? 0)
+}
+
+function canSetPermission(u) {
+  return !isSelf(u) && myPermission.value >= (u.permission ?? 0)
+}
+
 async function toggleBan(u) {
   if (isSelf(u)) {
     showTip('warning', t('admin.cannotBanSelf'))
+    return
+  }
+  if (!canBan(u)) {
+    showTip('warning', t('admin.cannotManageHigher'))
     return
   }
   const banned = !u.banned
@@ -138,6 +159,10 @@ function openPermissionDialog(u) {
     showTip('warning', t('admin.cannotChangeOwnPermission'))
     return
   }
+  if (!canSetPermission(u)) {
+    showTip('warning', t('admin.cannotManageHigher'))
+    return
+  }
   dialogUser.value = u
   permissionInput.value = String(u.permission)
   showDialog.value = true
@@ -159,6 +184,11 @@ async function submitPermission() {
   const value = Number(raw)
   if (!Number.isInteger(value) || value < 0 || value > 4) {
     showTip('error', t('admin.permissionInvalid'))
+    return
+  }
+  // 新权限值上限：不能设置得高于自己的权限（与后端 new_permission_higher 一致）
+  if (value > myPermission.value) {
+    showTip('warning', t('admin.newPermissionHigher'))
     return
   }
   dialogSaving.value = true
@@ -294,10 +324,11 @@ function onSheetScoreSaved(payload) {
   }
 }
 
-// ESC：依次关闭答题卡 / 考试管理 / 用户管理
+// ESC：依次关闭答题卡 / 试卷管理 / 考试管理 / 用户管理
 function handleKeydown(e) {
   if (e.key !== 'Escape') return
   if (showAnswerSheet.value) showAnswerSheet.value = false
+  else if (showExamConfigPanel.value) showExamConfigPanel.value = false
   else if (showExamPanel.value) showExamPanel.value = false
   else if (showUserPanel.value) showUserPanel.value = false
   else if (showDialog.value) closeDialog()
@@ -313,6 +344,10 @@ function openExamPanel() {
   if (candidates.value.length === 0) fetchCandidates()
 }
 
+function openExamConfigPanel() {
+  showExamConfigPanel.value = true
+}
+
 onMounted(() => {
   document.addEventListener('keydown', handleKeydown)
 })
@@ -324,7 +359,7 @@ onUnmounted(() => {
 
 <template>
   <section class="admin-settings">
-    <!-- 两个入口 -->
+    <!-- 三个管理入口 -->
     <div class="entry-row load-in">
       <button type="button" class="entry-card" @click="openUserPanel">
         <Users :size="26" />
@@ -335,6 +370,11 @@ onUnmounted(() => {
         <FileText :size="26" />
         <span class="entry-title">{{ t('admin.examEntry') }}</span>
         <span class="entry-desc">{{ t('admin.examEntryDesc') }}</span>
+      </button>
+      <button type="button" class="entry-card" @click="openExamConfigPanel">
+        <BookOpen :size="26" />
+        <span class="entry-title">{{ t('admin.examConfigEntry') }}</span>
+        <span class="entry-desc">{{ t('admin.examConfigEntryDesc') }}</span>
       </button>
     </div>
 
@@ -383,8 +423,9 @@ onUnmounted(() => {
                           <button
                             class="icon-btn"
                             :class="{ danger: !u.banned, success: u.banned }"
-                            :title="u.banned ? t('admin.unban') : t('admin.ban')"
-                            :aria-label="u.banned ? t('admin.unban') : t('admin.ban')"
+                            :disabled="!canBan(u)"
+                            :title="canBan(u) ? (u.banned ? t('admin.unban') : t('admin.ban')) : t('admin.cannotManageHigher')"
+                            :aria-label="canBan(u) ? (u.banned ? t('admin.unban') : t('admin.ban')) : t('admin.cannotManageHigher')"
                             @click="toggleBan(u)"
                           >
                             <CircleCheck v-if="u.banned" :size="18" />
@@ -392,8 +433,9 @@ onUnmounted(() => {
                           </button>
                           <button
                             class="icon-btn"
-                            :title="t('admin.setPermission')"
-                            :aria-label="t('admin.setPermission')"
+                            :disabled="!canSetPermission(u)"
+                            :title="canSetPermission(u) ? t('admin.setPermission') : t('admin.cannotManageHigher')"
+                            :aria-label="canSetPermission(u) ? t('admin.setPermission') : t('admin.cannotManageHigher')"
                             @click="openPermissionDialog(u)"
                           >
                             <Shield :size="18" />
@@ -530,6 +572,25 @@ onUnmounted(() => {
                   />
                 </div>
               </template>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 试卷管理悬浮框（在线编辑考试试卷） -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showExamConfigPanel" class="panel-overlay" @click.self="showExamConfigPanel = false">
+          <div class="panel panel-wide">
+            <header class="panel-head">
+              <h2 class="panel-title">{{ t('admin.examConfigEntry') }}</h2>
+              <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showExamConfigPanel = false">
+                <X :size="18" />
+              </button>
+            </header>
+            <div class="panel-body">
+              <ExamEditor />
             </div>
           </div>
         </div>
