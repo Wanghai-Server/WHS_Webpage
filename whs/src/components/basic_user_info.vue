@@ -130,7 +130,8 @@ async function onToggleFollow() {
         :disabled="followLoading"
         @click="onToggleFollow"
       >
-        <Heart :size="18" :fill="isFollowing ? 'currentColor' : 'none'" />
+        <span v-if="followLoading" class="spinner"></span>
+        <Heart v-else :size="18" :fill="isFollowing ? 'currentColor' : 'none'" />
         <span>{{ isFollowing ? t('user.unfollow') : t('user.follow') }}</span>
       </button>
       <button v-else class="follow-btn edit" @click="emit('edit-profile')">

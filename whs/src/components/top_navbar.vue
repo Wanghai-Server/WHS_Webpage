@@ -24,12 +24,13 @@ const avatarSrc = computed(() => (authState.user && authState.user.avatar ? `/ap
 const userLink = computed(() => (authState.user ? `/user/${authState.user.uid}` : '/login'))
 
 // 导航链接：默认 /forum + /wiki + /about，可被 navRoutes 覆盖。
-// navRoutes 值支持两种：字符串（路由，标签用 i18n key）或 {label, route} 对象（route 可为空字符串=纯文本）。
+// navRoutes 值支持两种：字符串（路由，标签用 i18n key）或 {label, route, action?} 对象
+// （route 可为空字符串=纯文本；action 为点击回调时渲染为按钮）。
 const links = computed(() => {
   if (props.navRoutes) {
     return Object.entries(props.navRoutes).map(([key, value]) => {
       if (value && typeof value === 'object') {
-        return { key, label: value.label, route: value.route || '' }
+        return { key, label: value.label, route: value.route || '', action: value.action || null }
       }
       return { key, label: t(key), route: value }
     })
@@ -339,7 +340,8 @@ onUnmounted(() => {
     <div class="nav-right">
       <nav class="links">
         <template v-for="l in links" :key="l.key">
-          <RouterLink v-if="l.route" :to="l.route">{{ l.label }}</RouterLink>
+          <button v-if="l.action" type="button" class="nav-action" @click="l.action">{{ l.label }}</button>
+          <RouterLink v-else-if="l.route" :to="l.route">{{ l.label }}</RouterLink>
           <span v-else class="nav-label">{{ l.label }}</span>
         </template>
       </nav>
@@ -395,7 +397,8 @@ onUnmounted(() => {
     <Transition name="slide">
       <nav v-if="menuOpen" class="mobile-menu">
         <template v-for="l in links" :key="l.key">
-          <RouterLink v-if="l.route" :to="l.route" @click="closeMenu">{{ l.label }}</RouterLink>
+          <button v-if="l.action" type="button" class="nav-action" @click="l.action; closeMenu()">{{ l.label }}</button>
+          <RouterLink v-else-if="l.route" :to="l.route" @click="closeMenu">{{ l.label }}</RouterLink>
           <span v-else class="nav-label">{{ l.label }}</span>
         </template>
       </nav>
@@ -529,6 +532,24 @@ onUnmounted(() => {
   font-size: 16px;
   white-space: nowrap;
   transition: color 0.2s ease;
+}
+
+/* 带点击回调的导航项（如考试最后一题的"提交"） */
+.nav-action {
+  border: none;
+  background: transparent;
+  color: var(--links-color);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  white-space: nowrap;
+  padding: 0;
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.nav-action:hover {
+  color: var(--text-color);
 }
 
 /* 纯文本导航项（如考试页的"当前题号"） */
@@ -801,6 +822,23 @@ onUnmounted(() => {
   color: var(--links-color);
   font-size: 16px;
   font-weight: 700;
+}
+
+/* 移动端菜单里的动作按钮（如"提交"） */
+.mobile-menu .nav-action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 12px 16px;
+  border-radius: 10px;
+  color: var(--links-color);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.mobile-menu .nav-action:hover {
+  background: var(--btn-hover);
+  color: var(--text-color);
 }
 
 /* 折叠菜单展开/收起过渡 */

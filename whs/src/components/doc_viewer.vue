@@ -54,7 +54,7 @@ onMounted(loadDoc)
         </div>
       </header>
       <div class="doc-body">
-        <div v-if="loading" class="doc-state">{{ t('admin.loading') }}</div>
+        <div v-if="loading" class="doc-state"><span class="spinner"></span>{{ t('admin.loading') }}</div>
         <div v-else-if="loadError" class="doc-state error">{{ loadError }}</div>
         <div v-else class="doc-content" v-html="html"></div>
       </div>

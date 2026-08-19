@@ -55,8 +55,8 @@ fi
 echo "  -> Installing dependencies..."
 npm install --silent
 
-echo "  -> Starting Vite dev server..."
-npm run dev -- --host 0.0.0.0 &
+echo "  -> Starting server..."
+npm run build -- --host 0.0.0.0 &
 FRONTEND_PID=$!
 echo "  -> Frontend started (PID $FRONTEND_PID) on http://localhost:5173"
 

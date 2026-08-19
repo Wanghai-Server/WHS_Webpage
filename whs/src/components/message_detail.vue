@@ -83,9 +83,9 @@ onUnmounted(() => {
           </header>
 
           <div class="detail-meta">
-            <span>{{ t('message.publishedAt') }}: {{ formatTime(props.message.created_at) }}</span>
-            <span v-if="props.message.updated_at" class="updated-meta">
-              {{ t('message.updatedAt') }}: {{ formatTime(props.message.updated_at) }}
+            <!-- 时间：最后一次修改时间（未编辑过即发布时间） -->
+            <span>
+              {{ t('message.lastModified') }}: {{ formatTime(props.message.updated_at || props.message.created_at) }}
             </span>
           </div>
 
@@ -199,10 +199,6 @@ onUnmounted(() => {
   font-size: 12px;
   color: var(--links-color);
   border-bottom: 1px solid rgba(148, 163, 184, 0.12);
-}
-
-.updated-meta {
-  opacity: 0.85;
 }
 
 .detail-body {

@@ -29,6 +29,7 @@ const sendCooldown = ref(0)
 let cooldownTimer = null
 
 const loading = ref(false)
+const sendingCode = ref(false)
 const visible = ref(true) // 控制进入/离开动画
 
 // 两段式确认：第一次点击“注销”进入待确认态，再次点击才执行
@@ -75,7 +76,7 @@ function onCaptchaError(err) {
 
 // 必须先完成人机验证，才能获取验证码
 async function sendCode() {
-  if (sendCooldown.value > 0) return
+  if (sendCooldown.value > 0 || sendingCode.value) return
   if (!hcaptchaToken.value) {
     showTip('warning', t('auth.captcha_required'))
     return
@@ -85,25 +86,30 @@ async function sendCode() {
     showTip('error', t('auth.request_failed'))
     return
   }
-  const res = await fetch('/api/user/send_code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok && data.success) {
-    showTip('info', t('auth.code_sent'))
-    sendCooldown.value = 60
-    if (cooldownTimer) clearInterval(cooldownTimer)
-    cooldownTimer = setInterval(() => {
-      sendCooldown.value -= 1
-      if (sendCooldown.value <= 0) {
-        clearInterval(cooldownTimer)
-        cooldownTimer = null
-      }
-    }, 1000)
-  } else {
-    showTip('error', localMessage(data))
+  sendingCode.value = true
+  try {
+    const res = await fetch('/api/user/send_code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.success) {
+      showTip('info', t('auth.code_sent'))
+      sendCooldown.value = 60
+      if (cooldownTimer) clearInterval(cooldownTimer)
+      cooldownTimer = setInterval(() => {
+        sendCooldown.value -= 1
+        if (sendCooldown.value <= 0) {
+          clearInterval(cooldownTimer)
+          cooldownTimer = null
+        }
+      }, 1000)
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    sendingCode.value = false
   }
 }
 
@@ -119,7 +125,6 @@ async function doCancel() {
   }
   if (!code.value.trim()) { showTip('warning', t('auth.code_required')); return }
   if (!oldPassword.value) { showTip('warning', t('auth.password_required')); return }
-  if (!hcaptchaToken.value) { showTip('warning', t('auth.captcha_required')); return }
   loading.value = true
   try {
     const oldHash = await sha256(oldPassword.value)
@@ -129,7 +134,6 @@ async function doCancel() {
       body: JSON.stringify({
         old_password: oldHash,
         code: code.value.trim(),
-        hcaptcha_response: hcaptchaToken.value,
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -194,7 +198,8 @@ onUnmounted(() => {
             <label class="label">{{ t('auth.code') }}</label>
             <div class="code-row">
               <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
-              <button type="button" class="btn ghost" :disabled="sendCooldown > 0" @click="sendCode">
+              <button type="button" class="btn ghost" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
+                <span v-if="sendingCode" class="spinner"></span>
                 {{ sendCooldown > 0 ? `${sendCooldown}s` : t('settings.sendCode') }}
               </button>
             </div>
@@ -227,6 +232,7 @@ onUnmounted(() => {
               {{ t('admin.cancel') }}
             </button>
             <button type="button" class="btn danger" :class="{ armed: confirmArmed }" :disabled="loading" @click="doCancel">
+              <span v-if="loading" class="spinner"></span>
               {{ confirmArmed ? t('settings.confirmCancel') : t('settings.cancel') }}
             </button>
           </div>

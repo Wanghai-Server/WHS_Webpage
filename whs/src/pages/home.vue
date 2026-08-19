@@ -36,6 +36,12 @@ function onSignup() {
   showRegister.value = true
 }
 
+// 注册悬浮框内点击"已有账号？去登录"：关闭悬浮窗并跳转到登录页
+function goLogin() {
+  showRegister.value = false
+  router.push('/login')
+}
+
 function handleKeydown(event) {
   if (event.key === 'Escape' && showRegister.value) {
     showRegister.value = false
@@ -98,7 +104,7 @@ onUnmounted(() => {
       <Transition name="fade">
         <div v-if="showRegister" class="modal-overlay" @click.self="showRegister = false">
           <div class="modal">
-            <RegisterForm :prefill="{ email }" @switch-login="showRegister = false" />
+            <RegisterForm :prefill="{ email }" @switch-login="goLogin" />
           </div>
         </div>
       </Transition>

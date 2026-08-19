@@ -1,7 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { animate } from 'animejs'
 import { Plus, Trash2, X, Check, Pencil } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
@@ -28,9 +27,11 @@ const editingMessage = ref(null)
 const publishTitle = ref('')
 const publishContent = ref('')
 const publishing = ref(false)
+// 进行中的消息操作（删除/标为已读）：记录消息 id，用于禁用对应按钮并显示圆环
+const busyMessageId = ref(null)
 
-const overlayRef = ref(null)
-const boxRef = ref(null)
+// 消息盒可见性：打开/关闭动画由 <Transition name="dialog-fade"> 统一处理
+const visible = ref(true)
 
 function localMessage(data) {
   const m = data && data.message
@@ -42,21 +43,6 @@ function authHeaders(extra = {}) {
   return {
     ...(authState.token ? { Authorization: `Bearer ${authState.token}` } : {}),
     ...extra,
-  }
-}
-
-// 计算消息按钮中心相对盒子的位置，作为弹出/收起动画的原点
-function getButtonOrigin() {
-  const box = boxRef.value
-  const fab = document.querySelector('.message-fab')
-  if (!box || !fab) {
-    return { x: '50%', y: '50%' }
-  }
-  const fabRect = fab.getBoundingClientRect()
-  const boxRect = box.getBoundingClientRect()
-  return {
-    x: fabRect.left + fabRect.width / 2 - boxRect.left,
-    y: fabRect.top + fabRect.height / 2 - boxRect.top
   }
 }
 
@@ -101,19 +87,24 @@ async function fetchMessages() {
 
 // 标为已读（幂等）
 async function markRead(m) {
-  if (!isLoggedIn.value || m.is_read) return
-  const res = await fetch(`/api/message/${m.id}/read`, {
-    method: 'POST',
-    headers: authHeaders(),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    m.is_read = true
-    messages.value.sort((a, b) => Number(a.is_read ?? 0) - Number(b.is_read ?? 0))
-    emit('read-changed')
-    showTip('info', t('message.markedRead'))
-  } else {
-    showTip('error', localMessage(data))
+  if (!isLoggedIn.value || m.is_read || busyMessageId.value !== null) return
+  busyMessageId.value = m.id
+  try {
+    const res = await fetch(`/api/message/${m.id}/read`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      m.is_read = true
+      messages.value.sort((a, b) => Number(a.is_read ?? 0) - Number(b.is_read ?? 0))
+      emit('read-changed')
+      showTip('info', t('message.markedRead'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    busyMessageId.value = null
   }
 }
 
@@ -224,42 +215,27 @@ function canEdit(m) {
 }
 
 async function removeMessage(m) {
-  const res = await fetch(`/api/admin/messages/${m.id}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    showTip('info', t('message.deleted'))
-    messages.value = messages.value.filter((x) => x.id !== m.id)
-    emit('read-changed') // 若删除的是未读消息，刷新导航栏红点
-  } else {
-    showTip('error', localMessage(data))
+  if (busyMessageId.value !== null) return
+  busyMessageId.value = m.id
+  try {
+    const res = await fetch(`/api/admin/messages/${m.id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      showTip('info', t('message.deleted'))
+      messages.value = messages.value.filter((x) => x.id !== m.id)
+      emit('read-changed') // 若删除的是未读消息，刷新导航栏红点
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    busyMessageId.value = null
   }
 }
 
 onMounted(() => {
-  // 从详情页返回时不重新播放打开动画（skipOpenAnimation=true）
-  if (!props.skipOpenAnimation) {
-    const box = boxRef.value
-    const overlay = overlayRef.value
-
-    // 打开动画：盒子从消息按钮处弹出到屏幕中央（带弹性）
-    if (box) {
-      const { x, y } = getButtonOrigin()
-      box.style.transformOrigin = `${x}px ${y}px`
-      animate(box, {
-        scale: [0, 1],
-        opacity: [0, 1],
-        duration: 450,
-        ease: 'outCubic'
-      })
-    }
-    if (overlay) {
-      animate(overlay, { opacity: [0, 1], duration: 300, ease: 'outQuad' })
-    }
-  }
-
   fetchMessages()
   document.addEventListener('keydown', handleKeydown)
 })
@@ -278,26 +254,11 @@ function handleKeydown(event) {
   }
 }
 
+// 关闭：置 visible=false，由 <Transition name="dialog-fade"> 播放离开动画，
+// 动画结束后（after-leave）再通知父组件卸载
 function close() {
-  const box = boxRef.value
-  const overlay = overlayRef.value
-
-  if (overlay) {
-    animate(overlay, { opacity: [1, 0], duration: 250, ease: 'outQuad' })
-  }
-  if (!box) {
-    emit('close')
-    return
-  }
-
-  // 关闭动画：盒子缩回消息按钮处，动画结束后再真正移除
-  animate(box, {
-    scale: [1, 0],
-    opacity: [1, 0],
-    duration: 250,
-    ease: 'inQuad',
-    onComplete: () => emit('close')
-  })
+  if (!visible.value) return
+  visible.value = false
 }
 
 // 暴露 close 方法，供父组件（消息图标）在图标变叉后触发关闭
@@ -306,8 +267,15 @@ defineExpose({ close })
 
 <template>
   <Teleport to="body">
-    <div class="message-overlay" ref="overlayRef" @click.self="close">
-      <div class="message-box" ref="boxRef">
+    <!-- 打开/关闭动画：复用 style.css 统一的 dialog-fade 动画；
+         skipOpenAnimation（从详情返回）时关闭 appear 首帧动画 -->
+    <Transition
+      name="dialog-fade"
+      :appear="!props.skipOpenAnimation"
+      @after-leave="emit('close')"
+    >
+      <div v-if="visible" class="message-overlay" @click.self="close">
+        <div class="message-box">
         <header class="message-head">
           <h2>{{ t('message.title') }}</h2>
           <div class="head-actions">
@@ -323,7 +291,7 @@ defineExpose({ close })
         </header>
 
         <div class="message-body">
-          <p v-if="loading" class="message-empty">{{ t('admin.loading') }}</p>
+          <p v-if="loading" class="message-empty"><span class="spinner"></span>{{ t('admin.loading') }}</p>
           <p v-else-if="messages.length === 0" class="message-empty">{{ t('message.empty') }}</p>
           <ul v-else class="message-list">
             <li v-for="m in messages" :key="m.id" class="message-item">
@@ -331,7 +299,10 @@ defineExpose({ close })
               <div class="message-head-row" @click="openDetail(m)">
                 <span class="message-title">{{ m.title || t('message.untitled') }}</span>
                 <div class="message-meta">
-                  <span class="message-time">{{ formatTime(m.created_at) }}</span>
+                  <!-- 发布者 -->
+                  <span v-if="m.author_name" class="message-author">{{ m.author_name }}</span>
+                  <!-- 时间：最后一次修改时间（未编辑过即发布时间） -->
+                  <span class="message-time">{{ formatTime(m.updated_at || m.created_at) }}</span>
                   <!-- 已编辑标记 -->
                   <span v-if="m.updated_at" class="edited-tag">{{ t('message.edited') }}</span>
                   <!-- 标为已读：未读可点；已读置灰 -->
@@ -340,16 +311,19 @@ defineExpose({ close })
                     type="button"
                     class="read-btn"
                     :class="{ read: m.is_read }"
+                    :disabled="busyMessageId !== null"
                     :title="m.is_read ? t('message.read') : t('message.markRead')"
                     :aria-label="m.is_read ? t('message.read') : t('message.markRead')"
                     @click.stop="markRead(m)"
                   >
-                    <Check :size="15" />
+                    <span v-if="busyMessageId === m.id" class="spinner"></span>
+                    <Check v-else :size="15" />
                   </button>
                   <button
                     v-if="canEdit(m)"
                     type="button"
                     class="edit-btn"
+                    :disabled="busyMessageId !== null"
                     :title="t('message.edit')"
                     :aria-label="t('message.edit')"
                     @click.stop="startEdit(m)"
@@ -360,11 +334,13 @@ defineExpose({ close })
                     v-if="canDelete(m)"
                     type="button"
                     class="delete-btn"
+                    :disabled="busyMessageId !== null"
                     :title="t('message.delete')"
                     :aria-label="t('message.delete')"
                     @click.stop="removeMessage(m)"
                   >
-                    <Trash2 :size="15" />
+                    <span v-if="busyMessageId === m.id" class="spinner"></span>
+                    <Trash2 v-else :size="15" />
                   </button>
                 </div>
               </div>
@@ -373,6 +349,7 @@ defineExpose({ close })
         </div>
       </div>
     </div>
+    </Transition>
 
     <!-- 发布/编辑消息对话框 -->
     <Transition name="dialog-fade">
@@ -401,6 +378,7 @@ defineExpose({ close })
               {{ t('admin.cancel') }}
             </button>
             <button type="button" class="btn primary" :disabled="publishing" @click="publish">
+              <span v-if="publishing" class="spinner"></span>
               {{ editingMessage ? t('message.save') : t('message.publish') }}
             </button>
           </div>
@@ -560,6 +538,14 @@ defineExpose({ close })
 .message-time {
   font-size: 12px;
   color: var(--links-color);
+}
+
+/* 发布者名称 */
+.message-author {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--links-color);
+  opacity: 0.85;
 }
 
 /* 已编辑标记 */

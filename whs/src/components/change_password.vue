@@ -33,6 +33,7 @@ const oldPasswordHash = ref('') // 第一页验证通过后保存，第二页提
 
 const step = ref('verify') // 'verify' | 'new'
 const loading = ref(false)
+const sendingCode = ref(false)
 const visible = ref(true) // 控制进入/离开动画；关闭时先播放离开动画再通知父组件
 
 const CLOSE_MS = 260 // 略大于 dialog-fade 离开动画时长(250ms)，保证动画播完再卸载
@@ -67,7 +68,7 @@ function onCaptchaError(err) {
 }
 
 async function sendCode() {
-  if (sendCooldown.value > 0) return
+  if (sendCooldown.value > 0 || sendingCode.value) return
   // 必须先完成人机验证，才能获取验证码
   if (!hcaptchaToken.value) {
     showTip('warning', t('auth.captcha_required'))
@@ -79,33 +80,37 @@ async function sendCode() {
     showTip('error', t('auth.request_failed'))
     return
   }
-  const res = await fetch('/api/user/send_code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok && data.success) {
-    showTip('info', t('auth.code_sent'))
-    sendCooldown.value = 60
-    if (cooldownTimer) clearInterval(cooldownTimer)
-    cooldownTimer = setInterval(() => {
-      sendCooldown.value -= 1
-      if (sendCooldown.value <= 0) {
-        clearInterval(cooldownTimer)
-        cooldownTimer = null
-      }
-    }, 1000)
-  } else {
-    showTip('error', localMessage(data))
+  sendingCode.value = true
+  try {
+    const res = await fetch('/api/user/send_code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.success) {
+      showTip('info', t('auth.code_sent'))
+      sendCooldown.value = 60
+      if (cooldownTimer) clearInterval(cooldownTimer)
+      cooldownTimer = setInterval(() => {
+        sendCooldown.value -= 1
+        if (sendCooldown.value <= 0) {
+          clearInterval(cooldownTimer)
+          cooldownTimer = null
+        }
+      }, 1000)
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    sendingCode.value = false
   }
 }
 
-// 第一页 -> 提交四项验证，通过后进入第二页
+// 第一页 -> 提交验证（验证码 + 旧密码），通过后进入第二页（人机验证仅发送验证码时需要）
 async function goNext() {
   if (!code.value.trim()) { showTip('warning', t('auth.code_required')); return }
   if (!oldPassword.value) { showTip('warning', t('auth.password_required')); return }
-  if (!hcaptchaToken.value) { showTip('warning', t('auth.captcha_required')); return }
   loading.value = true
   try {
     const oldHash = await sha256(oldPassword.value)
@@ -117,7 +122,6 @@ async function goNext() {
       body: JSON.stringify({
         code: code.value.trim(),
         old_password: oldHash,
-        hcaptcha_response: hcaptchaToken.value,
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -206,7 +210,8 @@ onUnmounted(() => {
             <label class="label">{{ t('auth.code') }}</label>
             <div class="code-row">
               <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
-              <button type="button" class="btn ghost" :disabled="sendCooldown > 0" @click="sendCode">
+              <button type="button" class="btn ghost" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
+                <span v-if="sendingCode" class="spinner"></span>
                 {{ sendCooldown > 0 ? `${sendCooldown}s` : t('settings.sendCode') }}
               </button>
             </div>
@@ -236,7 +241,10 @@ onUnmounted(() => {
 
           <div class="actions">
             <button class="btn cancel" :disabled="loading" @click="cancel">{{ t('admin.cancel') }}</button>
-            <button class="btn primary" :disabled="loading" @click="goNext">{{ t('settings.next') }}</button>
+            <button class="btn primary" :disabled="loading" @click="goNext">
+              <span v-if="loading" class="spinner"></span>
+              {{ t('settings.next') }}
+            </button>
           </div>
         </template>
 
@@ -265,7 +273,10 @@ onUnmounted(() => {
           </div>
 
           <div class="actions">
-            <button class="btn primary" :disabled="loading" @click="changePassword">{{ t('settings.change') }}</button>
+            <button class="btn primary" :disabled="loading" @click="changePassword">
+              <span v-if="loading" class="spinner"></span>
+              {{ t('settings.change') }}
+            </button>
           </div>
         </template>
       </div>

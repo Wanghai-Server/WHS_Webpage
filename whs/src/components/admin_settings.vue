@@ -47,6 +47,8 @@ const page = ref(1)
 const pageSize = 10
 const loading = ref(false)
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize)))
+// 进行中的行级操作（封禁/解锁/删答卷）：记录 uid，用于禁用按钮并显示圆环
+const busyUid = ref(null)
 
 // 权限对话框
 const showDialog = ref(false)
@@ -125,32 +127,44 @@ async function toggleBan(u) {
     showTip('warning', t('admin.cannotManageHigher'))
     return
   }
+  if (busyUid.value !== null) return
   const banned = !u.banned
-  const res = await fetch(`/api/user/${u.uid}/ban`, {
-    method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/json' }),
-    body: JSON.stringify({ banned }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    u.banned = !!data.banned
-    showTip('info', banned ? t('admin.bannedDone') : t('admin.unbannedDone'))
-  } else {
-    showTip('error', localMessage(data))
+  busyUid.value = u.uid
+  try {
+    const res = await fetch(`/api/user/${u.uid}/ban`, {
+      method: 'POST',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ banned }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      u.banned = !!data.banned
+      showTip('info', banned ? t('admin.bannedDone') : t('admin.unbannedDone'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    busyUid.value = null
   }
 }
 
 async function unlock(u) {
-  const res = await fetch(`/api/user/${u.uid}/unlock`, {
-    method: 'POST',
-    headers: authHeaders(),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    u.locked = false
-    showTip('info', t('admin.unlockedDone'))
-  } else {
-    showTip('error', localMessage(data))
+  if (busyUid.value !== null) return
+  busyUid.value = u.uid
+  try {
+    const res = await fetch(`/api/user/${u.uid}/unlock`, {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      u.locked = false
+      showTip('info', t('admin.unlockedDone'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    busyUid.value = null
   }
 }
 
@@ -268,16 +282,22 @@ function cGoPage(p) {
 }
 
 async function deleteAnswers(c) {
-  const res = await fetch(`/api/admin/exam/answers/${c.uid}`, {
-    method: 'DELETE',
-    headers: authHeaders(),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    showTip('info', t('admin.examDeleted'))
-    fetchCandidates()
-  } else {
-    showTip('error', localMessage(data))
+  if (busyUid.value !== null) return
+  busyUid.value = c.uid
+  try {
+    const res = await fetch(`/api/admin/exam/answers/${c.uid}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      showTip('info', t('admin.examDeleted'))
+      fetchCandidates()
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    busyUid.value = null
   }
 }
 
@@ -391,7 +411,7 @@ onUnmounted(() => {
             </header>
 
             <div class="panel-body">
-              <div v-if="loading" class="table-empty">{{ t('admin.loading') }}</div>
+              <div v-if="loading" class="table-empty"><span class="spinner"></span>{{ t('admin.loading') }}</div>
               <div v-else-if="users.length === 0" class="table-empty">{{ t('admin.noUsers') }}</div>
               <div v-else class="table-scroll">
                 <table class="user-table">
@@ -417,23 +437,24 @@ onUnmounted(() => {
                       </td>
                       <td>
                         <div class="row-actions">
-                          <button class="icon-btn" :title="t('admin.view')" :aria-label="t('admin.view')" @click="viewUser(u)">
+                          <button class="icon-btn" :disabled="busyUid !== null" :title="t('admin.view')" :aria-label="t('admin.view')" @click="viewUser(u)">
                             <Eye :size="18" />
                           </button>
                           <button
                             class="icon-btn"
                             :class="{ danger: !u.banned, success: u.banned }"
-                            :disabled="!canBan(u)"
+                            :disabled="!canBan(u) || busyUid !== null"
                             :title="canBan(u) ? (u.banned ? t('admin.unban') : t('admin.ban')) : t('admin.cannotManageHigher')"
                             :aria-label="canBan(u) ? (u.banned ? t('admin.unban') : t('admin.ban')) : t('admin.cannotManageHigher')"
                             @click="toggleBan(u)"
                           >
-                            <CircleCheck v-if="u.banned" :size="18" />
+                            <span v-if="busyUid === u.uid" class="spinner"></span>
+                            <CircleCheck v-else-if="u.banned" :size="18" />
                             <Ban v-else :size="18" />
                           </button>
                           <button
                             class="icon-btn"
-                            :disabled="!canSetPermission(u)"
+                            :disabled="!canSetPermission(u) || busyUid !== null"
                             :title="canSetPermission(u) ? t('admin.setPermission') : t('admin.cannotManageHigher')"
                             :aria-label="canSetPermission(u) ? t('admin.setPermission') : t('admin.cannotManageHigher')"
                             @click="openPermissionDialog(u)"
@@ -443,11 +464,13 @@ onUnmounted(() => {
                           <button
                             v-if="u.locked"
                             class="icon-btn"
+                            :disabled="busyUid !== null"
                             :title="t('admin.unlock')"
                             :aria-label="t('admin.unlock')"
                             @click="unlock(u)"
                           >
-                            <LockOpen :size="18" />
+                            <span v-if="busyUid === u.uid" class="spinner"></span>
+                            <LockOpen v-else :size="18" />
                           </button>
                         </div>
                       </td>
@@ -456,12 +479,14 @@ onUnmounted(() => {
                 </table>
               </div>
               <div class="pagination">
-                <button class="page-btn" :disabled="page <= 1" @click="goPage(page - 1)">
-                  <ChevronLeft :size="18" />
+                <button class="page-btn" :disabled="page <= 1 || loading" @click="goPage(page - 1)">
+                  <span v-if="loading" class="spinner"></span>
+                  <ChevronLeft v-else :size="18" />
                 </button>
                 <span class="page-info">{{ t('admin.pageInfo', { page, total: totalPages }) }}</span>
-                <button class="page-btn" :disabled="page >= totalPages" @click="goPage(page + 1)">
-                  <ChevronRight :size="18" />
+                <button class="page-btn" :disabled="page >= totalPages || loading" @click="goPage(page + 1)">
+                  <span v-if="loading" class="spinner"></span>
+                  <ChevronRight v-else :size="18" />
                 </button>
               </div>
             </div>
@@ -483,7 +508,7 @@ onUnmounted(() => {
             </header>
 
             <div class="panel-body">
-              <div v-if="cLoading" class="table-empty">{{ t('admin.loading') }}</div>
+              <div v-if="cLoading" class="table-empty"><span class="spinner"></span>{{ t('admin.loading') }}</div>
               <div v-else-if="candidates.length === 0" class="table-empty">{{ t('admin.examNoCandidates') }}</div>
               <div v-else class="table-scroll">
                 <table class="user-table">
@@ -507,11 +532,12 @@ onUnmounted(() => {
                       </td>
                       <td>
                         <div class="row-actions">
-                          <button class="icon-btn" :title="t('admin.examViewSheet')" :aria-label="t('admin.examViewSheet')" @click="openAnswerSheet(c)">
+                          <button class="icon-btn" :disabled="busyUid !== null" :title="t('admin.examViewSheet')" :aria-label="t('admin.examViewSheet')" @click="openAnswerSheet(c)">
                             <FileText :size="18" />
                           </button>
-                          <button class="icon-btn danger" :title="t('admin.examDelete')" :aria-label="t('admin.examDelete')" @click="deleteAnswers(c)">
-                            <Trash2 :size="18" />
+                          <button class="icon-btn danger" :disabled="busyUid !== null" :title="t('admin.examDelete')" :aria-label="t('admin.examDelete')" @click="deleteAnswers(c)">
+                            <span v-if="busyUid === c.uid" class="spinner"></span>
+                            <Trash2 v-else :size="18" />
                           </button>
                         </div>
                       </td>
@@ -520,12 +546,14 @@ onUnmounted(() => {
                 </table>
               </div>
               <div class="pagination">
-                <button class="page-btn" :disabled="cPage <= 1" @click="cGoPage(cPage - 1)">
-                  <ChevronLeft :size="18" />
+                <button class="page-btn" :disabled="cPage <= 1 || cLoading" @click="cGoPage(cPage - 1)">
+                  <span v-if="cLoading" class="spinner"></span>
+                  <ChevronLeft v-else :size="18" />
                 </button>
                 <span class="page-info">{{ t('admin.pageInfo', { page: cPage, total: cTotalPages }) }}</span>
-                <button class="page-btn" :disabled="cPage >= cTotalPages" @click="cGoPage(cPage + 1)">
-                  <ChevronRight :size="18" />
+                <button class="page-btn" :disabled="cPage >= cTotalPages || cLoading" @click="cGoPage(cPage + 1)">
+                  <span v-if="cLoading" class="spinner"></span>
+                  <ChevronRight v-else :size="18" />
                 </button>
               </div>
             </div>
@@ -547,7 +575,7 @@ onUnmounted(() => {
             </header>
 
             <div class="panel-body">
-              <div v-if="sheetLoading" class="table-empty">{{ t('admin.loading') }}</div>
+              <div v-if="sheetLoading" class="table-empty"><span class="spinner"></span>{{ t('admin.loading') }}</div>
               <template v-else-if="sheet">
                 <div class="sheet-meta">
                   <span class="meta-left">
@@ -567,7 +595,7 @@ onUnmounted(() => {
                     :mode="'review'"
                     :review-uid="sheet.uid"
                     :review-score="sheet.answers[qid].obtained_score"
-                    :review-attachment="sheet.answers[qid].attachment || ''"
+                    :review-attachment="sheet.answers[qid].attachment || []"
                     @score-saved="onSheetScoreSaved"
                   />
                 </div>
@@ -614,7 +642,10 @@ onUnmounted(() => {
             />
             <div class="dialog-actions">
               <button class="btn cancel" :disabled="dialogSaving" @click="closeDialog">{{ t('admin.cancel') }}</button>
-              <button class="btn primary" :disabled="dialogSaving" @click="submitPermission">{{ t('admin.set') }}</button>
+              <button class="btn primary" :disabled="dialogSaving" @click="submitPermission">
+                <span v-if="dialogSaving" class="spinner"></span>
+                {{ t('admin.set') }}
+              </button>
             </div>
           </div>
         </div>

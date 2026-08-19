@@ -60,6 +60,7 @@ let emailTimer = null
 // 保存状态
 const savingBasic = ref(false)
 const savingProfile = ref(false)
+const emailSendingCode = ref(false)
 
 const currentYear = new Date().getFullYear()
 const years = computed(() => {
@@ -282,26 +283,31 @@ async function sendEmailCode() {
     showTip('warning', t('auth.captcha_required'))
     return
   }
-  if (emailCooldown.value > 0) return
-  const res = await fetch('/api/user/send_code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: newEmail.value.trim(), locale: locale.value, hcaptcha_response: emailCaptchaToken.value }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok && data.success) {
-    showTip('info', t('auth.code_sent'))
-    emailCooldown.value = 60
-    if (emailTimer) clearInterval(emailTimer)
-    emailTimer = setInterval(() => {
-      emailCooldown.value -= 1
-      if (emailCooldown.value <= 0) {
-        clearInterval(emailTimer)
-        emailTimer = null
-      }
-    }, 1000)
-  } else {
-    showTip('error', localMessage(data))
+  if (emailCooldown.value > 0 || emailSendingCode.value) return
+  emailSendingCode.value = true
+  try {
+    const res = await fetch('/api/user/send_code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: newEmail.value.trim(), locale: locale.value, hcaptcha_response: emailCaptchaToken.value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.success) {
+      showTip('info', t('auth.code_sent'))
+      emailCooldown.value = 60
+      if (emailTimer) clearInterval(emailTimer)
+      emailTimer = setInterval(() => {
+        emailCooldown.value -= 1
+        if (emailCooldown.value <= 0) {
+          clearInterval(emailTimer)
+          emailTimer = null
+        }
+      }, 1000)
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    emailSendingCode.value = false
   }
 }
 
@@ -318,10 +324,6 @@ async function changeEmail() {
     showTip('warning', t('auth.code_required'))
     return
   }
-  if (!emailCaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
-    return
-  }
   savingEmail.value = true
   try {
     const res = await fetch(`/api/user/${props.user.uid}/email`, {
@@ -330,7 +332,6 @@ async function changeEmail() {
       body: JSON.stringify({
         email: newEmail.value.trim(),
         code: emailCode.value.trim(),
-        hcaptcha_response: emailCaptchaToken.value,
       }),
     })
     const data = await res.json().catch(() => ({}))
@@ -385,6 +386,7 @@ onUnmounted(() => {
           {{ t('settings.undo') }}
         </button>
         <button class="btn primary" :disabled="savingProfile" @click="saveProfile">
+          <span v-if="savingProfile" class="spinner"></span>
           {{ t('settings.saveProfile') }}
         </button>
       </div>
@@ -427,6 +429,7 @@ onUnmounted(() => {
           {{ t('settings.undo') }}
         </button>
         <button class="btn primary" :disabled="savingBasic" @click="saveBasic">
+          <span v-if="savingBasic" class="spinner"></span>
           {{ t('settings.saveBasic') }}
         </button>
       </div>
@@ -496,6 +499,7 @@ onUnmounted(() => {
           <div class="dialog-actions">
             <button class="btn cancel" @click="showAvatarDialog = false">{{ t('admin.cancel') }}</button>
             <button class="btn primary" :disabled="savingAvatar || !avatarFile" @click="uploadAvatar">
+              <span v-if="savingAvatar" class="spinner"></span>
               {{ t('settings.uploadAvatar') }}
             </button>
           </div>
@@ -518,7 +522,8 @@ onUnmounted(() => {
             <label class="label">{{ t('auth.code') }}</label>
             <div class="code-row">
               <input v-model="emailCode" type="text" :placeholder="t('auth.code')" />
-              <button class="btn ghost" :disabled="emailCooldown > 0" @click="sendEmailCode">
+              <button class="btn ghost" :disabled="emailCooldown > 0 || emailSendingCode" @click="sendEmailCode">
+                <span v-if="emailSendingCode" class="spinner"></span>
                 {{ emailCooldown > 0 ? `${emailCooldown}s` : t('settings.sendCode') }}
               </button>
             </div>
@@ -537,6 +542,7 @@ onUnmounted(() => {
           <div class="dialog-actions">
             <button class="btn cancel" :disabled="savingEmail" @click="showEmailDialog = false">{{ t('admin.cancel') }}</button>
             <button class="btn primary" :disabled="savingEmail" @click="changeEmail">
+              <span v-if="savingEmail" class="spinner"></span>
               {{ t('settings.changeEmail') }}
             </button>
           </div>

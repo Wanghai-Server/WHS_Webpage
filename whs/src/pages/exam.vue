@@ -40,6 +40,9 @@ let profileTimer = null
 // 重审申请（防连点）：本答卷周期内只允许申请一次；重做（新答卷周期）后重置
 const reviewRequested = ref(false)
 const reviewing = ref(false)
+// 提交/重考进行中（按钮禁用 + 圆环）
+const submitting = ref(false)
+const retaking = ref(false)
 
 // 考试数据
 const examConfig = ref(null)   // {total_score, questions}
@@ -48,6 +51,8 @@ const progress = ref(null)     // {answered, answered_count, all_answered}
 const answers = ref({})
 // 每题已上传附件文件名（从服务器进度回显，供重新进入题目时展示）
 const attachments = ref({})
+// 当前题目组件实例（切题/提交前调用其 saveNow 保存答案）
+const questionRef = ref(null)
 
 const questionIds = computed(() => (examConfig.value ? examConfig.value.questions.map((q) => q.id) : []))
 const currentId = ref(null)
@@ -83,10 +88,14 @@ async function fetchProgress() {
   const data = await res.json().catch(() => ({}))
   if (res.ok) {
     progress.value = data
-    // 用已答内容回显每题答案与附件
+    // 用已答内容回显每题答案与附件（附件为文件名数组，兼容旧字符串）
     for (const [qid, rec] of Object.entries(data.answered || {})) {
       answers.value[qid] = rec.answer
-      attachments.value[qid] = rec.attachment || ''
+      attachments.value[qid] = Array.isArray(rec.attachment)
+        ? rec.attachment
+        : rec.attachment
+          ? [rec.attachment]
+          : []
     }
   }
   return data
@@ -149,41 +158,58 @@ function startAnswer() {
   stage.value = 'answering'
 }
 
-// 答题导航（navRoutes 供导航栏使用）
+// 顶部导航栏：考试期间只显示纯文本题号（上一题/下一题/提交移到题目下方）
 const navRoutes = computed(() => {
   if (stage.value !== 'answering') return null
-  const ids = questionIds.value
-  const idx = ids.indexOf(currentId.value)
-  const prev = idx > 0 ? ids[idx - 1] : null
-  const next = idx < ids.length - 1 ? ids[idx + 1] : null
   return {
-    prev: { label: `← ${t('exam.prev')}`, route: prev ? `/joinus/exam?question=${prev}` : '' },
-    current: { label: `${currentId.value} / ${ids.length}`, route: '' },
-    next: { label: `${t('exam.next')} →`, route: next ? `/joinus/exam?question=${next}` : '' },
+    current: { label: `${currentId.value} / ${questionIds.value.length}`, route: '' },
   }
 })
 
-// 某题已保存：刷新进度，若全部答完则自动交卷
+// 题目下方的答题导航
+const currentIndex = computed(() => questionIds.value.indexOf(currentId.value))
+const isFirst = computed(() => currentIndex.value <= 0)
+const isLast = computed(() => currentIndex.value === questionIds.value.length - 1)
+const prevId = computed(() =>
+  currentIndex.value > 0 ? questionIds.value[currentIndex.value - 1] : null
+)
+const nextId = computed(() =>
+  currentIndex.value < questionIds.value.length - 1 ? questionIds.value[currentIndex.value + 1] : null
+)
+
+function goQuestion(id) {
+  if (id == null) return
+  router.replace({ query: { ...route.query, question: id } })
+}
+
+// 某题已保存：刷新进度（不自动交卷，由考生点击"提交"完成）
 async function onAnswerSaved() {
-  const p = await fetchProgress()
-  if (p && p.all_answered) {
-    finishExam()
-  }
+  await fetchProgress()
 }
 
 async function finishExam() {
-  const res = await fetch('/api/exam/finish', { method: 'POST', headers: authHeaders() })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    profile.value.attempts = data.attempts
-    profile.value.passed = data.passed
-    profile.value.can_answer = data.can_answer
-    stage.value = 'done'
-    // 交卷（及格后权限升级为 player=2）：刷新公共用户数据，
-    // 使首页等处的"正式成员"判断立即生效
-    fetchMe()
-  } else {
-    showTip('error', localMessage(data))
+  if (submitting.value) return
+  submitting.value = true
+  try {
+    // 交卷前保存当前题（避免最后一题的答案未入库）
+    if (questionRef.value) {
+      await questionRef.value.saveNow()
+    }
+    const res = await fetch('/api/exam/finish', { method: 'POST', headers: authHeaders() })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      profile.value.attempts = data.attempts
+      profile.value.passed = data.passed
+      profile.value.can_answer = data.can_answer
+      stage.value = 'done'
+      // 交卷（及格后权限升级为 player=2）：刷新公共用户数据，
+      // 使首页等处的"正式成员"判断立即生效
+      fetchMe()
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -194,19 +220,25 @@ const obtainedScore = computed(() => {
 })
 
 async function retake() {
-  const res = await fetch('/api/exam/reset', { method: 'POST', headers: authHeaders() })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    answers.value = {}
-    attachments.value = {}
-    reviewRequested.value = false // 新答卷周期：允许再申请一次重审
-    await fetchProgress()
-    currentId.value = questionIds.value[0]
-    router.replace('/joinus/exam?question=' + questionIds.value[0])
-    stage.value = 'answering'
-    showTip('info', t('exam.retakeStarted'))
-  } else {
-    showTip('error', localMessage(data))
+  if (retaking.value) return
+  retaking.value = true
+  try {
+    const res = await fetch('/api/exam/reset', { method: 'POST', headers: authHeaders() })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      answers.value = {}
+      attachments.value = {}
+      reviewRequested.value = false // 新答卷周期：允许再申请一次重审
+      await fetchProgress()
+      currentId.value = questionIds.value[0]
+      router.replace('/joinus/exam?question=' + questionIds.value[0])
+      stage.value = 'answering'
+      showTip('info', t('exam.retakeStarted'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    retaking.value = false
   }
 }
 
@@ -228,13 +260,17 @@ async function requestReview() {
   }
 }
 
+// 路由切换（上一题/下一题/提交均通过路由变化触发）：
+// 先保存当前题的答案，再切换题目（输入不再实时保存，避免快速作答丢失）
 watch(
   () => route.query.question,
-  (q) => {
-    if (stage.value === 'answering' && questionIds.value.length) {
-      const id = Number(q)
-      if (questionIds.value.includes(id)) currentId.value = id
+  async (q, oldQ) => {
+    if (stage.value !== 'answering' || !questionIds.value.length) return
+    if (oldQ != null && questionRef.value) {
+      await questionRef.value.saveNow()
     }
+    const id = Number(q)
+    if (questionIds.value.includes(id)) currentId.value = id
   }
 )
 
@@ -252,7 +288,7 @@ onUnmounted(() => {
   <Top_navbar back-route="/joinus" :nav-routes="navRoutes" />
 
   <main class="exam-page">
-    <div v-if="loading" class="placeholder">{{ t('admin.loading') }}</div>
+    <div v-if="loading" class="placeholder"><span class="spinner"></span>{{ t('admin.loading') }}</div>
 
     <!-- 试卷说明（看完后才能填写个人信息并开始答题） -->
     <template v-else-if="stage === 'notice'">
@@ -312,14 +348,41 @@ onUnmounted(() => {
     <template v-else-if="stage === 'answering'">
       <ExamQuestion
         v-if="currentQuestion"
+        ref="questionRef"
         :key="currentId"
         :question="currentQuestion"
         :model-value="currentAnswer"
-        :attachment="attachments[currentId] || ''"
+        :attachment="attachments[currentId] || []"
         :mode="'answer'"
         @update:model-value="(v) => { answers[currentId] = v }"
         @saved="onAnswerSaved"
       />
+
+      <!-- 题目下方的答题导航：上一题 / 下一题，最后一题为提交 -->
+      <div class="answer-nav load-in" style="--load-delay: 80ms">
+        <button
+          v-if="!isFirst"
+          type="button"
+          class="nav-btn"
+          @click="goQuestion(prevId)"
+        >
+          ← {{ t('exam.prev') }}
+        </button>
+        <span class="nav-spacer"></span>
+        <button
+          v-if="!isLast"
+          type="button"
+          class="nav-btn primary"
+          @click="goQuestion(nextId)"
+        >
+          {{ t('exam.next') }} →
+        </button>
+        <button v-else type="button" class="nav-btn submit" :disabled="submitting" @click="finishExam">
+          <span v-if="submitting" class="spinner"></span>
+          {{ t('exam.submit') }}
+        </button>
+      </div>
+
       <div class="answer-hint">{{ t('exam.autoSaveHint') }}</div>
     </template>
 
@@ -336,13 +399,19 @@ onUnmounted(() => {
 
         <!-- 仅不及格时显示操作区；及格后成绩单只展示成绩 -->
         <div v-if="!profile.passed" class="done-actions">
-          <button v-if="profile.attempts < 2" type="button" class="btn retake" @click="retake">{{ t('exam.retake') }}</button>
+          <button v-if="profile.attempts < 2" type="button" class="btn retake" :disabled="retaking" @click="retake">
+            <span v-if="retaking" class="spinner"></span>
+            {{ t('exam.retake') }}
+          </button>
           <button
             type="button"
             class="btn review"
             :disabled="reviewRequested || reviewing"
             @click="requestReview"
-          >{{ reviewRequested ? t('exam.reviewRequested') : t('exam.reviewRequest') }}</button>
+          >
+            <span v-if="reviewing" class="spinner"></span>
+            {{ reviewRequested ? t('exam.reviewRequested') : t('exam.reviewRequest') }}
+          </button>
         </div>
         <p v-if="!profile.passed && profile.attempts >= 2" class="exhausted-hint">{{ t('exam.exhausted') }}</p>
       </section>
@@ -522,6 +591,75 @@ onUnmounted(() => {
   text-align: center;
   font-size: 13px;
   color: var(--links-color);
+}
+
+/* 题目下方的答题导航 */
+.answer-nav {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.nav-spacer {
+  flex: 1;
+}
+
+.nav-btn {
+  padding: 12px 26px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: var(--links-color);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.nav-btn:hover {
+  color: var(--text-color);
+  background: var(--btn-hover);
+}
+
+.nav-btn.primary {
+  border: none;
+  background: var(--text-color);
+  color: var(--bg-color);
+}
+
+.nav-btn.primary:hover {
+  opacity: 0.85;
+  background: var(--text-color);
+}
+
+/* 提交按钮：醒目强调色 */
+.nav-btn.submit {
+  border: none;
+  background: #ebaa28;
+  color: #1f2937;
+  font-weight: 700;
+}
+
+.nav-btn.submit:hover {
+  background: #d99a1f;
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .answer-nav {
+    flex-wrap: wrap;
+  }
+
+  .nav-btn {
+    flex: 1;
+    text-align: center;
+    padding: 12px 10px;
+  }
+
+  .nav-spacer {
+    display: none;
+  }
 }
 
 .done-card {

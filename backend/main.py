@@ -752,10 +752,7 @@ async def login(payload: dict = Body(...)):
             return _error_response("code_invalid", 400)
         VERIFY_CODES.pop(identifier, None)
     elif password is not None:
-        # 账密模式：email / UID / username（不填验证码，提交时校验人机验证）
-        hcaptcha_response = payload.get("hcaptcha_response") or ""
-        if not await _verify_hcaptcha(hcaptcha_response):
-            return _error_response("captcha_invalid", 400)
+        # 账密模式：email / UID / username（不填验证码；人机验证仅在获取验证码时需要）
         user = _find_by_identifier(identifier)
         if user is None:
             return _error_response("user_not_found", 404)
@@ -1234,6 +1231,15 @@ def get_avatar(uid: int):
 # 其它
 # ---------------------------------------------------------------------------
 
+def _attach_message_author(msg: dict) -> None:
+    """把消息的 author_uid 解析为发布者名称（author_name），写入消息字典。"""
+    author = user_db.get_user(uid=msg.get("author_uid"))
+    if author:
+        msg["author_name"] = author.get("fullname") or author.get("username") or ""
+    else:
+        msg["author_name"] = ""
+
+
 @app.get("/api/message/system")
 def system_messages(user: dict | None = Depends(get_current_user)):
     """系统消息列表（所有人可见）；登录时附带每条消息当前用户是否已读。"""
@@ -1241,6 +1247,8 @@ def system_messages(user: dict | None = Depends(get_current_user)):
     for m in messages:
         # 不向客户端暴露其他用户的已读 uid 列表
         m.pop("read_uids", None)
+        # 附带发布者名称（供消息盒子展示）
+        _attach_message_author(m)
         if user is None:
             m["is_read"] = None
         else:
@@ -1374,7 +1382,7 @@ def exam_progress(user: dict | None = Depends(get_current_user)):
     answered = {
         qid: {
             "answer": rec.get("answer"),
-            "attachment": rec.get("attachment"),
+            "attachment": rec.get("attachment") or [],
             "obtained_score": rec.get("obtained_score", 0),
             "answered_at": rec.get("answered_at"),
         }
@@ -1406,7 +1414,12 @@ def exam_answer(payload: dict = Body(...), user: dict | None = Depends(get_curre
         return _error_response("exam_question_not_found", 404)
 
     answer = payload.get("answer")
+    # 附件：允许文件名列表（多附件）；兼容旧格式单个文件名
     attachment = payload.get("attachment") or None
+    if isinstance(attachment, str):
+        attachment = [attachment]
+    elif not isinstance(attachment, list):
+        attachment = None
     options = q.get("options") or {}
 
     # 按题型校验答案格式
@@ -1419,13 +1432,13 @@ def exam_answer(payload: dict = Body(...), user: dict | None = Depends(get_curre
         ):
             return _error_response("exam_answer_invalid", 400)
     elif q["type"] == "fill_blank":
-        # 单项填空：字符串；多项填空：每空一个字符串组成的列表
-        if not isinstance(answer, str) and not (
+        # 单项填空：字符串；多项填空：每空一个字符串组成的列表；允许空答案（None/空串/空数组）
+        if answer is not None and not isinstance(answer, str) and not (
             isinstance(answer, list) and all(isinstance(x, str) for x in answer)
         ):
             return _error_response("exam_answer_invalid", 400)
-    else:  # subjective 主观题：文本作答，不计分
-        if not isinstance(answer, str):
+    else:  # subjective 主观题：文本作答，不计分；允许空答案
+        if answer is not None and not isinstance(answer, str):
             return _error_response("exam_answer_invalid", 400)
     # 附件仅填空题且 allow_upload 时允许
     if attachment:
@@ -1487,6 +1500,28 @@ def exam_attachment(filename: str, user: dict | None = Depends(get_current_user)
     if not path.is_file():
         return _error_response("exam_attachment_not_found", 404)
     return FileResponse(path)
+
+
+@app.delete("/api/exam/attachment/{filename}")
+def delete_exam_attachment(filename: str, user: dict | None = Depends(get_current_user)):
+    """删除本人（或管理员）上传的答题附件：移除答题记录引用并删除文件。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    name = Path(filename).name
+    match = re.match(r"^u(\d+)_q(\d+)_[0-9a-f]+\.(jpg|png|webp|gif)$", name)
+    if not match:
+        return _error_response("exam_attachment_not_found", 404)
+    owner = int(match.group(1))
+    question_id = int(match.group(2))
+    if owner != user["uid"] and (user.get("permission") or 0) < 3:
+        return _error_response("permission_denied", 403)
+    # 从答题记录中移除引用（幂等）
+    exam_db.remove_attachment(owner, question_id, name)
+    # 删除磁盘文件
+    path = EXAM_UPLOAD_DIR / name
+    if path.is_file():
+        path.unlink()
+    return {"success": True}
 
 
 @app.post("/api/admin/exam/image")
@@ -1686,9 +1721,7 @@ def exam_finish(user: dict | None = Depends(get_current_user)):
     if cfg is None:
         return _error_response("exam_config_error", 500)
     answers = exam_db.get_answers(user["uid"])
-    all_ids = set(cfg["questions"].keys())
-    if not all_ids.issubset(answers.keys()):
-        return _error_response("exam_not_finished", 400)
+    # 允许空答案：未作答的题视为空答案（0 分），不再强制要求每题都有记录
 
     total = cfg["total_score"]
     obtained = sum(rec.get("obtained_score", 0) for rec in answers.values())
@@ -1838,7 +1871,7 @@ def admin_exam_answers(uid: int, user: dict | None = Depends(get_current_user)):
         per[qid] = {
             "question": _exam_question_public(qid, q),
             "answer": rec.get("answer") if rec else None,
-            "attachment": rec.get("attachment") if rec else None,
+            "attachment": (rec.get("attachment") or []) if rec else [],
             "obtained_score": rec.get("obtained_score", 0) if rec else 0,
             "answered": rec is not None,
         }
@@ -1918,6 +1951,7 @@ def user_message(user_id: str, user: dict | None = Depends(get_current_user)):
     messages = message_db.list_user_messages(uid)
     for m in messages:
         m.pop("read_uids", None)
+        _attach_message_author(m)
         m["is_read"] = message_db.is_read_by(m["id"], user["uid"])
     return {"messages": messages}
 

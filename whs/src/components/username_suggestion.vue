@@ -6,6 +6,7 @@ import { useTips } from '../composables/useTips'
 
 const props = defineProps({
   base: { type: String, required: true },
+  loading: { type: Boolean, default: false }, // 父级（注册提交）进行中时禁用确认
 })
 const emit = defineEmits(['confirm', 'back'])
 
@@ -55,13 +56,15 @@ onMounted(fetchSuggestion)
         :title="t('register.refresh')"
         @click="fetchSuggestion"
       >
-        <RefreshCw :size="18" />
+        <span v-if="loading" class="spinner"></span>
+        <RefreshCw v-else :size="18" />
       </button>
     </div>
 
     <div class="actions">
-      <button type="button" class="btn back" @click="emit('back')">{{ t('register.back') }}</button>
-      <button type="button" class="btn confirm" :disabled="!suggested" @click="emit('confirm', suggested)">
+      <button type="button" class="btn back" :disabled="props.loading" @click="emit('back')">{{ t('register.back') }}</button>
+      <button type="button" class="btn confirm" :disabled="!suggested || props.loading" @click="emit('confirm', suggested)">
+        <span v-if="props.loading" class="spinner"></span>
         {{ t('register.confirm') }}
       </button>
     </div>

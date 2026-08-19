@@ -4,9 +4,48 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/icons.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <style>
+      /* 启动等待动画：仅一个旋转圆环（无文字）。
+         位于 #app 内，Vue 挂载时会自动替换掉，无需额外 JS 清理。 */
+      .boot-spinner {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        width: 36px;
+        height: 36px;
+        margin: -18px 0 0 -18px;
+        box-sizing: border-box;
+        border: 3px solid rgba(0, 0, 0, 0.15);
+        border-top-color: #333333;
+        border-radius: 50%;
+        animation: boot-spin 0.8s linear infinite;
+      }
+
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      /* 深色模式适配（跟随系统偏好） */
+      @media (prefers-color-scheme: dark) {
+        .boot-spinner {
+          border-color: rgba(255, 255, 255, 0.2);
+          border-top-color: #f5f5f5;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-spinner {
+          animation-duration: 1.6s;
+        }
+      }
+    </style>
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app">
+      <div class="boot-spinner" aria-hidden="true"></div>
+    </div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

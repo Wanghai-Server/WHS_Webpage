@@ -152,6 +152,7 @@ async function submit() {
     </div>
 
     <button type="button" class="finish" :disabled="loading" @click="submit">
+      <span v-if="loading" class="spinner"></span>
       {{ t('register.finish') }}
     </button>
   </div>

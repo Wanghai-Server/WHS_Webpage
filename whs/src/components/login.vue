@@ -27,6 +27,7 @@ const password = ref('')
 const email = ref('')
 const code = ref('')
 const loading = ref(false)
+const sendingCode = ref(false)
 const hcaptchaToken = ref('')
 const hcaptchaSiteKey = useHcaptchaSiteKey()
 const sendCooldown = ref(0)
@@ -78,8 +79,7 @@ async function submit() {
       body = { identifier: email.value.trim(), code: code.value.trim() }
     }
 
-    if (!hcaptchaToken.value) { showTip('warning', t('auth.captcha_required')); return }
-    body.hcaptcha_response = hcaptchaToken.value
+    // 人机验证仅"发送验证码"时需要，登录提交不再要求
 
     const res = await fetch('/api/user/login', {
       method: 'POST',
@@ -91,7 +91,9 @@ async function submit() {
     if (res.ok) {
       setAuth(data.token, data.user)
       fetchMe() // 登录成功：刷新公共用户数据（操作变更后统一重新拉取）
-      router.push(`/user/${data.user.uid}`)
+      // 权限 < 2（guest/user，尚未通过入服考试）：跳转"加入我们"（考试入口）
+      const permission = data.user?.permission ?? 0
+      router.push(permission >= 2 ? `/user/${data.user.uid}` : '/joinus')
       return
     }
 
@@ -124,26 +126,31 @@ async function sendCode() {
     showTip('warning', t('auth.captcha_required'))
     return
   }
-  if (sendCooldown.value > 0) return
-  const res = await fetch('/api/user/send_code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok && data.success) {
-    showTip('info', t('auth.code_sent'))
-    sendCooldown.value = 60
-    if (cooldownTimer) clearInterval(cooldownTimer)
-    cooldownTimer = setInterval(() => {
-      sendCooldown.value -= 1
-      if (sendCooldown.value <= 0) {
-        clearInterval(cooldownTimer)
-        cooldownTimer = null
-      }
-    }, 1000)
-  } else {
-    showTip('error', localMessage(data))
+  if (sendCooldown.value > 0 || sendingCode.value) return
+  sendingCode.value = true
+  try {
+    const res = await fetch('/api/user/send_code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.success) {
+      showTip('info', t('auth.code_sent'))
+      sendCooldown.value = 60
+      if (cooldownTimer) clearInterval(cooldownTimer)
+      cooldownTimer = setInterval(() => {
+        sendCooldown.value -= 1
+        if (sendCooldown.value <= 0) {
+          clearInterval(cooldownTimer)
+          cooldownTimer = null
+        }
+      }, 1000)
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    sendingCode.value = false
   }
 }
 
@@ -194,14 +201,15 @@ onUnmounted(() => {
         <input v-model="email" type="email" :placeholder="t('auth.email')" autocomplete="email" />
         <div class="code-row">
           <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
-          <button type="button" class="send-code" :disabled="sendCooldown > 0" @click="sendCode">
+          <button type="button" class="send-code" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
+            <span v-if="sendingCode" class="spinner"></span>
             {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
           </button>
         </div>
       </template>
 
-      <!-- 人机验证码（hCaptcha 官方 Vue 组件） -->
-      <div class="h-captcha">
+      <!-- 人机验证码（hCaptcha）：仅邮箱验证码登录模式需要（用于发送验证码） -->
+      <div v-if="mode === 'email'" class="h-captcha">
         <VueHcaptcha
           v-if="hcaptchaSiteKey"
           :sitekey="hcaptchaSiteKey"
@@ -214,6 +222,7 @@ onUnmounted(() => {
       </div>
 
       <button type="submit" class="submit" :disabled="loading">
+        <span v-if="loading" class="spinner"></span>
         {{ t('auth.login') }}
       </button>
     </form>

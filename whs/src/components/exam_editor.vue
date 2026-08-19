@@ -28,16 +28,17 @@ function renderTips(content) {
 // 上传成功后：题目与选项写入目标的 image 字段；tips 模式把 Markdown 图片语法追加到说明末尾。
 const fileInputRef = ref(null)
 const uploadTarget = ref(null)
-
-// 试卷说明文档上传（仅 .docx）：单独的文件选择器
-const docInputRef = ref(null)
+const uploadingImg = ref(false)
+const uploadingDoc = ref(false)
 
 function openUpload(target) {
+  if (uploadingImg.value || uploadingDoc.value) return
   uploadTarget.value = target
   fileInputRef.value?.click()
 }
 
 function openDocUpload() {
+  if (uploadingImg.value || uploadingDoc.value) return
   docInputRef.value?.click()
 }
 
@@ -45,19 +46,24 @@ async function onDocUploadFile(event) {
   const f = event.target.files && event.target.files[0]
   event.target.value = '' // 重置，允许重复选择同一文件
   if (!f) return
-  const fd = new FormData()
-  fd.append('file', f)
-  const res = await fetch('/api/admin/exam/doc', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: fd,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    form.value.tips_doc = data.url
-    showTip('info', t('admin.examConfigDocUploaded'))
-  } else {
-    showTip('error', localMessage(data))
+  uploadingDoc.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', f)
+    const res = await fetch('/api/admin/exam/doc', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      form.value.tips_doc = data.url
+      showTip('info', t('admin.examConfigDocUploaded'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    uploadingDoc.value = false
   }
 }
 
@@ -76,29 +82,34 @@ async function onUploadFile(event) {
   const f = event.target.files && event.target.files[0]
   event.target.value = '' // 重置，允许重复选择同一文件
   if (!f || !uploadTarget.value) return
-  const fd = new FormData()
-  fd.append('file', f)
-  const res = await fetch('/api/admin/exam/image', {
-    method: 'POST',
-    headers: authHeaders(),
-    body: fd,
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok) {
-    if (uploadTarget.value.tips) {
-      // 试卷说明：插入 Markdown 图片语法
-      form.value.tips = `${form.value.tips || ''}\n![${t('admin.examConfigImage')}](${data.url})\n`
-    } else if (uploadTarget.value.kind === 'questionImages') {
-      // 题目多张附图：追加到 images 列表
-      uploadTarget.value.question.images.push(data.url)
+  uploadingImg.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', f)
+    const res = await fetch('/api/admin/exam/image', {
+      method: 'POST',
+      headers: authHeaders(),
+      body: fd,
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      if (uploadTarget.value.tips) {
+        // 试卷说明：插入 Markdown 图片语法
+        form.value.tips = `${form.value.tips || ''}\n![${t('admin.examConfigImage')}](${data.url})\n`
+      } else if (uploadTarget.value.kind === 'questionImages') {
+        // 题目多张附图：追加到 images 列表
+        uploadTarget.value.question.images.push(data.url)
+      } else {
+        uploadTarget.value.image = data.url
+      }
+      showTip('info', t('admin.examConfigImageUploaded'))
     } else {
-      uploadTarget.value.image = data.url
+      showTip('error', localMessage(data))
     }
-    showTip('info', t('admin.examConfigImageUploaded'))
-  } else {
-    showTip('error', localMessage(data))
+  } finally {
+    uploadingImg.value = false
+    uploadTarget.value = null
   }
-  uploadTarget.value = null
 }
 
 function localMessage(data) {
@@ -392,7 +403,7 @@ onMounted(fetchConfig)
 
 <template>
   <div class="exam-editor">
-    <div v-if="loading" class="editor-empty">{{ t('admin.loading') }}</div>
+    <div v-if="loading" class="editor-empty"><span class="spinner"></span>{{ t('admin.loading') }}</div>
 
     <template v-else-if="form">
       <!-- 顶部工具栏 -->
@@ -405,7 +416,8 @@ onMounted(fetchConfig)
           <Plus :size="16" /> {{ t('admin.examConfigAddQuestion') }}
         </button>
         <button type="button" class="tool-btn primary" :disabled="saving" @click="save">
-          <Save :size="16" /> {{ t('admin.examConfigSave') }}
+          <span v-if="saving" class="spinner"></span>
+          <Save v-else :size="16" /> {{ t('admin.examConfigSave') }}
         </button>
       </div>
 
@@ -413,8 +425,9 @@ onMounted(fetchConfig)
       <div class="tips-card">
         <div class="tips-head">
           <span class="tips-title">{{ t('admin.examConfigTips') }}</span>
-          <button type="button" class="mini-btn" @click="openUpload({ tips: true })">
-            <Upload :size="14" /> {{ t('admin.examConfigTipsUpload') }}
+          <button type="button" class="mini-btn" :disabled="uploadingImg || uploadingDoc" @click="openUpload({ tips: true })">
+            <span v-if="uploadingImg" class="spinner"></span>
+            <Upload v-else :size="14" /> {{ t('admin.examConfigTipsUpload') }}
           </button>
           <button type="button" class="mini-btn" @click="showTipsPreview = !showTipsPreview">
             <Eye :size="14" /> {{ showTipsPreview ? t('admin.examConfigTipsHide') : t('admin.examConfigTipsPreview') }}
@@ -440,8 +453,9 @@ onMounted(fetchConfig)
               <Trash2 :size="14" /> {{ t('admin.examConfigDocClear') }}
             </button>
           </template>
-          <button v-else type="button" class="mini-btn" @click="openDocUpload">
-            <Upload :size="14" /> {{ t('admin.examConfigDocUpload') }}
+          <button v-else type="button" class="mini-btn" :disabled="uploadingImg || uploadingDoc" @click="openDocUpload">
+            <span v-if="uploadingDoc" class="spinner"></span>
+            <Upload v-else :size="14" /> {{ t('admin.examConfigDocUpload') }}
           </button>
         </div>
       </div>
@@ -486,8 +500,9 @@ onMounted(fetchConfig)
           <!-- 题目附图（支持多张） -->
           <div class="field-row">
             <span class="img-label">{{ t('admin.examConfigImages') }}</span>
-            <button type="button" class="mini-btn" @click="openUpload({ kind: 'questionImages', question: q })">
-              <Upload :size="14" /> {{ t('admin.examConfigImageUpload') }}
+            <button type="button" class="mini-btn" :disabled="uploadingImg || uploadingDoc" @click="openUpload({ kind: 'questionImages', question: q })">
+              <span v-if="uploadingImg" class="spinner"></span>
+              <Upload v-else :size="14" /> {{ t('admin.examConfigImageUpload') }}
             </button>
             <button type="button" class="mini-btn" @click="addImage(q)">
               <Plus :size="14" /> {{ t('admin.examConfigAddImage') }}
@@ -510,8 +525,9 @@ onMounted(fetchConfig)
               <span class="opt-key">{{ opt.key }}.</span>
               <input v-model="opt.text" class="text-input grow" :placeholder="t('admin.examConfigOptionText')" />
               <input v-model="opt.image" class="text-input grow" :placeholder="t('admin.examConfigOptionImage')" />
-              <button type="button" class="mini-btn" @click="openUpload(opt)">
-                <Upload :size="14" /> {{ t('admin.examConfigImageUpload') }}
+              <button type="button" class="mini-btn" :disabled="uploadingImg || uploadingDoc" @click="openUpload(opt)">
+                <span v-if="uploadingImg" class="spinner"></span>
+                <Upload v-else :size="14" /> {{ t('admin.examConfigImageUpload') }}
               </button>
               <button type="button" class="icon-btn" :aria-label="t('admin.examConfigDeleteOption')" @click="removeOption(q, opt)">
                 <Trash2 :size="14" />
@@ -600,7 +616,8 @@ onMounted(fetchConfig)
           <Plus :size="16" /> {{ t('admin.examConfigAddQuestion') }}
         </button>
         <button type="button" class="tool-btn primary" :disabled="saving" @click="save">
-          <Save :size="16" /> {{ t('admin.examConfigSave') }}
+          <span v-if="saving" class="spinner"></span>
+          <Save v-else :size="16" /> {{ t('admin.examConfigSave') }}
         </button>
       </div>
     </template>

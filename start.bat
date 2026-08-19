@@ -13,7 +13,7 @@ start "WHS-Backend" cmd /k "cd /d "%~dp0backend" && call venv\Scripts\activate.b
 
 :: ========== Frontend ==========
 echo [2/2] Starting Frontend (Vite)...
-start "WHS-Frontend" cmd /k "cd /d "%~dp0whs" && echo Installing dependencies... && call npm install && echo Starting Vite dev server... && call npm run dev -- --host 0.0.0.0"
+start "WHS-Frontend" cmd /k "cd /d "%~dp0whs" && echo Installing dependencies... && call npm install && echo Starting server... && call npm run build -- --host 0.0.0.0"
 
 echo.
 echo ============================================

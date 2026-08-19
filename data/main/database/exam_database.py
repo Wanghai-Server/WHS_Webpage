@@ -83,15 +83,45 @@ class ExamDatabase(UserDatabase):
         except (TypeError, ValueError):
             return raw
 
+    # 附件：统一以 JSON 字符串数组存储；兼容旧数据（单个文件名）。
+    @staticmethod
+    def _serialize_attachments(attachments: Any) -> str | None:
+        if not attachments:
+            return None
+        if isinstance(attachments, str):
+            attachments = [attachments]
+        return json.dumps([str(a) for a in attachments if a], ensure_ascii=False)
+
+    @staticmethod
+    def _deserialize_attachments(raw: Any) -> list[str]:
+        """把 attachment 字段解析为文件名列表；空/非法返回 []。"""
+        if not raw:
+            return []
+        if isinstance(raw, list):
+            return [str(x) for x in raw if x]
+        if isinstance(raw, str):
+            try:
+                data = json.loads(raw)
+            except (TypeError, ValueError):
+                return [raw]  # 旧格式：裸文件名
+            if isinstance(data, list):
+                return [str(x) for x in data if x]
+            if isinstance(data, str) and data:
+                return [data]  # 旧格式：JSON 包裹的单个文件名
+        return []
+
     def save_answer(
         self,
         uid: int,
         question_id: int,
         answer: Any,
         obtained_score: int = 0,
-        attachment: str | None = None,
+        attachment: Any = None,
     ) -> None:
-        """插入或更新 (uid, question_id) 的答题记录（幂等 upsert）。"""
+        """插入或更新 (uid, question_id) 的答题记录（幂等 upsert）。
+
+        ``attachment`` 为文件名列表（也可传单个文件名，自动包装为列表）。
+        """
         answered_at = datetime.datetime.now().isoformat(timespec="seconds")
         self._conn.execute(
             f"INSERT INTO {self.TABLE_NAME} "
@@ -102,7 +132,8 @@ class ExamDatabase(UserDatabase):
             f"attachment=excluded.attachment, "
             f"obtained_score=excluded.obtained_score, "
             f"answered_at=excluded.answered_at",
-            (uid, question_id, self._serialize_answer(answer), attachment,
+            (uid, question_id, self._serialize_answer(answer),
+             self._serialize_attachments(attachment),
              int(obtained_score), answered_at),
         )
         self._conn.commit()
@@ -116,6 +147,7 @@ class ExamDatabase(UserDatabase):
             return None
         item = self._row_to_dict(row)
         item["answer"] = self._deserialize_answer(item.get("answer"))
+        item["attachment"] = self._deserialize_attachments(item.get("attachment"))
         return item
 
     def get_answers(self, uid: int) -> dict[int, dict[str, Any]]:
@@ -128,6 +160,7 @@ class ExamDatabase(UserDatabase):
         for row in rows:
             item = self._row_to_dict(row)
             item["answer"] = self._deserialize_answer(item.get("answer"))
+            item["attachment"] = self._deserialize_attachments(item.get("attachment"))
             result[int(item["question_id"])] = item
         return result
 
@@ -146,6 +179,22 @@ class ExamDatabase(UserDatabase):
         )
         self._conn.commit()
         return cursor.rowcount > 0
+
+    def remove_attachment(self, uid: int, question_id: int, filename: str) -> bool:
+        """从某条答题记录的附件列表中移除指定文件，返回是否真的移除了。"""
+        rec = self.get_answer(uid, question_id)
+        if rec is None:
+            return False
+        atts = rec.get("attachment") or []
+        if filename not in atts:
+            return False
+        remaining = [a for a in atts if a != filename]
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET attachment = ? WHERE uid = ? AND question_id = ?",
+            (self._serialize_attachments(remaining), uid, question_id),
+        )
+        self._conn.commit()
+        return True
 
     def reset_candidate(self, uid: int) -> None:
         """重置考生：清空答题记录，并清零完成次数、及格标记与重审申请（允许重新答题）。"""

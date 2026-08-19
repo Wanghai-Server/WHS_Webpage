@@ -125,7 +125,7 @@ watch(
   <Top_navbar />
 
   <main class="user-page">
-    <div v-if="loading" class="placeholder">{{ t('admin.loading') }}</div>
+    <div v-if="loading" class="placeholder"><span class="spinner"></span>{{ t('admin.loading') }}</div>
 
     <template v-else-if="user">
       <div class="load-in">

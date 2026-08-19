@@ -34,6 +34,7 @@ const code = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 const loading = ref(false)
+const sendingCode = ref(false)
 const hcaptchaToken = ref('')
 const hcaptchaSiteKey = useHcaptchaSiteKey()
 const sendCooldown = ref(0)
@@ -92,11 +93,13 @@ async function sendCode() {
     showTip('warning', t('auth.captcha_required'))
     return
   }
-  if (sendCooldown.value > 0) return
-  const res = await fetch('/api/user/send_code', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
+  if (sendCooldown.value > 0 || sendingCode.value) return
+  sendingCode.value = true
+  try {
+    const res = await fetch('/api/user/send_code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
   })
   const data = await res.json().catch(() => ({}))
   if (res.ok && data.success) {
@@ -112,6 +115,9 @@ async function sendCode() {
     }, 1000)
   } else {
     showTip('error', localMessage(data))
+  }
+  } finally {
+    sendingCode.value = false
   }
 }
 
@@ -133,7 +139,6 @@ async function doRegister() {
       username: username.value.trim(),
       code: code.value.trim(),
       password: passwordHash,
-      hcaptcha_response: hcaptchaToken.value,
     }),
   })
   const data = await res.json().catch(() => ({}))
@@ -157,9 +162,8 @@ async function submit() {
     if (!password.value) { showTip('warning', t('auth.password_required')); return }
     if (!PASSWORD_ASCII_RE.test(password.value)) { showTip('warning', t('auth.password_ascii')); return }
     if (password.value !== confirmPassword.value) { showTip('warning', t('auth.password_mismatch')); return }
-    if (!hcaptchaToken.value) { showTip('warning', t('auth.captcha_required')); return }
 
-    // 注册前先查重（避免消耗验证码 / hCaptcha）
+    // 注册前先查重（避免消耗验证码）
     const checkRes = await fetch(`/api/user/username_exists?username=${encodeURIComponent(username.value.trim())}`)
     const checkData = await checkRes.json().catch(() => ({}))
     if (checkRes.ok && checkData.exists) {
@@ -203,7 +207,8 @@ async function onSuggestionConfirm(chosenUsername) {
 
         <div class="code-row">
           <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
-          <button type="button" class="send-code" :disabled="sendCooldown > 0" @click="sendCode">
+          <button type="button" class="send-code" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
+            <span v-if="sendingCode" class="spinner"></span>
             {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
           </button>
         </div>
@@ -224,7 +229,10 @@ async function onSuggestionConfirm(chosenUsername) {
           />
         </div>
 
-        <button type="submit" class="submit" :disabled="loading">{{ t('auth.register') }}</button>
+        <button type="submit" class="submit" :disabled="loading">
+          <span v-if="loading" class="spinner"></span>
+          {{ t('auth.register') }}
+        </button>
       </form>
 
         <button type="button" class="switch-link" @click="emit('switch-login')">
@@ -236,6 +244,7 @@ async function onSuggestionConfirm(chosenUsername) {
         v-else-if="step === 'suggestion'"
         key="suggestion"
         :base="suggestionBase"
+        :loading="loading"
         @confirm="onSuggestionConfirm"
         @back="step = 'register'"
       />

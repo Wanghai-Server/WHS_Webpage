@@ -93,12 +93,16 @@ body {
 }
 
 .dialog-fade-enter-active .dialog,
-.dialog-fade-leave-active .dialog {
+.dialog-fade-leave-active .dialog,
+.dialog-fade-enter-active .message-box,
+.dialog-fade-leave-active .message-box {
   transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.25s ease;
 }
 
 .dialog-fade-enter-from .dialog,
-.dialog-fade-leave-to .dialog {
+.dialog-fade-leave-to .dialog,
+.dialog-fade-enter-from .message-box,
+.dialog-fade-leave-to .message-box {
   opacity: 0;
   transform: translateY(12px) scale(0.96);
 }
@@ -107,7 +111,35 @@ body {
   .dialog-fade-enter-active,
   .dialog-fade-leave-active,
   .dialog-fade-enter-active .dialog,
-  .dialog-fade-leave-active .dialog {
+  .dialog-fade-leave-active .dialog,
+  .dialog-fade-enter-active .message-box,
+  .dialog-fade-leave-active .message-box {
     transition: none;
+  }
+}
+
+/* 按钮加载圆环：请求后端并阻塞等待期间显示（颜色跟随 currentColor，适配亮/暗主题） */
+.spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  vertical-align: -2px;
+  margin-right: 6px;
+  animation: spinner-rotate 0.7s linear infinite;
+}
+
+@keyframes spinner-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.6s;
   }
 }
