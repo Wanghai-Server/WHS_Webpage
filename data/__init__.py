@@ -16,11 +16,13 @@ def _resolve_path(path: str | Path) -> Path:
 
 
 def _secret_default_config() -> dict:
-    """私密默认配置（config.json）：hCaptcha secret + SMTP 凭据 + 随机 token_secret。"""
+    """私密默认配置（config.json）：hCaptcha secret + SMTP 凭据 + 随机 token_secret + 游戏服务器地址。"""
     return {
         "hcaptcha": {"secret_key": ""},
         "smtp": {"username": "", "password": ""},
         "token_secret": secrets.token_hex(32),
+        # 游戏服务器地址（后端用 mcstatus 探测实时状态，供 /api/server/status 使用）
+        "server": {"host": "h1.getmc.cn", "port": 31410, "timeout": 5},
     }
 
 

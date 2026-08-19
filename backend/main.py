@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -7,6 +8,7 @@ import re
 import secrets
 import smtplib
 import sys
+import threading
 import time
 import urllib.parse
 import urllib.request
@@ -1280,6 +1282,88 @@ def mark_message_read(message_id: int, user: dict | None = Depends(get_current_u
         return _error_response("message_not_found", 404)
     message_db.add_read_user(message_id, user["uid"])
     return {"success": True, "is_read": True}
+
+
+# ---------------------------------------------------------------------------
+# 服务器实时状态（mcstatus 探测，后端每 5 分钟刷新缓存）
+# ---------------------------------------------------------------------------
+
+# 状态缓存：{data, fetched_at}。首次请求时触发探测，之后每 SERVER_STATUS_TTL 秒刷新。
+_SERVER_STATUS_LOCK = threading.Lock()
+_SERVER_STATUS_CACHE: dict = {"data": None, "fetched_at": 0.0}
+SERVER_STATUS_TTL = 300  # 5 分钟
+
+
+def _server_status_config() -> dict:
+    """从 config.json 读取游戏服务器地址（host/port/timeout），缺失时用默认值。"""
+    cfg = _config().get("server", {}) or {}
+    return {
+        "host": str(cfg.get("host") or "h1.getmc.cn"),
+        "port": int(cfg.get("port") or 25565),
+        "timeout": float(cfg.get("timeout") or 5),
+    }
+
+
+def _fetch_server_status() -> dict | None:
+    """用 mcstatus 的 JavaServer 请求服务器实时状态；失败返回 None。
+
+    可获取：在线状态 / 游戏版本 / 在线人数（当前/上限）/ 延迟。
+    TPS 无法通过 Minecraft 状态协议获得，留空（None），
+    待 MCDR 联动插件接入后再填充（见 mcdr_connecter_plugin/）。
+    """
+    try:
+        from mcstatus import JavaServer
+    except ImportError:
+        print("[server-status] mcstatus 未安装，无法获取服务器状态", flush=True)
+        return None
+    try:
+        cfg = _server_status_config()
+        server = JavaServer.lookup(f"{cfg['host']}:{cfg['port']}", timeout=cfg["timeout"])
+        status = server.status()
+        players = status.players
+        return {
+            "online": True,
+            "version": (status.version.name if status.version else "") or "",
+            "players": {
+                "online": int(getattr(players, "online", 0) or 0),
+                "max": int(getattr(players, "max", 0) or 0),
+            },
+            "latency_ms": int(getattr(status, "latency", 0) or 0),
+            "tps": None,
+            "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+        }
+    except Exception as exc:
+        print(f"[server-status] 获取失败: {type(exc).__name__}: {exc}", flush=True)
+        return None
+
+
+@app.get("/api/server/status")
+def server_status():
+    """服务器实时状态（公开接口，无需登录）。
+
+    后端每 5 分钟重新探测一次并缓存结果；探测失败时返回上一次成功
+    缓存（若存在），否则返回离线占位数据。
+    """
+    now = time.time()
+    with _SERVER_STATUS_LOCK:
+        cache = _SERVER_STATUS_CACHE
+        if cache["data"] is not None and now - cache["fetched_at"] < SERVER_STATUS_TTL:
+            return cache["data"]
+        data = _fetch_server_status()
+        if data is None and cache["data"] is not None:
+            return cache["data"]
+        if data is None:
+            data = {
+                "online": False,
+                "version": "",
+                "players": {"online": 0, "max": 0},
+                "latency_ms": None,
+                "tps": None,
+                "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
+            }
+        cache["data"] = data
+        cache["fetched_at"] = now
+        return data
 
 
 # ---------------------------------------------------------------------------

@@ -171,6 +171,7 @@ hCaptcha 的 site key 只在你配置的域名下生效。本地开发用 `local
 | POST | `/api/user/{uid}/avatar` | 上传头像（multipart，jpg/png/webp/ico，≤2MB） |
 | GET | `/api/user/{uid}/avatar` | 读取头像 |
 | GET | `/api/message/{user_id}` | 消息（占位） |
+| GET | `/api/server/status` | 服务器实时状态（公开；后端每 5 分钟用 mcstatus 探测游戏服务器并缓存，地址在 `config.json` 的 `server` 字段配置） |
 
 错误响应统一为结构化 + 双语：
 

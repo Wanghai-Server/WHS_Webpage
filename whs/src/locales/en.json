@@ -36,7 +36,102 @@
         },
         "about": {
             "title": "About Us",
-            "description": "Learn about WangHai Server's history, team and vision. This page is under construction. Stay tuned!"
+            "description": "Learn about WangHai Server's history, team and vision. This page is under construction. Stay tuned!",
+            "hero": {
+                "title": "About WangHai",
+                "subtitle": "WangHai Server (WHS) — a free and open Minecraft community centered on players, integrating redstone engineering, rail transit, and architecture.",
+                "scroll": "Scroll to explore"
+            },
+            "vision": {
+                "title": "Who We Are",
+                "text": "WangHai is a community-driven, non-profit Java Edition Minecraft server, now in its second world. We are built around vanilla survival, and the means of production belong to all players — every farm, every rail line, and every public storage hall here is built and maintained by the community, together.",
+                "items": [
+                    { "title": "Redstone Engineering", "desc": "Survival redstone at the core — a full range of mob and resource farms, managed and maintained by the community." },
+                    { "title": "Rail Transit", "desc": "A unified, centrally planned rail network with dedicated lines connecting every corner of the community." },
+                    { "title": "Architecture", "desc": "Survival and creative servers run in parallel — large builds are planned in creative first, then realized in survival." },
+                    { "title": "Community Governance", "desc": "The server belongs to all players. Admins are elected by players, and the rules are upheld by the community." }
+                ]
+            },
+            "stats": {
+                "title": "Server Status",
+                "status": { "label": "Status", "online": "Online", "offline": "Offline" },
+                "players": { "label": "Players" },
+                "tps": { "label": "TPS", "unavailable": "—", "pending": "Provided by MCDR (coming soon)" },
+                "version": { "label": "Game Version", "value": "1.21.10", "note": "Java Edition" },
+                "round": { "label": "Current World", "value": "World 2" },
+                "nature": { "label": "Server Nature", "value": "Community-owned" },
+                "seed": { "label": "World Seed", "value": "wanghai_commune", "note": "Click to copy" },
+                "loading": "Loading…"
+            },
+            "history": {
+                "title": "Our Journey",
+                "items": [
+                    { "time": "The Beginning", "title": "WangHai Sets Sail", "desc": "The server was founded by stevendjr, establishing an open, free, player-centered community vision." },
+                    { "time": "World 2", "title": "Passing the Torch", "desc": "The server entered its second world (Java 1.21.10). 1410happy_ took over as owner, providing machines and technical support, while founder stevendjr serves as co-owner." },
+                    { "time": "A Community Takes Shape", "title": "Built and Governed Together", "desc": "The admin team is elected by players; an entrance questionnaire and review group were introduced; rail projects are centrally planned, and the full-item storage hall and farm system keep growing." },
+                    { "time": "Now and Beyond", "title": "Forever Building", "desc": "New members keep joining and infrastructure keeps expanding — every block of WangHai is laid by players' own hands." }
+                ]
+            },
+            "governance": {
+                "title": "Community & Governance",
+                "items": [
+                    { "title": "Owned by Players", "desc": "The server explicitly states that all players are the owners. The means of production are communal — no private ownership or monopolies." },
+                    { "title": "Democratic Election", "desc": "The admin team is elected by players, with dedicated roles such as the rail transit project lead." },
+                    { "title": "Entrance Review", "desc": "New players must pass an entrance questionnaire to join, ensuring every member understands and agrees with the community rules." },
+                    { "title": "Quasi-Communal Economy", "desc": "Most production resources are shared publicly; private holdings of valuables like netherite and diamonds are strictly limited." }
+                ]
+            },
+            "features": {
+                "title": "Highlights",
+                "items": [
+                    { "title": "Full-Item Storage Hall", "desc": "A public, categorized storage hall covering every item — take what you need, maintained by everyone." },
+                    { "title": "Rail Transit Network", "desc": "Centrally planned and led by a dedicated lead, the rail network connects settlements and facilities with ease." },
+                    { "title": "Mob & Resource Farms", "desc": "Zombified-piglin towers, mob farms and more provide a stable supply for the community." },
+                    { "title": "MCDR Utilities", "desc": "Convenient features powered by MCDR: daily check-in, coordinate lookup, and spectator teleport." },
+                    { "title": "Mod Policy", "desc": "Client-side assistive mods like minimaps are allowed; tools such as schematic printers are restricted to strictly defined scenarios." },
+                    { "title": "Creative Planning", "desc": "Large builds are tested and planned on the creative server before being realized in survival." }
+                ],
+                "aiTitle": "AI-Powered — GamesAI",
+                "aiText": "WangHai has integrated the GamesAI plugin: type !!ask in-game to chat with the AI, ask questions, or even delegate tasks to it. The AI bot (Mineflayer) can autonomously pathfind, mine, build and craft; the !!data public database lets all players share a growing community memory.",
+                "aiLink": "Plugin documentation"
+            },
+            "rules": {
+                "title": "Code of Conduct",
+                "items": [
+                    { "title": "No Cheating or Malice", "desc": "Cheating, griefing, harassment and inappropriate content are prohibited and punished accordingly." },
+                    { "title": "Shared Resources", "desc": "Natural resources must not be privately claimed or monopolized — the means of production belong to all players." },
+                    { "title": "Protect Server Performance", "desc": "When TPS drops too low, players must proactively stop large machines to prevent the server from crashing." }
+                ],
+                "fullRules": "View Full Rules",
+                "fullRulesHint": "The complete rules are provided in the entrance questionnaire"
+            },
+            "team": {
+                "title": "Our Team",
+                "role_owner": "Owner",
+                "role_co_owner": "Co-Owner",
+                "role_admin": "Admin",
+                "members": [
+                    { "name": "1410happy_", "role": "owner", "desc": "Owner · Machines & tech support" },
+                    { "name": "stevendjr", "role": "co_owner", "desc": "Co-Owner · Founder" },
+                    { "name": "yello", "role": "admin", "desc": "Admin" },
+                    { "name": "lyh1379", "role": "admin", "desc": "Admin" },
+                    { "name": "Zele", "role": "admin", "desc": "Admin" },
+                    { "name": "chaofan_0526", "role": "admin", "desc": "Admin" },
+                    { "name": "hongyan250", "role": "admin", "desc": "Admin" }
+                ]
+            },
+            "join": {
+                "title": "Join Us",
+                "steps": [
+                    { "title": "Register", "desc": "Create and sign in to your account on this website" },
+                    { "title": "Take the Exam", "desc": "Complete the WangHai Server World 2 entrance questionnaire — answers are graded automatically" },
+                    { "title": "Join Officially", "desc": "Reaching the passing score grants you access automatically; admins may also review your answers afterwards (e.g. subjective questions)" },
+                    { "title": "Build Together", "desc": "Build rail lines, farms and homes together with the community" }
+                ],
+                "button": "Start the Exam",
+                "hint": "Full rules and the review process are available under \"Join Us\""
+            },
+            "copied": "Copied"
         }
     },
     "auth": {
