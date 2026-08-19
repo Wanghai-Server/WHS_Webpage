@@ -652,10 +652,12 @@ async def send_code(payload: dict = Body(...)):
 
     if locale == "zh":
         subject = "望海服务器邮箱验证码"
-        body = f"您的验证码是：{code}\n\n5 分钟内有效。\n"
+        # 注意：邮箱客户端摘要会折叠换行，验证码后紧跟的数字（如"5 分钟内有效"的 5）
+        # 会与验证码粘连，让人误以为验证码多一位；因此用汉字"五"并加括号分隔。
+        body = f"您的验证码是：{code}（五分钟内有效，请勿泄露）。\n"
     else:
         subject = "WHS Verification Code"
-        body = f"Your verification code is: {code}\n\nValid for 5 minutes.\n"
+        body = f"Your verification code is: {code}.\n\nIt is valid for 5 minutes. Do not share it with anyone.\n"
 
     if not _send_email(email, subject, body, locale):
         return _error_response("email_send_failed", 502)
