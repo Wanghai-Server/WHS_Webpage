@@ -88,6 +88,12 @@ class UserNotFoundError(UserDatabaseError):
     code = "user_not_found"
 
 
+class AltAccountsFullError(UserDatabaseError):
+    """小号数量已达上限（最多两个）。"""
+
+    code = "alt_accounts_full"
+
+
 # 错误码 -> 双语消息（与前端 title_suffix 的 zh/en 结构保持一致）。
 ERROR_MESSAGES: dict[str, dict[str, str]] = {
     "username_invalid": {
@@ -500,10 +506,12 @@ USER_INFO_TABLE_COLUMNS: dict[str, str] = {
     "birthday_month": "INTEGER",    # 可空
     "birthday_day": "INTEGER",      # 可空
     "gender": "TEXT",               # "male" / "female" / NULL
-    "player_name": "TEXT",          # Minecraft 玩家名，满足 [a-zA-Z0-9_]+
+    "player_name": "TEXT",          # Minecraft 玩家名（主账号），满足 [a-zA-Z0-9_]+
     "followers": "TEXT",            # JSON 数组：关注本用户的 uid 列表
     "followings": "TEXT",           # JSON 数组：本用户关注的 uid 列表
     "profile": "TEXT",              # 个人简介（Markdown 文本）
+    "alt_accounts": "TEXT",         # JSON 数组：小号（副账号）名称列表，最多两个
+    "premium_flags": "TEXT",        # JSON 对象：账号名 -> "premium"/"offline"（主账号与小号共用）
 }
 
 
@@ -571,6 +579,14 @@ class UserInfoDatabase(UserDatabase, BasicDatabase):
         ).fetchone()
         return row is not None
 
+    def get_uid_by_player_name(self, player_name: str) -> int | None:
+        """按玩家名（player_name）反查 uid；不存在返回 None。"""
+        row = self._conn.execute(
+            f"SELECT uid FROM {self.TABLE_NAME} WHERE player_name = ? LIMIT 1",
+            (player_name,),
+        ).fetchone()
+        return int(row["uid"]) if row else None
+
     def set_player_name(self, uid: int, player_name: str) -> None:
         """设置玩家的 Minecraft 名称（仅更新 player_name，不影响其它字段）。"""
         player_name = self._validate_player_name(player_name)
@@ -587,6 +603,117 @@ class UserInfoDatabase(UserDatabase, BasicDatabase):
             (player_name, uid),
         )
         self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # 游戏账户管理：主账号(player_name) + 小号(alt_accounts) + 正版标签(premium_flags)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_json_list(raw: Any) -> list[str]:
+        """把 JSON 文本解析为字符串列表；空/非法返回 []。"""
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        return [str(x) for x in data if x]
+
+    @staticmethod
+    def _parse_json_dict(raw: Any) -> dict[str, str]:
+        """把 JSON 文本解析为 字符串->字符串 字典；空/非法返回 {}。"""
+        if not raw:
+            return {}
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(data, dict):
+            return {}
+        return {str(k): str(v) for k, v in data.items()}
+
+    def _ensure_info_row(self, uid: int) -> None:
+        """确保该 uid 在 user_info 中有一行（不存在则预建空行）。"""
+        if self.get_user_info(uid) is None:
+            self.set_user_info(uid)
+
+    def get_alt_accounts(self, uid: int) -> list[str]:
+        """返回小号名称列表。"""
+        info = self.get_user_info(uid) or {}
+        return self._parse_json_list(info.get("alt_accounts"))
+
+    def get_premium_flags(self, uid: int) -> dict[str, str]:
+        """返回 账号名 -> "premium"/"offline" 的映射（主账号与小号共用）。"""
+        info = self.get_user_info(uid) or {}
+        return self._parse_json_dict(info.get("premium_flags"))
+
+    def set_premium_flag(self, uid: int, name: str, flag: str) -> None:
+        """设置某个账号（主账号或小号）的正版标签。"""
+        self._ensure_info_row(uid)
+        flags = self.get_premium_flags(uid)
+        flags[name] = flag
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET premium_flags = ? WHERE uid = ?",
+            (json.dumps(flags, ensure_ascii=False), uid),
+        )
+        self._conn.commit()
+
+    def add_alt_account(self, uid: int, name: str, flag: str) -> None:
+        """添加一个小号（含正版标签）；已达上限或重名时抛异常。"""
+        self._ensure_info_row(uid)
+        alts = self.get_alt_accounts(uid)
+        if len(alts) >= 2:
+            raise AltAccountsFullError(f"uid={uid} 的小号数量已达上限")
+        if name in alts:
+            raise PlayerNameExistsError(f"小号 {name!r} 已存在")
+        alts.append(name)
+        flags = self.get_premium_flags(uid)
+        flags[name] = flag
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET alt_accounts = ?, premium_flags = ? WHERE uid = ?",
+            (
+                json.dumps(alts, ensure_ascii=False),
+                json.dumps(flags, ensure_ascii=False),
+                uid,
+            ),
+        )
+        self._conn.commit()
+
+    def remove_alt_account(self, uid: int, name: str) -> bool:
+        """注销一个小号（从列表与正版标签中移除）；不存在返回 False。"""
+        alts = self.get_alt_accounts(uid)
+        if name not in alts:
+            return False
+        alts = [a for a in alts if a != name]
+        flags = self.get_premium_flags(uid)
+        flags.pop(name, None)
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET alt_accounts = ?, premium_flags = ? WHERE uid = ?",
+            (
+                json.dumps(alts, ensure_ascii=False),
+                json.dumps(flags, ensure_ascii=False),
+                uid,
+            ),
+        )
+        self._conn.commit()
+        return True
+
+    def account_name_taken_by_other(self, uid: int, name: str) -> bool:
+        """全局查重：name 是否被其它用户占用（作为其主账号 player_name 或小号）。"""
+        row = self._conn.execute(
+            f"SELECT 1 FROM {self.TABLE_NAME} WHERE player_name = ? AND uid != ? LIMIT 1",
+            (name, uid),
+        ).fetchone()
+        if row:
+            return True
+        for r in self._conn.execute(
+            f"SELECT alt_accounts FROM {self.TABLE_NAME} WHERE uid != ?", (uid,)
+        ).fetchall():
+            if name in self._parse_json_list(r["alt_accounts"]):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # 关注 / 简介

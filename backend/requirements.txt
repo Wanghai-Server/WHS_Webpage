@@ -3,3 +3,4 @@ uvicorn>=0.47.0
 python-multipart>=0.0.32
 pyyaml>=6.0
 mcstatus>=11.0.0
+websockets

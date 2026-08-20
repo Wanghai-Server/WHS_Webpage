@@ -5,6 +5,7 @@ import { Pencil, UserRound, Trash2 } from 'lucide-vue-next'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import ChangePassword from './change_password.vue'
 import CancelAccount from './cancel_account.vue'
+import ManageAccounts from './manage_accounts.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
@@ -434,6 +435,9 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- 管理游戏账户（主账号 + 小号 + 正版标签） -->
+    <ManageAccounts :user="user" />
 
     <!-- 行式修改模块：头像 / 邮箱 / 密码 -->
     <div class="settings-card load-in" style="--load-delay: 160ms">

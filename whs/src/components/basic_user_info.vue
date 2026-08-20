@@ -10,7 +10,7 @@ import { copyText } from '../composables/clipboard'
 const props = defineProps({
   user: { type: Object, required: true },
 })
-const emit = defineEmits(['edit-profile', 'follow-changed'])
+const emit = defineEmits(['edit-profile', 'follow-changed', 'open-follow-list'])
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -139,7 +139,21 @@ async function onToggleFollow() {
         <span>{{ t('user.editProfile') }}</span>
       </button>
       <p class="follow-stats">
-        {{ followersCount }} {{ t('user.followers') }} · {{ followingsCount }} {{ t('user.followings') }}
+        <span
+          class="stat-clickable"
+          role="button"
+          tabindex="0"
+          @click="emit('open-follow-list', 'followers')"
+          @keydown.enter="emit('open-follow-list', 'followers')"
+        >{{ followersCount }} {{ t('user.followers') }}</span>
+        <span class="stat-sep">·</span>
+        <span
+          class="stat-clickable"
+          role="button"
+          tabindex="0"
+          @click="emit('open-follow-list', 'followings')"
+          @keydown.enter="emit('open-follow-list', 'followings')"
+        >{{ followingsCount }} {{ t('user.followings') }}</span>
       </p>
     </div>
   </section>
@@ -263,6 +277,25 @@ async function onToggleFollow() {
   margin: 0;
   font-size: 13px;
   color: var(--links-color);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stat-clickable {
+  cursor: pointer;
+  color: var(--links-color);
+  transition: color 0.15s ease;
+}
+
+.stat-clickable:hover {
+  color: var(--text-color);
+  text-decoration: underline;
+}
+
+.stat-sep {
+  color: var(--links-color);
+  opacity: 0.6;
 }
 
 @media (max-width: 768px) {

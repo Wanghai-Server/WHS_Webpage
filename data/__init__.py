@@ -23,6 +23,8 @@ def _secret_default_config() -> dict:
         "token_secret": secrets.token_hex(32),
         # 游戏服务器地址（后端用 mcstatus 探测实时状态，供 /api/server/status 使用）
         "server": {"host": "h1.getmc.cn", "port": 31410, "timeout": 5},
+        # MCDR 插件通信的 WS 服务端口（仅监听环回地址 127.0.0.1）
+        "ws_port": 8765,
     }
 
 

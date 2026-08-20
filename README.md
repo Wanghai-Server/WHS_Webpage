@@ -7,9 +7,24 @@
 ```
 WHS_Webpage/
 ├── backend/                         # 后端 — FastAPI (Python)
-│   ├── main.py                      # 后端主程序（认证、注册、登录、头像、验证码）
+│   ├── main.py                      # 主程序：生命周期、全局异常处理、辅助逻辑、路由注册
+│   ├── ws_server.py                 # WS 命令服务（与 MCDR 插件通信，监听 127.0.0.1:ws_port）
+│   ├── api/                         # 路由注册（按类拆分）
+│   │   ├── site.py                  # 站点信息（/、/api/whs）
+│   │   ├── auth.py                  # 用户认证（验证码/注册/登录/me/解锁/资料）
+│   │   ├── user.py                  # 用户主页/关注/简介/设置/密码/注销/管理员
+│   │   ├── avatar.py                # 头像上传/读取
+│   │   ├── message.py               # 系统消息/定向消息/已读/消息管理
+│   │   ├── exam.py                  # 入服考试（考生端 + 管理端）
+│   │   └── server.py                # 服务器实时状态
 │   ├── requirements.txt             # Python 依赖
 │   └── venv/                        # Python 虚拟环境（不入库）
+│
+├── mcdr_connecter_plugin/           # MCDR 插件（mcdr2web：连接后端 WS 服务，包结构）
+│   ├── mcdreforged.plugin.json      # 插件元数据（id/version/依赖）
+│   ├── mcdr2web/                    # 插件包（官方推荐结构）
+│   │   └── __init__.py              # 插件入口：WS 客户端（连接/重连/双向请求响应）
+│   └── requirements.txt             # 插件 Python 依赖（websockets）
 │
 ├── data/                            # 数据层 + 运行时数据
 │   ├── config.json                  # 配置：标题后缀、hCaptcha 密钥、token 密钥（不入库）
@@ -80,6 +95,7 @@ WHS_Webpage/
 | 国际化 | vue-i18n 9 |
 | 图标 | lucide-vue-next |
 | 动画 | animejs |
+| 3D 模型 | skinview3d（玩家模型展示与鼠标旋转，皮肤经 mc-heads 加载） |
 | 人机验证 | hCaptcha（`@hcaptcha/vue3-hcaptcha`） |
 | 后端框架 | FastAPI（Python） |
 | 服务器 | uvicorn |
@@ -142,7 +158,8 @@ npm run preview    # 预览生产构建
         "site_key": "你的 hCaptcha site key（公开）",
         "secret_key": "你的 hCaptcha secret key（私密）"
     },
-    "token_secret": "登录态签名密钥（私密，随机生成）"
+    "token_secret": "登录态签名密钥（私密，随机生成）",
+    "ws_port": 8765
 }
 ```
 
@@ -172,6 +189,11 @@ hCaptcha 的 site key 只在你配置的域名下生效。本地开发用 `local
 | GET | `/api/user/{uid}/avatar` | 读取头像 |
 | GET | `/api/message/{user_id}` | 消息（占位） |
 | GET | `/api/server/status` | 服务器实时状态（公开；后端每 5 分钟用 mcstatus 探测游戏服务器并缓存，地址在 `config.json` 的 `server` 字段配置） |
+| GET | `/api/user/by_player_name/{player_name}` | 按玩家名（player_name，非 username/fullname）查 uid，301 跳转到 `/user/{uid}`（前端"成员主页跳转"用） |
+| GET | `/api/user/{uid}/accounts` | 查询游戏账户（主账号 / 小号 / 各自正版标签；仅本人或管理员） |
+| POST | `/api/user/{uid}/premium` | 修改主账号正版状态（premium/offline；仅本人或管理员） |
+| POST | `/api/user/{uid}/alts` | 添加小号（最多两个、全局查重；仅本人或管理员） |
+| DELETE | `/api/user/{uid}/alts/{alt_name}` | 注销小号（主账号不可注销；仅本人或管理员） |
 
 错误响应统一为结构化 + 双语：
 

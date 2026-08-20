@@ -12,13 +12,12 @@ import threading
 import time
 import urllib.parse
 import urllib.request
-import uuid
 from contextlib import asynccontextmanager
 from email.message import EmailMessage
 from pathlib import Path
 
-from fastapi import Body, Depends, FastAPI, File, Form, Header, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi import FastAPI, Header, Request
+from fastapi.responses import JSONResponse
 
 # 将项目根目录加入 sys.path，以便导入与 backend/ 同级的 data 包。
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -30,7 +29,6 @@ from data.exam import (
     ExamConfigError,
     fill_blank_blanks,
     load_exam_config,
-    save_exam_config,
 )
 from data.main.database.exam_database import ExamDatabase
 from data.main.database.message_database import MessageDatabase
@@ -39,7 +37,6 @@ from data.main.database.user_database import (
     UserDatabase,
     UserDatabaseError,
     UserInfoDatabase,
-    UserNotFoundError,
 )
 
 # 用户数据库实例：随服务启动连接、随服务关闭释放。
@@ -47,6 +44,11 @@ user_db = UserDatabase()
 user_info_db = UserInfoDatabase()
 message_db = MessageDatabase()
 exam_db = ExamDatabase()
+
+# MCDR 插件通信的 WS 命令服务：仅监听环回地址，端口来自 config.json 的 ws_port。
+from ws_server import WsCommandServer  # noqa: E402
+
+ws_server = WsCommandServer("127.0.0.1", int(read_config().get("ws_port") or 8765))
 
 # 头像存储目录、大小上限、允许的 MIME 类型。
 AVATAR_DIR = PROJECT_ROOT / "data" / "avatar"
@@ -163,15 +165,6 @@ def _verify_password(stored: str, client_hash: str) -> bool:
 def _public_user(user: dict) -> dict:
     """去除 password 哈希，只返回可对外暴露的字段。"""
     return {k: v for k, v in user.items() if k != "password"}
-
-
-def _derive_username(email: str) -> str:
-    """由邮箱自动生成一个满足 [a-zA-Z0-9_]+ 且唯一的 username。"""
-    base = re.sub(r"[^a-zA-Z0-9_]", "", email.split("@")[0]) or "user"
-    candidate = base
-    while user_db.get_user(username=candidate) is not None:
-        candidate = f"{base}_{uuid.uuid4().hex[:6]}"
-    return candidate
 
 
 def _find_by_identifier(identifier: str):
@@ -491,6 +484,18 @@ ERROR_MESSAGES = {
         "zh": "消息不存在",
         "en": "Message not found",
     },
+    "alt_accounts_full": {
+        "zh": "小号数量已达上限（最多两个）",
+        "en": "Alt account limit reached (max 2)",
+    },
+    "premium_invalid": {
+        "zh": "正版状态取值不合法",
+        "en": "Invalid premium status",
+    },
+    "no_main_account": {
+        "zh": "请先绑定主账号（游戏名称）",
+        "en": "Please bind a main account first",
+    },
 }
 
 # 错误码 -> HTTP 状态码。
@@ -549,6 +554,9 @@ ERROR_STATUS: dict[str, int] = {
     "exam_score_invalid": 400,
     "exam_attachment_not_found": 404,
     "exam_review_already_requested": 400,
+    "alt_accounts_full": 400,
+    "premium_invalid": 400,
+    "no_main_account": 400,
 }
 
 # 未收录错误码时的兜底双语消息。
@@ -575,7 +583,16 @@ async def lifespan(app: FastAPI):
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+
+    # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）
+    await ws_server.start()
+    ws_serve_task = asyncio.create_task(ws_server.wait_until_closed())
+
     yield
+
+    await ws_server.stop()
+    if ws_serve_task:
+        await ws_serve_task
     user_db.close()
     user_info_db.close()
     message_db.close()
@@ -608,631 +625,6 @@ async def user_not_active_error_handler(request: Request, exc: UserNotActiveErro
         },
     )
 
-
-@app.get("/")
-def root():
-    return {"message": "Server API", "status": "OK"}
-
-
-@app.get("/api/whs")
-def title():
-    cfg = read_whs_config()
-    return {
-        "title_suffix": cfg.get("title_suffix", {}),
-        "hcaptcha_site_key": cfg.get("hcaptcha", {}).get("site_key", ""),
-        # 非法链接统一跳转目标（站内路由路径或 http(s):// 外部链接）
-        "301": cfg.get("301", ""),
-    }
-
-
-# ---------------------------------------------------------------------------
-# 用户认证
-# ---------------------------------------------------------------------------
-
-@app.post("/api/user/send_code")
-async def send_code(payload: dict = Body(...)):
-    """向邮箱发送验证码；需先通过人机验证，防止被刷。"""
-    hcaptcha_response = payload.get("hcaptcha_response") or ""
-    if not await _verify_hcaptcha(hcaptcha_response):
-        return _error_response("captcha_invalid", 400)
-    email = (payload.get("email") or "").strip()
-    if not EMAIL_RE.fullmatch(email):
-        return _error_response("email_invalid", 400)
-
-    now = time.time()
-    if now - _last_send_time.get(email, 0) < SEND_COOLDOWN:
-        return _error_response("send_code_too_frequent", 429)
-
-    locale = (payload.get("locale") or "zh").strip()
-    if locale not in ("zh", "en"):
-        locale = "zh"
-
-    code = f"{secrets.randbelow(10 ** 6):06d}"
-    VERIFY_CODES[email] = {"code": code, "exp": now + CODE_TTL}
-    _last_send_time[email] = now
-    print(f"[verify-code] {email} -> {code}", flush=True)
-
-    if locale == "zh":
-        subject = "望海服务器邮箱验证码"
-        # 注意：邮箱客户端摘要会折叠换行，验证码后紧跟的数字（如"5 分钟内有效"的 5）
-        # 会与验证码粘连，让人误以为验证码多一位；因此用汉字"五"并加括号分隔。
-        body = f"您的验证码是：{code}（五分钟内有效，请勿泄露）。\n"
-    else:
-        subject = "WHS Verification Code"
-        body = f"Your verification code is: {code}.\n\nIt is valid for 5 minutes. Do not share it with anyone.\n"
-
-    if not _send_email(email, subject, body, locale):
-        return _error_response("email_send_failed", 502)
-    return {"success": True}
-
-
-@app.get("/api/user/username_exists")
-def username_exists(username: str = ""):
-    """检查用户名是否已被占用。"""
-    username = username.strip()
-    if not USERNAME_RE.fullmatch(username):
-        return _error_response("username_invalid", 400)
-    return {"exists": user_db.get_user(username=username) is not None}
-
-
-@app.get("/api/user/player_name_exists")
-def player_name_exists(player_name: str = ""):
-    """检查玩家名称（Minecraft 名称）是否已被占用。"""
-    player_name = player_name.strip()
-    if not USERNAME_RE.fullmatch(player_name):
-        return _error_response("player_name_invalid", 400)
-    return {"exists": user_info_db.player_name_exists(player_name)}
-
-
-@app.post("/api/user/suggest_username")
-def suggest_username(payload: dict = Body(...)):
-    """基于 base 推荐一个未占用的 username；每次调用尽量返回不同结果（便于“刷新”）。"""
-    base = re.sub(r"[^a-zA-Z0-9_]", "", (payload.get("base") or "").strip()) or "user"
-    if user_db.get_user(username=base) is None:
-        return {"username": base}
-    for _ in range(100):
-        candidate = f"{base}{secrets.randbelow(9999) + 1}"
-        if user_db.get_user(username=candidate) is None:
-            return {"username": candidate}
-    i = 1
-    while True:
-        candidate = f"{base}{i}"
-        if user_db.get_user(username=candidate) is None:
-            return {"username": candidate}
-        i += 1
-
-
-@app.post("/api/user/register")
-async def register(payload: dict = Body(...)):
-    """注册：email + username + 验证码 + password + hCaptcha。"""
-    email = (payload.get("email") or "").strip()
-    username = (payload.get("username") or "").strip()
-    code = (payload.get("code") or "").strip()
-    password = payload.get("password") or ""
-
-    if not EMAIL_RE.fullmatch(email):
-        return _error_response("email_invalid", 400)
-    if not USERNAME_RE.fullmatch(username):
-        return _error_response("username_invalid", 400)
-    if not re.fullmatch(r"[0-9a-f]{64}", password):
-        return _error_response("password_invalid", 400)
-    # 注册必须填写邮箱验证码（发码时已通过人机验证），提交时不再重复验证
-    rec = VERIFY_CODES.get(email)
-    if not rec or rec["exp"] < time.time() or rec["code"] != code:
-        return _error_response("code_invalid", 400)
-
-    # 注册时不再自动注入 fullname（留空，之后在用户设置里填）
-    # 重复邮箱 / 重复用户名会抛 EmailExistsError / UsernameExistsError，由异常处理器统一翻译
-    uid = user_db.create_user(username, email, "", _hash_password(password))
-    user_info_db.set_user_info(uid)  # 预建一行扩展信息（性别/生日默认为空）
-    VERIFY_CODES.pop(email, None)
-    return {"uid": uid, "token": create_token(uid)}
-
-
-@app.post("/api/user/login")
-async def login(payload: dict = Body(...)):
-    """登录：账密模式（identifier + password）或邮箱验证码模式（email + code）。
-    仅账密模式（不填邮箱验证码）在提交时校验人机验证；验证码模式发码时已验过，不重复验证。"""
-    identifier = (payload.get("identifier") or "").strip()
-    password = payload.get("password")
-    code = payload.get("code")
-
-    if code is not None:
-        # 邮箱验证码模式
-        if not EMAIL_RE.fullmatch(identifier):
-            return _error_response("email_invalid", 400)
-        user = user_db.get_user(email=identifier)
-        if user is None:
-            return _error_response("user_not_found", 404)
-        err = check_user_active(user)
-        if err:
-            return _error_response(err, ERROR_STATUS.get(err, 403))
-        rec = VERIFY_CODES.get(identifier)
-        if not rec or rec["exp"] < time.time() or rec["code"] != code:
-            if _record_failure(user["uid"], "code"):
-                return _error_response("account_locked", 403)
-            return _error_response("code_invalid", 400)
-        VERIFY_CODES.pop(identifier, None)
-    elif password is not None:
-        # 账密模式：email / UID / username（不填验证码；人机验证仅在获取验证码时需要）
-        user = _find_by_identifier(identifier)
-        if user is None:
-            return _error_response("user_not_found", 404)
-        err = check_user_active(user)
-        if err:
-            return _error_response(err, ERROR_STATUS.get(err, 403))
-        if not _verify_password(user["password"], password):
-            if _record_failure(user["uid"], "password"):
-                return _error_response("account_locked", 403)
-            return _error_response("invalid_credentials", 401)
-    else:
-        return _error_response("invalid_credentials", 401)
-
-    _clear_failures(user["uid"])
-    return {"token": create_token(user["uid"]), "user": _public_user(user)}
-
-
-@app.get("/api/user/me")
-def me(user: dict | None = Depends(get_current_user)):
-    """返回当前登录用户（供前端刷新头像/用户态）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    return _public_user(user)
-
-
-@app.post("/api/user/{uid}/unlock")
-def unlock_user(uid: int, user: dict | None = Depends(get_current_user)):
-    """解锁指定账号；仅 permission >= 3（admin/owner）可操作，且不能解锁权限不低于自己的用户。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    if (user.get("permission") or 0) <= (target.get("permission") or 0):
-        return _error_response("cannot_modify_higher_permission", 403)
-    user_db.set_locked(uid, False)
-    _clear_failures(uid)
-    return {"success": True}
-
-
-@app.post("/api/user/{uid}/info")
-def save_user_info(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """保存用户完整信息（fullname + 性别 + 生日）；需本人或管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    if user_db.get_user(uid=uid) is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-
-    gender = payload.get("gender")
-    if gender not in (None, "male", "female"):
-        return _error_response("gender_invalid", 400)
-
-    def _parse_birth(v):
-        if v is None or v == "":
-            return None
-        try:
-            return int(v)
-        except (TypeError, ValueError):
-            raise ValueError
-
-    try:
-        year = _parse_birth(payload.get("birthday_year"))
-        month = _parse_birth(payload.get("birthday_month"))
-        day = _parse_birth(payload.get("birthday_day"))
-    except ValueError:
-        return _error_response("birthday_invalid", 400)
-
-    if year is not None and not (1900 <= year <= 2100):
-        return _error_response("birthday_invalid", 400)
-    if month is not None and not (1 <= month <= 12):
-        return _error_response("birthday_invalid", 400)
-    if day is not None and not (1 <= day <= 31):
-        return _error_response("birthday_invalid", 400)
-    # 级联约束：上级为空时下级必须为空
-    if year is None:
-        month = None
-    if month is None:
-        day = None
-
-    username = payload.get("username")
-    if username is not None:
-        username = str(username).strip()
-        if not USERNAME_RE.fullmatch(username):
-            return _error_response("username_invalid", 400)
-        user_db.set_username(uid, username)
-
-    fullname = payload.get("fullname")
-    if fullname is not None:
-        user_db.update_user(uid, fullname=str(fullname).strip())
-
-    player_name = payload.get("player_name")
-    if player_name is not None:
-        player_name = str(player_name).strip()
-        if player_name:
-            if not USERNAME_RE.fullmatch(player_name):
-                return _error_response("player_name_invalid", 400)
-            user_info_db.set_player_name(uid, player_name)
-
-    user_info_db.set_user_info(
-        uid,
-        birthday_year=year,
-        birthday_month=month,
-        birthday_day=day,
-        gender=gender,
-    )
-    return {"success": True}
-
-
-# ---------------------------------------------------------------------------
-# 用户主页 / 关注 / 简介 / 设置 / 管理员
-# ---------------------------------------------------------------------------
-
-@app.get("/api/user/{uid}")
-def user_profile(uid: int, user: dict | None = Depends(get_current_user)):
-    """用户主页数据：基础信息 + 扩展信息 + 关注计数 + 与当前浏览者的关系。"""
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-
-    info = user_info_db.get_user_info(uid) or {}
-    is_self = user is not None and user["uid"] == uid
-
-    followers = user_info_db.get_followers(uid)
-    followings = user_info_db.get_followings(uid)
-
-    is_following = None
-    if user is not None and not is_self:
-        is_following = user_info_db.is_following(user["uid"], uid)
-
-    data = {
-        "uid": target["uid"],
-        "username": target["username"],
-        "fullname": target["fullname"],
-        "avatar": target.get("avatar"),
-        "player_name": info.get("player_name"),
-        "gender": info.get("gender"),
-        "birthday_year": info.get("birthday_year"),
-        "birthday_month": info.get("birthday_month"),
-        "birthday_day": info.get("birthday_day"),
-        "profile": info.get("profile") or "",
-        "followers_count": len(followers),
-        "followings_count": len(followings),
-        "is_self": is_self,
-        "is_following": is_following,
-    }
-    # 仅本人或管理员可见的敏感字段（供设置页 / 管理员代管他人设置使用）
-    if is_self or (user is not None and (user.get("permission") or 0) >= 3):
-        data["email"] = target["email"]
-        data["permission"] = target.get("permission", 1)
-        data["locked"] = bool(target.get("locked"))
-        data["banned"] = bool(target.get("banned"))
-    return data
-
-
-@app.post("/api/user/{uid}/follow")
-def follow_user(uid: int, user: dict | None = Depends(get_current_user)):
-    """当前用户关注指定用户。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] == uid:
-        return _error_response("cannot_follow_self", 400)
-    if user_db.get_user(uid=uid) is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    user_info_db.add_follow(user["uid"], uid)
-    return {
-        "success": True,
-        "is_following": True,
-        "followers_count": len(user_info_db.get_followers(uid)),
-        "followings_count": len(user_info_db.get_followings(uid)),
-    }
-
-
-@app.post("/api/user/{uid}/unfollow")
-def unfollow_user(uid: int, user: dict | None = Depends(get_current_user)):
-    """当前用户取消关注指定用户。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] == uid:
-        return _error_response("cannot_follow_self", 400)
-    if user_db.get_user(uid=uid) is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    user_info_db.remove_follow(user["uid"], uid)
-    return {
-        "success": True,
-        "is_following": False,
-        "followers_count": len(user_info_db.get_followers(uid)),
-        "followings_count": len(user_info_db.get_followings(uid)),
-    }
-
-
-@app.post("/api/user/{uid}/profile")
-def save_profile(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """保存个人简介（Markdown）；需本人或管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    if user_db.get_user(uid=uid) is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    profile = payload.get("profile") or ""
-    if not isinstance(profile, str):
-        profile = ""
-    user_info_db.set_profile(uid, profile[:20000])
-    return {"success": True}
-
-
-@app.post("/api/user/{uid}/email")
-async def change_email(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """修改邮箱：需向新邮箱发送验证码 + 人机验证；需本人或管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    email = (payload.get("email") or "").strip()
-    code = (payload.get("code") or "").strip()
-    if not EMAIL_RE.fullmatch(email):
-        return _error_response("email_invalid", 400)
-    if email == target["email"]:
-        return _error_response("email_same", 400)
-    rec = VERIFY_CODES.get(email)
-    if not rec or rec["exp"] < time.time() or rec["code"] != code:
-        return _error_response("code_invalid", 400)
-    other = user_db.get_user(email=email)
-    if other is not None and other["uid"] != uid:
-        return _error_response("email_exists", 409)
-    user_db.update_user(uid, email=email)
-    VERIFY_CODES.pop(email, None)
-    return {"success": True}
-
-
-@app.post("/api/user/password_reset_verify")
-async def password_reset_verify(payload: dict = Body(...)):
-    """忘记密码第一页：验证 邮箱 + 邮箱验证码 + 人机验证（不消费验证码，第二页提交时消费）。"""
-    email = (payload.get("email") or "").strip()
-    code = (payload.get("code") or "").strip()
-    if not EMAIL_RE.fullmatch(email):
-        return _error_response("email_invalid", 400)
-    if user_db.get_user(email=email) is None:
-        return _error_response("user_not_found", 404)
-    rec = VERIFY_CODES.get(email)
-    if not rec or rec["exp"] < time.time() or rec["code"] != code:
-        return _error_response("code_invalid", 400)
-    return {"success": True}
-
-
-@app.post("/api/user/password_reset")
-async def password_reset(payload: dict = Body(...)):
-    """忘记密码第二页：用邮箱验证码 + 新密码重置密码；重置后解锁账号并清零失败计数。"""
-    email = (payload.get("email") or "").strip()
-    code = (payload.get("code") or "").strip()
-    new_hash = payload.get("new_password") or ""
-    if not EMAIL_RE.fullmatch(email):
-        return _error_response("email_invalid", 400)
-    user = user_db.get_user(email=email)
-    if user is None:
-        return _error_response("user_not_found", 404)
-    if not re.fullmatch(r"[0-9a-f]{64}", new_hash):
-        return _error_response("password_invalid", 400)
-    rec = VERIFY_CODES.get(email)
-    if not rec or rec["exp"] < time.time() or rec["code"] != code:
-        return _error_response("code_invalid", 400)
-    VERIFY_CODES.pop(email, None)
-    user_db.update_user(user["uid"], password=_hash_password(new_hash))
-    # 重置密码后解锁账号并清零失败计数（若之前因输错密码被锁定）
-    user_db.set_locked(user["uid"], False)
-    _clear_failures(user["uid"])
-    return {"success": True}
-
-
-@app.post("/api/user/{uid}/password_verify")
-async def verify_password_change(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """修改密码第一页：验证 邮箱验证码(发到本人邮箱) + 旧密码 + 人机验证，全部通过才允许进入新密码页。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    code = (payload.get("code") or "").strip()
-    old_hash = payload.get("old_password") or ""
-    # 验证码发送到用户当前邮箱（前端不展示邮箱，后端取本人邮箱校验）
-    email = target["email"]
-    rec = VERIFY_CODES.get(email)
-    if not rec or rec["exp"] < time.time() or rec["code"] != code:
-        return _error_response("code_invalid", 400)
-    if not _verify_password(target["password"], old_hash):
-        return _error_response("old_password_invalid", 400)
-    VERIFY_CODES.pop(email, None)
-    return {"success": True}
-
-
-@app.post("/api/user/{uid}/password")
-def change_password(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """修改密码：需校验旧密码；需本人或管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    old_hash = payload.get("old_password") or ""
-    new_hash = payload.get("new_password") or ""
-    if not re.fullmatch(r"[0-9a-f]{64}", new_hash):
-        return _error_response("password_invalid", 400)
-    if not _verify_password(target["password"], old_hash):
-        return _error_response("old_password_invalid", 400)
-    user_db.update_user(uid, password=_hash_password(new_hash))
-    return {"success": True}
-
-
-@app.post("/api/user/{uid}/cancel")
-async def cancel_account(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """注销账号：验证 旧密码 + 邮箱验证码 + 人机验证 后完整删除账号与数据（仅限本人）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid:
-        return _error_response("permission_denied", 403)  # 只能注销自己
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    code = (payload.get("code") or "").strip()
-    old_hash = payload.get("old_password") or ""
-    email = target["email"]
-    rec = VERIFY_CODES.get(email)
-    if not rec or rec["exp"] < time.time() or rec["code"] != code:
-        return _error_response("code_invalid", 400)
-    if not _verify_password(target["password"], old_hash):
-        return _error_response("old_password_invalid", 400)
-    VERIFY_CODES.pop(email, None)
-
-    # 完整清理：头像文件 + 关注列表引用 + 扩展信息 + 用户记录
-    avatar = target.get("avatar")
-    if avatar:
-        avatar_path = AVATAR_DIR / Path(avatar).name
-        if avatar_path.is_file():
-            avatar_path.unlink()
-    user_info_db.purge_user_refs(uid)
-    user_info_db.delete_user_info(uid)
-    user_db.delete_user(uid)
-    return {"success": True}
-
-
-@app.post("/api/user/{uid}/ban")
-def set_user_banned(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """封禁 / 解封用户；仅管理员，且只能封禁权限【严格低于自己】的用户（同级及以上不可封禁）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    if uid == user["uid"]:
-        return _error_response("cannot_ban_self", 400)
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    if (user.get("permission") or 0) <= (target.get("permission") or 0):
-        return _error_response("cannot_modify_higher_permission", 403)
-    banned = bool(payload.get("banned"))
-    user_db.set_banned(uid, banned)
-    return {"success": True, "banned": banned}
-
-
-@app.post("/api/user/{uid}/permission")
-def set_user_permission(uid: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """设置用户权限等级；仅管理员，不能改自己。
-
-    权限判断（与封禁略有差异）：改权限允许操作【同级 / 下级】（仅禁止高于自己），
-    且新权限值最高等于自己（不能把用户设置成自己的上级）。
-    """
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    if uid == user["uid"]:
-        return _error_response("cannot_change_own_permission", 400)
-    target = user_db.get_user(uid=uid)
-    if target is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    # 权限判断（改权限）：仅禁止操作权限【高于自己】的用户（同级 / 下级均可操作）
-    if (user.get("permission") or 0) < (target.get("permission") or 0):
-        return _error_response("cannot_modify_higher_permission", 403)
-    permission = payload.get("permission")
-    if not isinstance(permission, int) or isinstance(permission, bool) or not (0 <= permission <= 4):
-        return _error_response("invalid_permission", 400)
-    # 新权限值判断：不能把用户设置得高于自己的权限（最高等于自己），防止下级造出上级
-    if permission > (user.get("permission") or 0):
-        return _error_response("new_permission_higher", 400)
-    user_db.set_permission(uid, permission)
-    return {"success": True, "permission": permission}
-
-
-@app.get("/api/admin/users")
-def admin_list_users(page: int = 1, page_size: int = 10, user: dict | None = Depends(get_current_user)):
-    """管理员用户列表（分页）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    all_users = user_db.list_users()
-    total = len(all_users)
-    page = max(1, page)
-    page_size = min(max(1, page_size), 100)
-    start = (page - 1) * page_size
-    items = all_users[start:start + page_size]
-    result = []
-    for u in items:
-        result.append({
-            "uid": u["uid"],
-            "username": u["username"],
-            "fullname": u["fullname"],
-            "avatar": u.get("avatar"),
-            "email": u["email"],
-            "permission": u.get("permission", 1),
-            "locked": bool(u.get("locked")),
-            "banned": bool(u.get("banned")),
-        })
-    return {"total": total, "page": page, "page_size": page_size, "users": result}
-
-
-# ---------------------------------------------------------------------------
-# 头像
-# ---------------------------------------------------------------------------
-
-@app.post("/api/user/{uid}/avatar")
-async def upload_avatar(uid: int, file: UploadFile = File(...), user: dict | None = Depends(get_current_user)):
-    """上传头像：校验类型/大小，落盘并更新 users.avatar（需本人或管理员）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if user["uid"] != uid and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    ext = AVATAR_CONTENT_TYPES.get(file.content_type)
-    if ext is None:
-        return _error_response("avatar_unsupported_type", 400)
-    data = await file.read(MAX_AVATAR_SIZE + 1)
-    if len(data) > MAX_AVATAR_SIZE:
-        return _error_response("avatar_too_large", 413)
-    existing = user_db.get_user(uid=uid)
-    if existing is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    filename = f"{uuid.uuid4().hex}{ext}"
-    AVATAR_DIR.mkdir(parents=True, exist_ok=True)
-    (AVATAR_DIR / filename).write_bytes(data)
-    old = existing.get("avatar")
-    if old:
-        old_path = AVATAR_DIR / Path(old).name
-        if old_path.is_file():
-            old_path.unlink()
-    user_db.update_user(uid, avatar=filename)
-    return {"avatar": filename}
-
-
-@app.get("/api/user/{uid}/avatar")
-def get_avatar(uid: int):
-    """读取头像；无头像时前端使用默认头像。"""
-    user = user_db.get_user(uid=uid)
-    if user is None:
-        raise UserNotFoundError(f"uid={uid} 的用户不存在")
-    avatar = user.get("avatar")
-    if not avatar:
-        return _error_response("avatar_not_found", 404)
-    avatar_path = AVATAR_DIR / Path(avatar).name
-    if not avatar_path.is_file():
-        return _error_response("avatar_not_found", 404)
-    return FileResponse(avatar_path)
-
-
-# ---------------------------------------------------------------------------
-# 其它
-# ---------------------------------------------------------------------------
-
 def _attach_message_author(msg: dict) -> None:
     """把消息的 author_uid 解析为发布者名称（author_name），写入消息字典。"""
     author = user_db.get_user(uid=msg.get("author_uid"))
@@ -1242,50 +634,8 @@ def _attach_message_author(msg: dict) -> None:
         msg["author_name"] = ""
 
 
-@app.get("/api/message/system")
-def system_messages(user: dict | None = Depends(get_current_user)):
-    """系统消息列表（所有人可见）；登录时附带每条消息当前用户是否已读。"""
-    messages = message_db.list_system_messages()
-    for m in messages:
-        # 不向客户端暴露其他用户的已读 uid 列表
-        m.pop("read_uids", None)
-        # 附带发布者名称（供消息盒子展示）
-        _attach_message_author(m)
-        if user is None:
-            m["is_read"] = None
-        else:
-            m["is_read"] = message_db.is_read_by(m["id"], user["uid"])
-    return {"messages": messages}
-
-
-@app.get("/api/message/unread_count")
-def message_unread_count(user: dict | None = Depends(get_current_user)):
-    """当前用户的未读消息数（系统 + 定向；未登录不允许）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    count = 0
-    for m in message_db.list_system_messages():
-        if not message_db.is_read_by(m["id"], user["uid"]):
-            count += 1
-    for m in message_db.list_user_messages(user["uid"]):
-        if not message_db.is_read_by(m["id"], user["uid"]):
-            count += 1
-    return {"count": count}
-
-
-@app.post("/api/message/{message_id}/read")
-def mark_message_read(message_id: int, user: dict | None = Depends(get_current_user)):
-    """把当前用户标记为该消息已读（幂等）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if message_db.get_message(message_id) is None:
-        return _error_response("message_not_found", 404)
-    message_db.add_read_user(message_id, user["uid"])
-    return {"success": True, "is_read": True}
-
-
 # ---------------------------------------------------------------------------
-# 服务器实时状态（mcstatus 探测，后端每 5 分钟刷新缓存）
+# 服务器实时状态（mcstatus 探测，后端每 5 分钟刷新缓存；路由在 api/server.py）
 # ---------------------------------------------------------------------------
 
 # 状态缓存：{data, fetched_at}。首次请求时触发探测，之后每 SERVER_STATUS_TTL 秒刷新。
@@ -1337,37 +687,8 @@ def _fetch_server_status() -> dict | None:
         return None
 
 
-@app.get("/api/server/status")
-def server_status():
-    """服务器实时状态（公开接口，无需登录）。
-
-    后端每 5 分钟重新探测一次并缓存结果；探测失败时返回上一次成功
-    缓存（若存在），否则返回离线占位数据。
-    """
-    now = time.time()
-    with _SERVER_STATUS_LOCK:
-        cache = _SERVER_STATUS_CACHE
-        if cache["data"] is not None and now - cache["fetched_at"] < SERVER_STATUS_TTL:
-            return cache["data"]
-        data = _fetch_server_status()
-        if data is None and cache["data"] is not None:
-            return cache["data"]
-        if data is None:
-            data = {
-                "online": False,
-                "version": "",
-                "players": {"online": 0, "max": 0},
-                "latency_ms": None,
-                "tps": None,
-                "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
-            }
-        cache["data"] = data
-        cache["fetched_at"] = now
-        return data
-
-
 # ---------------------------------------------------------------------------
-# 入服考试
+# 入服考试：辅助逻辑（路由在 api/exam.py）
 # ---------------------------------------------------------------------------
 
 def _load_exam() -> dict | None:
@@ -1379,7 +700,15 @@ def _load_exam() -> dict | None:
 
 
 def _grade_exam_question(q: dict, answer) -> tuple[int, bool | None]:
-    """自动判分：返回 (得分, 是否正确)。主观题（题型或标记）/ 无标准答案恒 0 分且 correct=None。"""
+    """自动判分：返回 (得分, 是否正确)。
+
+    - 单选题：正确给全分，错误 0；
+    - 多选题：部分对得部分分 —— 分数 = 总分 × (选中的正确选项数 ÷ 标准答案正确选项数)，
+      全对满分，选到任一错误选项得 0；
+    - 填空题：按空给分，每空均分本题总分，答对几空得几空分；
+    - 主观题（题型或标记）/ 无标准答案恒 0 分且 correct=None。
+    部分分一律向下取整（不出现小数）。
+    """
     if q.get("subjective") or q["type"] == "subjective":
         return 0, None
     ans = q.get("answer")
@@ -1391,24 +720,33 @@ def _grade_exam_question(q: dict, answer) -> tuple[int, bool | None]:
         correct = answer == ans
         return (score if correct else 0), correct
     if qtype == "multiple_choice":
-        correct = isinstance(answer, list) and sorted(answer) == sorted(ans)
-        return (score if correct else 0), correct
+        if not isinstance(answer, list) or not answer:
+            return 0, False
+        # 选到任一错误选项 -> 0 分
+        if any(a not in ans for a in answer):
+            return 0, False
+        # 全对 -> 满分
+        if sorted(answer) == sorted(ans):
+            return score, True
+        # 部分对：按 选中的正确选项数 / 标准答案正确选项数 计分，向下取整
+        correct_count = sum(1 for a in answer if a in ans)
+        return (score * correct_count) // len(ans), False
     if qtype == "fill_blank":
         blanks = fill_blank_blanks(ans)  # 每空的可接受答案
         if len(blanks) == 1:
             # 单项填空：考生答案为一个字符串
             text = str(answer).strip()
             correct = any(text == str(a).strip() for a in blanks[0])
-        else:
-            # 多项填空：考生答案为每空字符串组成的列表，全部匹配才得分
-            if not isinstance(answer, list) or len(answer) != len(blanks):
-                correct = False
-            else:
-                correct = all(
-                    any(str(answer[i]).strip() == str(a).strip() for a in blanks[i])
-                    for i in range(len(blanks))
-                )
-        return (score if correct else 0), correct
+            return (score if correct else 0), correct
+        # 多项填空：每空均分本题总分；答对几空得几空分（向下取整）
+        if not isinstance(answer, list) or len(answer) != len(blanks):
+            return 0, False
+        correct_count = 0
+        for i, acceptable in enumerate(blanks):
+            if any(str(answer[i]).strip() == str(a).strip() for a in acceptable):
+                correct_count += 1
+        correct = correct_count == len(blanks)
+        return (score * correct_count) // len(blanks), correct
     return 0, None
 
 
@@ -1434,323 +772,6 @@ def _exam_question_public(qid: int, q: dict) -> dict:
             for k, opt in q["options"].items()
         ]
     return item
-
-
-@app.get("/api/exam")
-def exam_config(user: dict | None = Depends(get_current_user)):
-    """考试配置（不含标准答案，防止作弊）；需登录。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    questions = [_exam_question_public(qid, q) for qid, q in cfg["questions"].items()]
-    questions.sort(key=lambda x: x["id"])
-    return {
-        "total_score": cfg["total_score"],
-        "tips": cfg.get("tips", ""),
-        "tips_doc": cfg.get("tips_doc", ""),
-        "questions": questions,
-    }
-
-
-@app.get("/api/exam/progress")
-def exam_progress(user: dict | None = Depends(get_current_user)):
-    """当前用户答题进度（每题的已答内容 / 附件 / 得分）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    records = exam_db.get_answers(user["uid"])
-    answered = {
-        qid: {
-            "answer": rec.get("answer"),
-            "attachment": rec.get("attachment") or [],
-            "obtained_score": rec.get("obtained_score", 0),
-            "answered_at": rec.get("answered_at"),
-        }
-        for qid, rec in records.items()
-    }
-    all_ids = set(cfg["questions"].keys())
-    return {
-        "answered": answered,
-        "answered_count": len(answered),
-        "total_questions": len(all_ids),
-        "all_answered": all_ids.issubset(answered.keys()),
-    }
-
-
-@app.post("/api/exam/answer")
-def exam_answer(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """提交某题答案（每答一题、锁存一题）；自动判分并返回该题得分。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    try:
-        qid = int(payload.get("question_id"))
-    except (TypeError, ValueError):
-        return _error_response("exam_question_not_found", 404)
-    q = cfg["questions"].get(qid)
-    if q is None:
-        return _error_response("exam_question_not_found", 404)
-
-    answer = payload.get("answer")
-    # 附件：允许文件名列表（多附件）；兼容旧格式单个文件名
-    attachment = payload.get("attachment") or None
-    if isinstance(attachment, str):
-        attachment = [attachment]
-    elif not isinstance(attachment, list):
-        attachment = None
-    options = q.get("options") or {}
-
-    # 按题型校验答案格式
-    if q["type"] == "single_choice":
-        if not isinstance(answer, str) or answer not in options:
-            return _error_response("exam_answer_invalid", 400)
-    elif q["type"] == "multiple_choice":
-        if not isinstance(answer, list) or not all(
-            isinstance(x, str) and x in options for x in answer
-        ):
-            return _error_response("exam_answer_invalid", 400)
-    elif q["type"] == "fill_blank":
-        # 单项填空：字符串；多项填空：每空一个字符串组成的列表；允许空答案（None/空串/空数组）
-        if answer is not None and not isinstance(answer, str) and not (
-            isinstance(answer, list) and all(isinstance(x, str) for x in answer)
-        ):
-            return _error_response("exam_answer_invalid", 400)
-    else:  # subjective 主观题：文本作答，不计分；允许空答案
-        if answer is not None and not isinstance(answer, str):
-            return _error_response("exam_answer_invalid", 400)
-    # 附件仅填空题且 allow_upload 时允许
-    if attachment:
-        if q["type"] != "fill_blank" or not q.get("allow_upload"):
-            return _error_response("exam_upload_not_allowed", 400)
-
-    score, correct = _grade_exam_question(q, answer)
-    exam_db.save_answer(user["uid"], qid, answer, score, attachment)
-    return {
-        "success": True,
-        "question_id": qid,
-        "obtained_score": score,
-        "correct": correct,
-    }
-
-
-@app.post("/api/exam/upload")
-async def exam_upload(
-    question_id: int = Form(...),
-    file: UploadFile = File(...),
-    user: dict | None = Depends(get_current_user),
-):
-    """上传答题附件（图片）；仅填空题且 allow_upload 的题目允许。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    q = cfg["questions"].get(question_id)
-    if q is None:
-        return _error_response("exam_question_not_found", 404)
-    if q["type"] != "fill_blank" or not q.get("allow_upload"):
-        return _error_response("exam_upload_not_allowed", 400)
-    ext = EXAM_UPLOAD_CONTENT_TYPES.get(file.content_type)
-    if ext is None:
-        return _error_response("exam_upload_unsupported", 400)
-    data = await file.read(MAX_EXAM_UPLOAD_SIZE + 1)
-    if len(data) > MAX_EXAM_UPLOAD_SIZE:
-        return _error_response("exam_upload_too_large", 413)
-    filename = f"u{user['uid']}_q{question_id}_{uuid.uuid4().hex}{ext}"
-    EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    (EXAM_UPLOAD_DIR / filename).write_bytes(data)
-    return {"success": True, "attachment": filename}
-
-
-@app.get("/api/exam/attachment/{filename}")
-def exam_attachment(filename: str, user: dict | None = Depends(get_current_user)):
-    """读取答题附件（图片）；仅本人或管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    name = Path(filename).name
-    match = re.match(r"^u(\d+)_q\d+_[0-9a-f]+\.(jpg|png|webp|gif)$", name)
-    if not match:
-        return _error_response("exam_attachment_not_found", 404)
-    owner = int(match.group(1))
-    if owner != user["uid"] and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    path = EXAM_UPLOAD_DIR / name
-    if not path.is_file():
-        return _error_response("exam_attachment_not_found", 404)
-    return FileResponse(path)
-
-
-@app.delete("/api/exam/attachment/{filename}")
-def delete_exam_attachment(filename: str, user: dict | None = Depends(get_current_user)):
-    """删除本人（或管理员）上传的答题附件：移除答题记录引用并删除文件。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    name = Path(filename).name
-    match = re.match(r"^u(\d+)_q(\d+)_[0-9a-f]+\.(jpg|png|webp|gif)$", name)
-    if not match:
-        return _error_response("exam_attachment_not_found", 404)
-    owner = int(match.group(1))
-    question_id = int(match.group(2))
-    if owner != user["uid"] and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    # 从答题记录中移除引用（幂等）
-    exam_db.remove_attachment(owner, question_id, name)
-    # 删除磁盘文件
-    path = EXAM_UPLOAD_DIR / name
-    if path.is_file():
-        path.unlink()
-    return {"success": True}
-
-
-@app.post("/api/admin/exam/image")
-async def admin_upload_exam_image(
-    file: UploadFile = File(...),
-    user: dict | None = Depends(get_current_user),
-):
-    """试卷管理：上传试卷附图（题目/选项图片），保存到 data/exam_image，仅管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    ext = EXAM_IMAGE_CONTENT_TYPES.get(file.content_type)
-    if ext is None:
-        return _error_response("exam_image_unsupported", 400)
-    data = await file.read(MAX_EXAM_IMAGE_SIZE + 1)
-    if len(data) > MAX_EXAM_IMAGE_SIZE:
-        return _error_response("exam_image_too_large", 413)
-    filename = f"cfg_{uuid.uuid4().hex}{ext}"
-    EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    (EXAM_IMAGE_DIR / filename).write_bytes(data)
-    return {
-        "success": True,
-        "filename": filename,
-        "url": f"/api/exam/image/{filename}",
-    }
-
-
-@app.get("/api/exam/image/{filename}")
-def exam_image(filename: str):
-    """读取试卷附图（公开，供考试页面显示题目/选项图片）。"""
-    name = Path(filename).name
-    if name != filename or not re.match(r"^cfg_[0-9a-f]+\.(jpg|png|webp|gif)$", name):
-        return _error_response("exam_image_not_found", 404)
-    path = EXAM_IMAGE_DIR / name
-    if not path.is_file():
-        return _error_response("exam_image_not_found", 404)
-    return FileResponse(path)
-
-
-@app.post("/api/admin/exam/doc")
-async def admin_upload_exam_doc(
-    file: UploadFile = File(...),
-    user: dict | None = Depends(get_current_user),
-):
-    """试卷管理：上传试卷说明文档（仅 .docx），与附图共用 data/exam_image，仅管理员。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    if file.content_type != "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-        return _error_response("exam_doc_unsupported", 400)
-    data = await file.read(MAX_EXAM_DOC_SIZE + 1)
-    if len(data) > MAX_EXAM_DOC_SIZE:
-        return _error_response("exam_doc_too_large", 413)
-    filename = f"cfg_doc_{uuid.uuid4().hex}.docx"
-    EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    (EXAM_IMAGE_DIR / filename).write_bytes(data)
-    return {
-        "success": True,
-        "filename": filename,
-        "url": f"/api/exam/doc/{filename}",
-    }
-
-
-@app.get("/api/exam/doc/{filename}")
-def exam_doc(filename: str):
-    """读取试卷说明文档（公开，供考生在线浏览/下载）。"""
-    name = Path(filename).name
-    if name != filename or not re.match(r"^cfg_doc_[0-9a-f]+\.docx$", name):
-        return _error_response("exam_doc_not_found", 404)
-    path = EXAM_IMAGE_DIR / name
-    if not path.is_file():
-        return _error_response("exam_doc_not_found", 404)
-    return FileResponse(path)
-
-
-@app.post("/api/exam/submit")
-def exam_submit(user: dict | None = Depends(get_current_user)):
-    """交卷汇总：返回总分 / 已得分数 / 完成情况。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    records = exam_db.get_answers(user["uid"])
-    obtained = sum(rec.get("obtained_score", 0) for rec in records.values())
-    all_ids = set(cfg["questions"].keys())
-    answered_ids = set(records.keys())
-    return {
-        "success": True,
-        "total_score": cfg["total_score"],
-        "obtained_score": obtained,
-        "answered_count": len(records),
-        "total_questions": len(all_ids),
-        "all_answered": answered_ids.issubset(all_ids),
-    }
-
-
-# ---------------------------------------------------------------------------
-# 入服考试：个人信息 / 完成判分 / 申请重审 / 管理端
-# ---------------------------------------------------------------------------
-
-@app.get("/api/exam/profile")
-def exam_profile(user: dict | None = Depends(get_current_user)):
-    """当前考生信息（游戏名 / QQ / 次数 / 是否及格 / 本答卷是否已申请重审）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    profile = exam_db.get_profile(user["uid"]) or {}
-    return {
-        "player_name": profile.get("player_name", ""),
-        "qq_name": profile.get("qq_name", ""),
-        "qq_number": profile.get("qq_number", ""),
-        "attempts": int(profile.get("attempts", 0)),
-        "passed": bool(profile.get("passed")),
-        "review_requested": bool(profile.get("review_requested")),
-        "can_answer": exam_db.can_answer(user["uid"]),
-    }
-
-
-@app.post("/api/exam/profile")
-def exam_save_profile(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """实时保存个人信息（游戏名 / QQ 名称 / QQ 号）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    player_name = str(payload.get("player_name") or "").strip()[:64]
-    qq_name = str(payload.get("qq_name") or "").strip()[:64]
-    qq_number = str(payload.get("qq_number") or "").strip()[:32]
-    if not USERNAME_RE.fullmatch(player_name):
-        return _error_response("player_name_invalid", 400)
-    exam_db.save_profile(user["uid"], player_name, qq_name, qq_number)
-    return {"success": True}
-
-
-@app.post("/api/exam/reset")
-def exam_reset(user: dict | None = Depends(get_current_user)):
-    """重新作答：清空本人的答题记录（次数限制内允许），并重置本答卷的重审申请标记。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if not exam_db.can_answer(user["uid"]):
-        return _error_response("exam_cannot_answer", 403)
-    exam_db.delete_answers(user["uid"])
-    # 重做 = 进入新的答卷周期：允许再申请一次重审
-    exam_db.set_review_requested(user["uid"], False)
-    return {"success": True}
 
 
 def _apply_exam_pass(uid: int) -> str | None:
@@ -1794,306 +815,26 @@ def _notify_exam_passed(uid: int, admin_uid: int) -> None:
     )
 
 
-@app.post("/api/exam/finish")
-def exam_finish(user: dict | None = Depends(get_current_user)):
-    """完成答卷：判分汇总、次数 +1；及格则注入 player_name 并升级为 player(2)。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if not exam_db.can_answer(user["uid"]):
-        return _error_response("exam_cannot_answer", 403)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    answers = exam_db.get_answers(user["uid"])
-    # 允许空答案：未作答的题视为空答案（0 分），不再强制要求每题都有记录
+# ---------------------------------------------------------------------------
+# 路由注册：按类拆分到 backend/api/*.py（只拆路由注册；
+# 生命周期 / 全局异常处理 / 辅助逻辑均保留在本文件）。
+#
+# 顺序注意：auth 必须先于 user 注册——/api/user/me、/api/user/username_exists
+# 等静态段不能被 /api/user/{uid} 的 int 参数路由抢先匹配（否则会 422）。
+# 同一文件内（如 user.py 的 by_player_name 先于 /api/user/{uid}）同理。
+# ---------------------------------------------------------------------------
+from api.auth import router as auth_router
+from api.avatar import router as avatar_router
+from api.exam import router as exam_router
+from api.message import router as message_router
+from api.server import router as server_router
+from api.site import router as site_router
+from api.user import router as user_router
 
-    total = cfg["total_score"]
-    obtained = sum(rec.get("obtained_score", 0) for rec in answers.values())
-    passed = obtained >= total * 0.6
-    if passed:
-        err = _apply_exam_pass(user["uid"])
-        if err:
-            return _error_response(err, ERROR_STATUS.get(err, 400))
-
-    attempts = exam_db.increment_attempts(user["uid"])
-    return {
-        "success": True,
-        "total_score": total,
-        "obtained_score": obtained,
-        "passed": passed,
-        "attempts": attempts,
-        "can_answer": exam_db.can_answer(user["uid"]),
-    }
-
-
-@app.post("/api/exam/review")
-def exam_review(user: dict | None = Depends(get_current_user)):
-    """申请重审答题卡：向所有管理员推送定向消息并发送邮件。
-
-    防连点：本答卷周期（一次答题机会）内只允许申请一次；
-    重做（/api/exam/reset）进入新答卷周期后允许再次申请。
-    """
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if exam_db.is_review_requested(user["uid"]):
-        return _error_response("exam_review_already_requested", 400)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    answers = exam_db.get_answers(user["uid"])
-    if not answers:
-        return _error_response("exam_answers_not_found", 404)
-    obtained = sum(rec.get("obtained_score", 0) for rec in answers.values())
-    profile = exam_db.get_profile(user["uid"]) or {}
-    target = user_db.get_user(uid=user["uid"])
-    admins = [u for u in user_db.list_users() if (u.get("permission") or 0) >= 3]
-
-    title = "答题卡重审申请"
-    content = (
-        f"用户 {target['username']}（UID {user['uid']}）申请重审答题卡。\n"
-        f"游戏名称：{profile.get('player_name', '')}\n"
-        f"QQ 名称：{profile.get('qq_name', '')}\n"
-        f"QQ 号：{profile.get('qq_number', '')}\n"
-        f"当前得分：{obtained} / {cfg['total_score']}\n"
-        f"请管理员前往「考试管理」查看该用户的答题卡。"
-    )
-    sent = 0
-    for admin in admins:
-        message_db.create_message(
-            title, content, user["uid"], scope="user", target_uid=admin["uid"]
-        )
-        _send_email(
-            admin["email"],
-            f"[望海服务器] 答题卡重审申请 - {target['username']}",
-            content,
-            "zh",
-        )
-        sent += 1
-    exam_db.set_review_requested(user["uid"], True)
-    return {"success": True, "notified": sent}
-
-
-@app.get("/api/admin/exam/candidates")
-def admin_exam_candidates(
-    page: int = 1,
-    page_size: int = 10,
-    user: dict | None = Depends(get_current_user),
-):
-    """考试管理：有答卷的考生列表（分页）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    uids = exam_db.list_answered_uids()
-    total = len(uids)
-    page = max(1, page)
-    page_size = min(max(1, page_size), 100)
-    items = uids[(page - 1) * page_size : page * page_size]
-    result = []
-    for uid in items:
-        u = user_db.get_user(uid=uid)
-        if u is None:
-            continue
-        prof = exam_db.get_profile(uid) or {}
-        result.append({
-            "uid": uid,
-            "username": u["username"],
-            "avatar": u.get("avatar"),
-            "player_name": prof.get("player_name") or "",
-            "attempts": int(prof.get("attempts", 0)),
-            "passed": bool(prof.get("passed")),
-            "answered_count": len(exam_db.get_answers(uid)),
-        })
-    return {"total": total, "page": page, "page_size": page_size, "candidates": result}
-
-
-@app.get("/api/admin/exam/config")
-def admin_exam_config(user: dict | None = Depends(get_current_user)):
-    """试卷管理：管理员获取完整试卷配置（含标准答案，用于在线编辑）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    return cfg
-
-
-@app.put("/api/admin/exam/config")
-def admin_save_exam_config(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """试卷管理：管理员保存试卷配置（校验通过后写回 exam.yml，即时生效）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    try:
-        validated = save_exam_config(payload)
-    except ExamConfigError as exc:
-        print(f"[exam-config] 保存失败: {exc}", flush=True)
-        return _error_response("exam_config_invalid", 400)
-    return {"success": True, "config": validated}
-
-
-@app.get("/api/admin/exam/answers/{uid}")
-def admin_exam_answers(uid: int, user: dict | None = Depends(get_current_user)):
-    """查看某考生答题卡（题目 + 答案 + 得分）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    answers = exam_db.get_answers(uid)
-    if not answers:
-        return _error_response("exam_answers_not_found", 404)
-    profile = exam_db.get_profile(uid) or {}
-    per = {}
-    for qid, q in cfg["questions"].items():
-        rec = answers.get(qid)
-        per[qid] = {
-            "question": _exam_question_public(qid, q),
-            "answer": rec.get("answer") if rec else None,
-            "attachment": (rec.get("attachment") or []) if rec else [],
-            "obtained_score": rec.get("obtained_score", 0) if rec else 0,
-            "answered": rec is not None,
-        }
-    total = cfg["total_score"]
-    obtained = sum(rec.get("obtained_score", 0) for rec in answers.values())
-    return {
-        "uid": uid,
-        "profile": profile,
-        "answers": per,
-        "total_score": total,
-        "obtained_score": obtained,
-    }
-
-
-@app.post("/api/admin/exam/score")
-def admin_exam_score(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """管理员修改某考生某题的实际得分（0 ~ 该题满分）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    try:
-        uid = int(payload.get("uid"))
-        question_id = int(payload.get("question_id"))
-    except (TypeError, ValueError):
-        return _error_response("exam_score_invalid", 400)
-    score = payload.get("score")
-    if not isinstance(score, (int, float)) or isinstance(score, bool) or score < 0:
-        return _error_response("exam_score_invalid", 400)
-    cfg = _load_exam()
-    if cfg is None:
-        return _error_response("exam_config_error", 500)
-    q = cfg["questions"].get(question_id)
-    if q is None:
-        return _error_response("exam_question_not_found", 404)
-    if int(score) > int(q.get("score", 0)):
-        return _error_response("exam_score_invalid", 400)
-    if exam_db.get_answer(uid, question_id) is None:
-        return _error_response("exam_answers_not_found", 404)
-    exam_db.set_score(uid, question_id, int(score))
-    # 改分后重新汇总总分并判定及格状态（达标且未通过则应用及格处理）
-    records = exam_db.get_answers(uid)
-    obtained_total = sum(r.get("obtained_score", 0) for r in records.values())
-    passed_now = obtained_total >= cfg["total_score"] * 0.6
-    passed_flag = bool((exam_db.get_profile(uid) or {}).get("passed"))
-    if passed_now and not passed_flag:
-        err = _apply_exam_pass(uid)
-        if err:
-            return _error_response(err, ERROR_STATUS.get(err, 400))
-        # 复审通过：通知考生（消息盒子定向消息 + 邮件）
-        _notify_exam_passed(uid, user["uid"])
-    return {"success": True, "obtained_score": int(score), "passed": passed_now}
-
-
-@app.delete("/api/admin/exam/answers/{uid}")
-def admin_exam_delete_answers(uid: int, user: dict | None = Depends(get_current_user)):
-    """删除某考生答卷（重置：清空答题记录、次数与及格标记，允许重新作答）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    exam_db.reset_candidate(uid)
-    return {"success": True}
-
-
-@app.get("/api/message/{user_id}")
-def user_message(user_id: str, user: dict | None = Depends(get_current_user)):
-    """定向消息（仅本人或管理员可看）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    try:
-        uid = int(user_id)
-    except (TypeError, ValueError):
-        return _error_response("message_not_found", 404)
-    if uid != user["uid"] and (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    messages = message_db.list_user_messages(uid)
-    for m in messages:
-        m.pop("read_uids", None)
-        _attach_message_author(m)
-        m["is_read"] = message_db.is_read_by(m["id"], user["uid"])
-    return {"messages": messages}
-
-
-@app.post("/api/admin/messages")
-def publish_message(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """管理员发布系统消息（标题 + Markdown 内容）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    title = payload.get("title") or ""
-    content = payload.get("content") or ""
-    if not isinstance(title, str) or not title.strip():
-        return _error_response("message_title_empty", 400)
-    if not isinstance(content, str) or not content.strip():
-        return _error_response("message_content_empty", 400)
-    title = title.strip()[:100]
-    content = content.strip()[:20000]
-    message_id = message_db.create_message(title, content, user["uid"], scope="system")
-    return {"success": True, "message": message_db.get_message(message_id)}
-
-
-@app.put("/api/admin/messages/{message_id}")
-def edit_message(message_id: int, payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
-    """管理员编辑自己发布的系统消息（标题 + Markdown 内容）。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    msg = message_db.get_message(message_id)
-    if msg is None:
-        return _error_response("message_not_found", 404)
-    if msg["author_uid"] != user["uid"]:
-        return _error_response("permission_denied", 403)
-    title = payload.get("title") or ""
-    content = payload.get("content") or ""
-    if not isinstance(title, str) or not title.strip():
-        return _error_response("message_title_empty", 400)
-    if not isinstance(content, str) or not content.strip():
-        return _error_response("message_content_empty", 400)
-    title = title.strip()[:100]
-    content = content.strip()[:20000]
-    message_db.update_message(message_id, title, content)
-    return {"success": True, "message": message_db.get_message(message_id)}
-
-
-@app.delete("/api/admin/messages/{message_id}")
-def delete_message(message_id: int, user: dict | None = Depends(get_current_user)):
-    """管理员删除自己发布的消息。"""
-    if user is None:
-        return _error_response("unauthorized", 401)
-    if (user.get("permission") or 0) < 3:
-        return _error_response("permission_denied", 403)
-    msg = message_db.get_message(message_id)
-    if msg is None:
-        return _error_response("message_not_found", 404)
-    if msg["author_uid"] != user["uid"]:
-        return _error_response("permission_denied", 403)
-    message_db.delete_message(message_id)
-    return {"success": True}
+app.include_router(site_router)
+app.include_router(auth_router)
+app.include_router(user_router)
+app.include_router(avatar_router)
+app.include_router(message_router)
+app.include_router(exam_router)
+app.include_router(server_router)

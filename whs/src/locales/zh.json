@@ -60,16 +60,16 @@
                 "version": { "label": "游戏版本", "value": "1.21.10", "note": "Java 版" },
                 "round": { "label": "当前周目", "value": "第二周目" },
                 "nature": { "label": "服务器性质", "value": "社区共有" },
-                "seed": { "label": "世界种子", "value": "wanghai_commune", "note": "点击复制" },
+                "seed": { "label": "世界种子", "value": "wanghai_commune", "note": "点击复制", "mapSeed": "-1865289266", "open": "在 ChunkBase 打开完整地图" },
                 "loading": "获取中…"
             },
             "history": {
                 "title": "历史沿革",
                 "items": [
-                    { "time": "建服之初", "title": "望海启航", "desc": "由 stevendjr 创建服务器，确立了开放、自由、以玩家为中心的社区理念。" },
-                    { "time": "第二周目", "title": "薪火相传", "desc": "服务器进入第二周目（Java 版 1.21.10）。1410happy_ 接任服主，为社区提供机器与技术支援；原服主 stevendjr 担任联合服主。" },
-                    { "time": "社区成形", "title": "共建共治", "desc": "管理员团队由玩家选举产生；审核问卷与审核群上线，新玩家需通过问卷审核加入；轨交工程统一规划，全物品仓库与农场体系逐步完善。" },
-                    { "time": "现在与未来", "title": "持续共建", "desc": "社区持续吸纳新成员，基础设施不断扩展 —— 望海的每一块砖，都由玩家亲手砌成。" }
+                    { "time": "建服之初", "date": "2024/03/27 ~ 2026/02/13", "title": "望海启航", "desc": "由 stevendjr 创建服务器，确立了开放、自由、以玩家为中心的社区理念。" },
+                    { "time": "第二周目", "date": "2026/02/13 ~ 至今", "title": "薪火相传", "desc": "服务器进入第二周目（Java 版 1.21.10）。1410happy_ 接任服主，为社区提供机器与技术支援；原服主 stevendjr 担任联合服主。" },
+                    { "time": "社区成形", "date": "2024/03/27 ~ 至今", "title": "共建共治", "desc": "管理员团队由玩家选举产生；审核问卷与审核群上线，新玩家需通过问卷审核加入；轨交工程统一规划，全物品仓库与农场体系逐步完善。" },
+                    { "time": "现在与未来", "date": "2024/03/27 ~ 至今", "title": "持续共建", "desc": "社区持续吸纳新成员，基础设施不断扩展 —— 望海的每一块砖，都由玩家亲手砌成。" }
                 ]
             },
             "governance": {
@@ -111,25 +111,14 @@
                 "role_co_owner": "联合服主",
                 "role_admin": "管理员",
                 "members": [
-                    { "name": "1410happy_", "role": "owner", "desc": "服主 · 机器与技术支援" },
-                    { "name": "stevendjr", "role": "co_owner", "desc": "联合服主 · 原服主" },
-                    { "name": "yello", "role": "admin", "desc": "管理员" },
-                    { "name": "lyh1379", "role": "admin", "desc": "管理员" },
-                    { "name": "Zele", "role": "admin", "desc": "管理员" },
-                    { "name": "chaofan_0526", "role": "admin", "desc": "管理员" },
-                    { "name": "hongyan250", "role": "admin", "desc": "管理员" }
+                    { "name": "1410happy_", "role": "owner", "playerName": "1410happy_", "desc": "角色介绍稍后补充。" },
+                    { "name": "stevendjr", "role": "co_owner", "playerName": "stevendjr", "desc": "角色介绍稍后补充。" },
+                    { "name": "yello", "role": "admin", "playerName": "yello", "desc": "角色介绍稍后补充。" },
+                    { "name": "lyh1379", "role": "admin", "playerName": "lyh1379", "desc": "角色介绍稍后补充。" },
+                    { "name": "Zele", "role": "admin", "playerName": "Zele", "desc": "角色介绍稍后补充。" },
+                    { "name": "chaofan_0526", "role": "admin", "playerName": "chaofan_0526", "desc": "角色介绍稍后补充。" },
+                    { "name": "hongyan250", "role": "admin", "playerName": "hongyan250", "desc": "角色介绍稍后补充。" }
                 ]
-            },
-            "join": {
-                "title": "加入我们",
-                "steps": [
-                    { "title": "注册账号", "desc": "在官网注册账号并登录" },
-                    { "title": "完成问卷", "desc": "参加《望海服务器二周目审核问卷》，系统自动判分" },
-                    { "title": "正式加入", "desc": "得分达到及格线即自动通过并入服；管理员也可在玩家完成考试后介入审核（如主观题复核）" },
-                    { "title": "共建望海", "desc": "与社区一起建设轨交、农场与家园" }
-                ],
-                "button": "开始答题",
-                "hint": "完整规则与审核流程见「加入我们」"
             },
             "copied": "已复制"
         }
@@ -229,6 +218,8 @@
         "editProfile": "修改简介",
         "followers": "粉丝",
         "followings": "关注",
+        "followersEmpty": "暂无粉丝",
+        "followingsEmpty": "暂未关注任何人",
         "copiedUid": "已复制 UID",
         "copyFailed": "复制失败",
         "notLoggedIn": "请先登录",
@@ -286,7 +277,27 @@
         "cancelHint": "注销后账号与所有数据将被永久删除，且无法恢复，请谨慎操作",
         "cancel": "注销",
         "confirmCancel": "再次点击确认注销",
-        "cancelSuccess": "账号已注销"
+        "cancelSuccess": "账号已注销",
+        "manageAccounts": "管理游戏账户",
+        "mainAccount": "主账号",
+        "alts": "小号",
+        "addAlt": "添加小号",
+        "altMaxReached": "最多可添加两个小号",
+        "noAlts": "暂无小号",
+        "altName": "小号名称",
+        "altNamePlaceholder": "输入小号的游戏名称",
+        "premiumLabel": "是否为正版",
+        "premiumHint": "望海不强制要求正版，离线账户也可正常游玩",
+        "premiumYes": "正版",
+        "premiumNo": "离线",
+        "changePremium": "修改正版状态",
+        "confirmChange": "确认修改",
+        "removeAlt": "注销小号",
+        "confirmRemoveAlt": "再次点击确认注销",
+        "altAdded": "小号已添加",
+        "altRemoved": "小号已注销",
+        "premiumUpdated": "正版状态已更新",
+        "becomeMember": "→成为我们的正式成员"
     },
     "admin": {
         "title": "用户管理",
@@ -386,6 +397,22 @@
         "subtitle": "完成《望海服务器二周目审核问卷》即可正式加入我们",
         "start": "开始答题"
     },
+    "join": {
+        "title": "加入我们",
+        "steps": [
+            { "title": "注册账号", "desc": "在官网注册账号并登录" },
+            { "title": "完成问卷", "desc": "参加《望海服务器二周目审核问卷》，系统自动判分" },
+            { "title": "正式加入", "desc": "得分达到及格线即自动通过并入服；管理员也可在玩家完成考试后介入审核（如主观题复核）" },
+            { "title": "共建望海", "desc": "与社区一起建设轨交、农场与家园" }
+        ],
+        "button": "开始答题",
+        "hint": "完整规则与审核流程见「加入我们」"
+    },
+    "playerInfo": {
+        "viewProfile": "查看主页",
+        "close": "关闭",
+        "notFound": "未找到该玩家，可能尚未注册"
+    },
     "exam": {
         "prev": "上一题",
         "next": "下一题",
@@ -412,8 +439,10 @@
         "profileTitle": "填写个人信息",
         "playerName": "游戏名称",
         "playerNamePlaceholder": "输入你的游戏名称（正式加入后不可更改）",
-        "qqName": "QQ 名称",
-        "qqNumber": "QQ 号",
+        "premiumLabel": "是否为正版",
+        "premiumHint": "望海不强制要求正版，离线账户也可正常游玩",
+        "premiumYes": "正版",
+        "premiumNo": "离线",
         "startAnswer": "开始答题",
         "profileRequired": "请填写全部个人信息后再开始",
         "autoSaveHint": "答题内容自动保存，可随时退出后继续",

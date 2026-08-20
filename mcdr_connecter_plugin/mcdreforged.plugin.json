@@ -1,0 +1,14 @@
+{
+    "id": "mcdr2web",
+    "version": "1.0.0",
+    "name": "MCDR to Web",
+    "description": {
+        "zh_cn": "将 Minecraft 服务器（MCDReforged）与望海官网打通：上报服务器状态与在线玩家，同步白名单。",
+        "en_us": "Bridges the Minecraft server (MCDReforged) with the WangHai website: reports server status and online players, and syncs the whitelist."
+    },
+    "dependencies": {
+        "mcdreforged": ">=2.15.0",
+        "whitelist_api": ">=2.0.0",
+        "online_player_api": ">=1.0.0"
+    }
+}

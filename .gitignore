@@ -1,3 +1,6 @@
 .kagent/
 /SMTP/
 *.zip
+venv/
+*.mcdr
+__pycache__/

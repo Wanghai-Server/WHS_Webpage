@@ -31,10 +31,10 @@ const loading = ref(true)
 const showDocViewer = ref(false)
 
 // 个人信息
-const profile = ref({ player_name: '', qq_name: '', qq_number: '', attempts: 0, passed: false, can_answer: true })
+const profile = ref({ player_name: '', is_premium: '', attempts: 0, passed: false, can_answer: true })
 const playerName = ref('')
-const qqName = ref('')
-const qqNumber = ref('')
+// 正版状态：'premium'（正版）/ 'offline'（离线），必选，望海不强制要求正版
+const premium = ref('')
 let profileTimer = null
 
 // 重审申请（防连点）：本答卷周期内只允许申请一次；重做（新答卷周期）后重置
@@ -61,7 +61,7 @@ const currentQuestion = computed(
 )
 const currentAnswer = computed(() => answers.value[currentId.value] ?? null)
 
-const profileComplete = computed(() => playerName.value.trim() !== '' && qqName.value.trim() !== '' && qqNumber.value.trim() !== '')
+const profileComplete = computed(() => playerName.value.trim() !== '' && premium.value !== '')
 
 function localMessage(data) {
   const m = data && data.message
@@ -112,8 +112,7 @@ async function fetchAll() {
     }
     profile.value = data
     playerName.value = data.player_name || ''
-    qqName.value = data.qq_name || ''
-    qqNumber.value = data.qq_number || ''
+    premium.value = data.is_premium || ''
     // 从后端同步本答卷周期的重审申请状态（刷新页面后仍保持禁用）
     reviewRequested.value = !!data.review_requested
     await fetchExam()
@@ -132,29 +131,38 @@ async function fetchAll() {
   }
 }
 
-// 个人信息实时保存（防抖）
+// 个人信息实时保存（防抖）；返回是否保存成功（失败时已弹错误提示）
 function scheduleProfileSave() {
   if (profileTimer) clearTimeout(profileTimer)
   profileTimer = setTimeout(saveProfile, 500)
 }
 
 async function saveProfile() {
-  await fetch('/api/exam/profile', {
+  const res = await fetch('/api/exam/profile', {
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify({
       player_name: playerName.value.trim(),
-      qq_name: qqName.value.trim(),
-      qq_number: qqNumber.value.trim(),
+      is_premium: premium.value,
     }),
   })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    showTip('error', localMessage(data))
+    return false
+  }
+  return true
 }
 
-function startAnswer() {
+async function startAnswer() {
   if (!profileComplete.value) {
     showTip('warning', t('exam.profileRequired'))
     return
   }
+  // 开始答题前校验：player_name 不得与其它用户重复（后端查重，失败时已提示）
+  clearTimeout(profileTimer)
+  const ok = await saveProfile()
+  if (!ok) return
   stage.value = 'answering'
 }
 
@@ -261,12 +269,15 @@ async function requestReview() {
 }
 
 // 路由切换（上一题/下一题/提交均通过路由变化触发）：
-// 先保存当前题的答案，再切换题目（输入不再实时保存，避免快速作答丢失）
+// 先保存当前题的答案，再切换题目（输入不再实时保存，避免快速作答丢失）。
+// 注意：首次进入答题页时 URL 可能没有 ?question 参数（startAnswer 不写 URL），
+// 因此不能用 oldQ != null 作为保存条件——否则第 1 题的答案会在第一次切题时被跳过。
+// saveNow 对空答案/无附件/从未作答的题会自行跳过，不会产生无意义记录。
 watch(
   () => route.query.question,
   async (q, oldQ) => {
     if (stage.value !== 'answering' || !questionIds.value.length) return
-    if (oldQ != null && questionRef.value) {
+    if (questionRef.value) {
       await questionRef.value.saveNow()
     }
     const id = Number(q)
@@ -331,12 +342,18 @@ onUnmounted(() => {
           />
         </div>
         <div class="field">
-          <label class="label">{{ t('exam.qqName') }}</label>
-          <input v-model="qqName" type="text" :placeholder="t('exam.qqName')" @input="scheduleProfileSave" />
-        </div>
-        <div class="field">
-          <label class="label">{{ t('exam.qqNumber') }}</label>
-          <input v-model="qqNumber" type="text" :placeholder="t('exam.qqNumber')" @input="scheduleProfileSave" />
+          <label class="label">{{ t('exam.premiumLabel') }}</label>
+          <div class="premium-options">
+            <label class="premium-option">
+              <input v-model="premium" type="radio" value="premium" @change="scheduleProfileSave" />
+              <span>{{ t('exam.premiumYes') }}</span>
+            </label>
+            <label class="premium-option">
+              <input v-model="premium" type="radio" value="offline" @change="scheduleProfileSave" />
+              <span>{{ t('exam.premiumNo') }}</span>
+            </label>
+          </div>
+          <p class="field-hint">{{ t('exam.premiumHint') }}</p>
         </div>
         <button type="button" class="start-btn" :disabled="!profileComplete" @click="startAnswer">
           {{ t('exam.startAnswer') }}
@@ -562,6 +579,47 @@ onUnmounted(() => {
 
 .field input:focus {
   border-color: var(--text-color);
+}
+
+/* 正版状态单选：横向排列的选项胶囊 */
+.premium-options {
+  display: flex;
+  gap: 10px;
+}
+
+.premium-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--text-color);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background-color 0.2s ease;
+}
+
+.premium-option:has(input:checked) {
+  border-color: rgba(235, 170, 40, 0.6);
+  background: rgba(235, 170, 40, 0.1);
+}
+
+.premium-option input {
+  width: auto;
+  padding: 0;
+  accent-color: #ebaa28;
+}
+
+.field-hint {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--links-color);
 }
 
 .start-btn {

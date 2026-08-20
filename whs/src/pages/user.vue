@@ -8,6 +8,9 @@ import BasicUserInfo from '../components/basic_user_info.vue'
 import UserProfile from '../components/user_profile.vue'
 import UserSettings from '../components/user_settings.vue'
 import AdminSettings from '../components/admin_settings.vue'
+import AdminUserPanel from '../components/admin_user_panel.vue'
+import FollowList from '../components/follow_list.vue'
+import Tabs from '../components/tabs.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 
@@ -22,6 +25,14 @@ const loading = ref(true)
 const activeTab = ref('profile')
 const focusProfileKey = ref(0)
 
+// 粉丝/关注悬浮窗
+const followListOpen = ref(false)
+const followListTab = ref('followers')
+function openFollowList(tab) {
+  followListTab.value = tab
+  followListOpen.value = true
+}
+
 const uid = computed(() => Number(route.params.uid))
 
 const isSelf = computed(() => !!user.value?.is_self)
@@ -29,13 +40,14 @@ const isAdmin = computed(() => (user.value?.permission ?? 0) >= 3)
 // 当前登录用户是否为管理员（管理员可代管他人设置页）
 const viewerIsAdmin = computed(() => (authState.user?.permission ?? 0) >= 3)
 
-// 标签：profile 恒有；settings 仅本人或管理员代管；admin settings 仅本人且为管理员
+// 标签：profile 恒有；settings 仅本人或管理员代管；
+// admin 在两种情况出现：本人且为管理员（完整后台），或管理员查看他人页面（仅三个操作按钮）
 const tabs = computed(() => {
   const list = [{ key: 'profile', label: t('user.tabProfile') }]
   if (isSelf.value || viewerIsAdmin.value) {
     list.push({ key: 'settings', label: t('user.tabSettings') })
   }
-  if (isSelf.value && isAdmin.value) {
+  if ((isSelf.value && isAdmin.value) || viewerIsAdmin.value) {
     list.push({ key: 'admin', label: t('user.tabAdmin') })
   }
   return list
@@ -71,13 +83,13 @@ async function fetchUser() {
   }
 }
 
-// 标签合法性：settings 仅本人或管理员代管；admin 仅本人且为管理员；否则回退 profile
+// 标签合法性：settings 仅本人或管理员代管；
+// admin 在"本人且为管理员"或"管理员查看他人页面"时合法；否则回退 profile
 function resolveTab(tab) {
   const t = String(tab || 'profile')
   if (t === 'settings') return isSelf.value || viewerIsAdmin.value ? 'settings' : 'profile'
   if (t === 'admin') {
-    if (!isSelf.value) return 'profile'
-    return isAdmin.value ? 'admin' : 'settings'
+    return (isSelf.value && isAdmin.value) || viewerIsAdmin.value ? 'admin' : 'profile'
   }
   return 'profile'
 }
@@ -129,17 +141,16 @@ watch(
 
     <template v-else-if="user">
       <div class="load-in">
-        <BasicUserInfo :user="user" @edit-profile="onEditProfile" @follow-changed="onFollowChanged" />
+        <BasicUserInfo
+          :user="user"
+          @edit-profile="onEditProfile"
+          @follow-changed="onFollowChanged"
+          @open-follow-list="openFollowList"
+        />
       </div>
 
       <div class="tab-bar load-in" style="--load-delay: 80ms">
-        <button
-          v-for="tab in tabs"
-          :key="tab.key"
-          class="tab"
-          :class="{ active: activeTab === tab.key }"
-          @click="setTab(tab.key)"
-        >{{ tab.label }}</button>
+        <Tabs :model-value="activeTab" :items="tabs" @update:model-value="setTab" />
       </div>
 
       <div class="tab-content">
@@ -150,7 +161,10 @@ watch(
           :focus-profile-key="focusProfileKey"
           @saved="fetchUser"
         />
-        <AdminSettings v-else-if="activeTab === 'admin'" :self-uid="user.uid" />
+        <!-- 管理员本人页面：完整后台（用户管理 / 考试管理 / 试卷管理） -->
+        <AdminSettings v-else-if="activeTab === 'admin' && isSelf" :self-uid="user.uid" />
+        <!-- 管理员查看他人页面：仅三个操作（封禁/解禁、查看答题卡、解锁） -->
+        <AdminUserPanel v-else-if="activeTab === 'admin'" :user="user" @changed="fetchUser" />
       </div>
     </template>
 
@@ -158,6 +172,18 @@ watch(
       <p>{{ t('user.loadFailed') }}</p>
     </div>
   </main>
+
+  <!-- 粉丝/关注悬浮窗（可复用组件） -->
+  <Teleport to="body">
+    <Transition name="dialog-fade">
+      <FollowList
+        v-if="followListOpen && user"
+        :uid="user.uid"
+        :initial-tab="followListTab"
+        @close="followListOpen = false"
+      />
+    </Transition>
+  </Teleport>
 
   <Page_footer />
 </template>
@@ -182,30 +208,7 @@ watch(
 
 .tab-bar {
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
-}
-
-.tab {
-  padding: 10px 22px;
-  border-radius: 999px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  color: var(--links-color);
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.tab:hover {
-  color: var(--text-color);
-}
-
-.tab.active {
-  background: var(--text-color);
-  color: var(--bg-color);
-  border-color: transparent;
 }
 
 .tab-content {

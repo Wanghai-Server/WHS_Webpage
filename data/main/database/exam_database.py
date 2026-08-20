@@ -28,8 +28,9 @@ EXAM_ANSWER_TABLE_COLUMNS: dict[str, str] = {
 EXAM_PROFILE_TABLE_COLUMNS: dict[str, str] = {
     "uid": "INTEGER PRIMARY KEY",
     "player_name": "TEXT NOT NULL DEFAULT ''",  # 游戏名称（及格后注入 user_info）
-    "qq_name": "TEXT NOT NULL DEFAULT ''",
-    "qq_number": "TEXT NOT NULL DEFAULT ''",
+    "is_premium": "TEXT NOT NULL DEFAULT 'offline'",  # 正版状态："premium" / "offline"
+    "qq_name": "TEXT NOT NULL DEFAULT ''",       # 已废弃（保留列以兼容旧数据）
+    "qq_number": "TEXT NOT NULL DEFAULT ''",     # 已废弃（保留列以兼容旧数据）
     "attempts": "INTEGER NOT NULL DEFAULT 0",   # 已完成答卷次数（上限 2）
     "passed": "INTEGER NOT NULL DEFAULT 0",     # 是否已及格（1/0）
     "review_requested": "INTEGER NOT NULL DEFAULT 0",  # 本答卷周期是否已申请重审（1/0）
@@ -232,17 +233,16 @@ class ExamDatabase(UserDatabase):
         ).fetchone()
         return self._row_to_dict(row) if row else None
 
-    def save_profile(self, uid: int, player_name: str, qq_name: str, qq_number: str) -> None:
+    def save_profile(self, uid: int, player_name: str, is_premium: str) -> None:
         updated_at = datetime.datetime.now().isoformat(timespec="seconds")
         self._conn.execute(
-            "INSERT INTO exam_profiles (uid, player_name, qq_name, qq_number, attempts, passed, updated_at) "
-            "VALUES (?, ?, ?, ?, 0, 0, ?) "
+            "INSERT INTO exam_profiles (uid, player_name, is_premium, attempts, passed, updated_at) "
+            "VALUES (?, ?, ?, 0, 0, ?) "
             "ON CONFLICT(uid) DO UPDATE SET "
             "player_name=excluded.player_name, "
-            "qq_name=excluded.qq_name, "
-            "qq_number=excluded.qq_number, "
+            "is_premium=excluded.is_premium, "
             "updated_at=excluded.updated_at",
-            (uid, player_name, qq_name, qq_number, updated_at),
+            (uid, player_name, is_premium, updated_at),
         )
         self._conn.commit()
 
@@ -250,7 +250,7 @@ class ExamDatabase(UserDatabase):
         """已完成答卷次数 +1，返回新值。"""
         profile = self.get_profile(uid)
         if profile is None:
-            self.save_profile(uid, "", "", "")
+            self.save_profile(uid, "", "offline")
             attempts = 0
         else:
             attempts = int(profile.get("attempts", 0))
@@ -265,7 +265,7 @@ class ExamDatabase(UserDatabase):
     def mark_passed(self, uid: int) -> None:
         profile = self.get_profile(uid)
         if profile is None:
-            self.save_profile(uid, "", "", "")
+            self.save_profile(uid, "", "offline")
         self._conn.execute(
             "UPDATE exam_profiles SET passed = 1, updated_at = ? WHERE uid = ?",
             (datetime.datetime.now().isoformat(timespec="seconds"), uid),

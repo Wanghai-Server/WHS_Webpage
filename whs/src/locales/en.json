@@ -60,16 +60,16 @@
                 "version": { "label": "Game Version", "value": "1.21.10", "note": "Java Edition" },
                 "round": { "label": "Current World", "value": "World 2" },
                 "nature": { "label": "Server Nature", "value": "Community-owned" },
-                "seed": { "label": "World Seed", "value": "wanghai_commune", "note": "Click to copy" },
+                "seed": { "label": "World Seed", "value": "wanghai_commune", "note": "Click to copy", "mapSeed": "-1865289266", "open": "Open full map on ChunkBase" },
                 "loading": "Loading…"
             },
             "history": {
                 "title": "Our Journey",
                 "items": [
-                    { "time": "The Beginning", "title": "WangHai Sets Sail", "desc": "The server was founded by stevendjr, establishing an open, free, player-centered community vision." },
-                    { "time": "World 2", "title": "Passing the Torch", "desc": "The server entered its second world (Java 1.21.10). 1410happy_ took over as owner, providing machines and technical support, while founder stevendjr serves as co-owner." },
-                    { "time": "A Community Takes Shape", "title": "Built and Governed Together", "desc": "The admin team is elected by players; an entrance questionnaire and review group were introduced; rail projects are centrally planned, and the full-item storage hall and farm system keep growing." },
-                    { "time": "Now and Beyond", "title": "Forever Building", "desc": "New members keep joining and infrastructure keeps expanding — every block of WangHai is laid by players' own hands." }
+                    { "time": "The Beginning", "date": "2024/03/27 – 2026/02/13", "title": "WangHai Sets Sail", "desc": "The server was founded by stevendjr, establishing an open, free, player-centered community vision." },
+                    { "time": "World 2", "date": "2026/02/13 – Present", "title": "Passing the Torch", "desc": "The server entered its second world (Java 1.21.10). 1410happy_ took over as owner, providing machines and technical support, while founder stevendjr serves as co-owner." },
+                    { "time": "A Community Takes Shape", "date": "2024/03/27 – Present", "title": "Built and Governed Together", "desc": "The admin team is elected by players; an entrance questionnaire and review group were introduced; rail projects are centrally planned, and the full-item storage hall and farm system keep growing." },
+                    { "time": "Now and Beyond", "date": "2024/03/27 – Present", "title": "Forever Building", "desc": "New members keep joining and infrastructure keeps expanding — every block of WangHai is laid by players' own hands." }
                 ]
             },
             "governance": {
@@ -111,25 +111,14 @@
                 "role_co_owner": "Co-Owner",
                 "role_admin": "Admin",
                 "members": [
-                    { "name": "1410happy_", "role": "owner", "desc": "Owner · Machines & tech support" },
-                    { "name": "stevendjr", "role": "co_owner", "desc": "Co-Owner · Founder" },
-                    { "name": "yello", "role": "admin", "desc": "Admin" },
-                    { "name": "lyh1379", "role": "admin", "desc": "Admin" },
-                    { "name": "Zele", "role": "admin", "desc": "Admin" },
-                    { "name": "chaofan_0526", "role": "admin", "desc": "Admin" },
-                    { "name": "hongyan250", "role": "admin", "desc": "Admin" }
+                    { "name": "1410happy_", "role": "owner", "playerName": "1410happy_", "desc": "Introduction coming soon." },
+                    { "name": "stevendjr", "role": "co_owner", "playerName": "stevendjr", "desc": "Introduction coming soon." },
+                    { "name": "yello", "role": "admin", "playerName": "yello", "desc": "Introduction coming soon." },
+                    { "name": "lyh1379", "role": "admin", "playerName": "lyh1379", "desc": "Introduction coming soon." },
+                    { "name": "Zele", "role": "admin", "playerName": "Zele", "desc": "Introduction coming soon." },
+                    { "name": "chaofan_0526", "role": "admin", "playerName": "chaofan_0526", "desc": "Introduction coming soon." },
+                    { "name": "hongyan250", "role": "admin", "playerName": "hongyan250", "desc": "Introduction coming soon." }
                 ]
-            },
-            "join": {
-                "title": "Join Us",
-                "steps": [
-                    { "title": "Register", "desc": "Create and sign in to your account on this website" },
-                    { "title": "Take the Exam", "desc": "Complete the WangHai Server World 2 entrance questionnaire — answers are graded automatically" },
-                    { "title": "Join Officially", "desc": "Reaching the passing score grants you access automatically; admins may also review your answers afterwards (e.g. subjective questions)" },
-                    { "title": "Build Together", "desc": "Build rail lines, farms and homes together with the community" }
-                ],
-                "button": "Start the Exam",
-                "hint": "Full rules and the review process are available under \"Join Us\""
             },
             "copied": "Copied"
         }
@@ -229,6 +218,8 @@
         "editProfile": "Edit Profile",
         "followers": "followers",
         "followings": "following",
+        "followersEmpty": "No followers yet",
+        "followingsEmpty": "Not following anyone yet",
         "copiedUid": "UID copied",
         "copyFailed": "Copy failed",
         "notLoggedIn": "Please sign in first",
@@ -286,7 +277,27 @@
         "cancelHint": "Your account and all data will be permanently deleted and cannot be recovered. Please proceed with caution.",
         "cancel": "Delete",
         "confirmCancel": "Click again to confirm",
-        "cancelSuccess": "Account deleted"
+        "cancelSuccess": "Account deleted",
+        "manageAccounts": "Manage Game Accounts",
+        "mainAccount": "Main Account",
+        "alts": "Alt Accounts",
+        "addAlt": "Add Alt",
+        "altMaxReached": "You can add up to 2 alt accounts",
+        "noAlts": "No alt accounts yet",
+        "altName": "Alt name",
+        "altNamePlaceholder": "Enter the alt account name",
+        "premiumLabel": "Premium status",
+        "premiumHint": "Premium is not required — offline accounts are welcome",
+        "premiumYes": "Premium",
+        "premiumNo": "Offline",
+        "changePremium": "Change premium status",
+        "confirmChange": "Confirm Change",
+        "removeAlt": "Remove alt",
+        "confirmRemoveAlt": "Click again to confirm removal",
+        "altAdded": "Alt account added",
+        "altRemoved": "Alt account removed",
+        "premiumUpdated": "Premium status updated",
+        "becomeMember": "→ Become a Full Member"
     },
     "admin": {
         "title": "User Management",
@@ -386,6 +397,22 @@
         "subtitle": "Complete the WangHai Server Round 2 Review Questionnaire to officially join us",
         "start": "Start Exam"
     },
+    "join": {
+        "title": "Join Us",
+        "steps": [
+            { "title": "Register", "desc": "Create and sign in to your account on this website" },
+            { "title": "Take the Exam", "desc": "Complete the WangHai Server World 2 entrance questionnaire — answers are graded automatically" },
+            { "title": "Join Officially", "desc": "Reaching the passing score grants you access automatically; admins may also review your answers afterwards (e.g. subjective questions)" },
+            { "title": "Build Together", "desc": "Build rail lines, farms and homes together with the community" }
+        ],
+        "button": "Start the Exam",
+        "hint": "Full rules and the review process are available under \"Join Us\""
+    },
+    "playerInfo": {
+        "viewProfile": "View Profile",
+        "close": "Close",
+        "notFound": "Player not found — they may not be registered yet"
+    },
     "exam": {
         "prev": "Prev",
         "next": "Next",
@@ -412,8 +439,10 @@
         "profileTitle": "Fill in your info",
         "playerName": "Player Name",
         "playerNamePlaceholder": "Enter your in-game name (cannot be changed after joining)",
-        "qqName": "QQ Name",
-        "qqNumber": "QQ Number",
+        "premiumLabel": "Premium status",
+        "premiumHint": "Premium is not required — offline accounts are welcome",
+        "premiumYes": "Premium",
+        "premiumNo": "Offline",
         "startAnswer": "Start Exam",
         "profileRequired": "Please fill in all profile fields first",
         "autoSaveHint": "Answers are saved automatically; you may leave and resume anytime",
