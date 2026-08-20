@@ -1,6 +1,6 @@
 {
     "id": "mcdr2web",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "name": "MCDR to Web",
     "description": {
         "zh_cn": "将 Minecraft 服务器（MCDReforged）与望海官网打通：上报服务器状态与在线玩家，同步白名单。",

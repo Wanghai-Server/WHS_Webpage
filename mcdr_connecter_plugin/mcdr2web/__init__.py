@@ -15,7 +15,7 @@ from online_player_api import get_player_list, is_online
 
 PLUGIN_METADATA = {
     "id": "mcdr2web",
-    "version": "1.0.0",
+    "version": "0.1.0",
     "name": "MCDR to Web",
     "description": {
         "zh_cn": "将 Minecraft 服务器（MCDReforged）与望海官网打通：上报服务器状态与在线玩家，同步白名单。",
@@ -183,12 +183,26 @@ async def request_async(command: str, data: Any = None, timeout: float = REQUEST
         pending.pop(request_id, None)
 
 
+def _mcdr_event_loop(server: PluginServerInterface) -> asyncio.AbstractEventLoop:
+    """获取 MCDR 插件事件循环（调度常驻协程 / 同步上下文请求用）。
+
+    MCDR v2.14.0+ 提供 ``get_event_loop()``；为兼容更早/更名版本，
+    回退尝试旧名 ``get_loop()``。两者都没有时抛出明确错误。
+    """
+    getter = getattr(server, "get_event_loop", None) or getattr(server, "get_loop", None)
+    if getter is None:
+        raise AttributeError(
+            f"当前 MCDR 版本缺少 get_event_loop/get_loop API（需 v2.14.0+），无法启动 {PLUGIN_ID}"
+        )
+    return getter()
+
+
 def request_sync(command: str, data: Any = None, timeout: float = REQUEST_TIMEOUT) -> dict:
     """同步版请求（供聊天指令等同步上下文调用）。未连接时直接返回失败。"""
     if not connected:
         return {"success": False, "data": "未连接后端 WS 服务"}
     return asyncio.run_coroutine_threadsafe(
-        request_async(command, data, timeout), server_interface.get_loop()
+        request_async(command, data, timeout), _mcdr_event_loop(server_interface)
     ).result(timeout + 1)
 
 
@@ -338,9 +352,9 @@ def on_load(server: PluginServerInterface, prev_module: Any) -> None:
     server.logger.info(
         f"[{PLUGIN_ID}] 已加载，WS 目标 ws://{config['ws_host']}:{config['ws_port']}"
     )
-    main_loop_future = asyncio.run_coroutine_threadsafe(_main_loop(), server.get_loop())
+    main_loop_future = asyncio.run_coroutine_threadsafe(_main_loop(), _mcdr_event_loop(server))
     # 周期 TPS/MSPT 上报循环（RCON tick query）
-    tps_loop_future = asyncio.run_coroutine_threadsafe(_tps_report_loop(), server.get_loop())
+    tps_loop_future = asyncio.run_coroutine_threadsafe(_tps_report_loop(), _mcdr_event_loop(server))
 
 
 def on_unload(server: PluginServerInterface) -> None:
