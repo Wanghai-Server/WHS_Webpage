@@ -414,6 +414,9 @@ onUnmounted(() => {
           </p>
         </div>
 
+        <!-- 及格后：提示白名单已加入（考试通过时后端已自动加入游戏服务器白名单） -->
+        <p v-if="profile.passed" class="whitelist-hint">{{ t('exam.whitelistHint') }}</p>
+
         <!-- 仅不及格时显示操作区；及格后成绩单只展示成绩 -->
         <div v-if="!profile.passed" class="done-actions">
           <button v-if="profile.attempts < 2" type="button" class="btn retake" :disabled="retaking" @click="retake">
@@ -508,6 +511,7 @@ onUnmounted(() => {
 
 .notice-content :deep(a) {
   color: var(--links-color);
+  text-decoration: none;
 }
 
 .notice-content :deep(code) {
@@ -753,6 +757,13 @@ onUnmounted(() => {
   margin: 0 0 16px;
   color: #e5484d;
   font-size: 14px;
+}
+
+/* 及格后的白名单提示（小字） */
+.whitelist-hint {
+  margin: 0 0 16px;
+  font-size: 12.5px;
+  color: var(--links-color);
 }
 
 .done-actions {

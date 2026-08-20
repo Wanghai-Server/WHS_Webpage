@@ -1,6 +1,8 @@
 .kagent/
 /SMTP/
+/pseudo_mcdr/
 *.zip
 venv/
 *.mcdr
 __pycache__/
+/.dsh-vision-toolkit

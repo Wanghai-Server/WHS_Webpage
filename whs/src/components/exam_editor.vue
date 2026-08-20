@@ -803,6 +803,7 @@ onMounted(fetchConfig)
 
 .tips-preview :deep(a) {
   color: var(--links-color);
+  text-decoration: none;
 }
 
 .tips-preview :deep(code) {

@@ -18,6 +18,9 @@ const avatarSrc = computed(() =>
 const username = computed(() => user.value?.username || 'User')
 const fullname = computed(() => user.value?.fullname || '')
 
+// 正式成员判定：权限 >= 2（player）。未达标的登录用户显示"成为正式成员"入口
+const isMember = computed(() => (user.value?.permission ?? 0) >= 2)
+
 // 个人资料：用户页 profile 标签（?tab=profile）
 function goProfile() {
   router.push({ path: `/user/${user.value?.uid}`, query: { tab: 'profile' } })
@@ -56,6 +59,11 @@ function signOut() {
         <LogOut :size="18" />
       </button>
     </div>
+
+    <!-- 未成为正式成员（权限 < 2）：引导参加入服考试，位于用户名之下、个人资料之上 -->
+    <RouterLink v-if="!isMember" class="dropdown-joinus" to="/joinus/exam">
+      →{{ t('userMenu.become_member') }}
+    </RouterLink>
 
     <!-- 第二行：Profile -->
     <button class="dropdown-item" type="button" @click="goProfile">
@@ -172,6 +180,29 @@ function signOut() {
 
 .dropdown-signout:hover {
   background: var(--btn-hover);
+}
+
+/* 未成为正式成员：成为成员入口（金色，与 joinus 页按钮同色 #ebaa28） */
+.dropdown-joinus {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  color: #ebaa28;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.dropdown-joinus:hover {
+  background: var(--btn-hover);
+  color: #d99a1f;
 }
 
 /* 第二 / 三行按钮 */

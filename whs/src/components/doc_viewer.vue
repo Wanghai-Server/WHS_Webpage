@@ -221,6 +221,7 @@ onMounted(loadDoc)
 
 .doc-content :deep(a) {
   color: var(--links-color);
+  text-decoration: none;
 }
 
 .doc-content :deep(blockquote) {

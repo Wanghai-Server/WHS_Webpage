@@ -25,12 +25,11 @@ EXAM_ANSWER_TABLE_COLUMNS: dict[str, str] = {
 }
 
 # 考生信息表：开始答题前填写的个人信息 + 答题次数 / 是否及格。
+# 注意：旧版曾含 qq_name / qq_number 两列（已废弃），由 connect() 迁移时彻底删除。
 EXAM_PROFILE_TABLE_COLUMNS: dict[str, str] = {
     "uid": "INTEGER PRIMARY KEY",
     "player_name": "TEXT NOT NULL DEFAULT ''",  # 游戏名称（及格后注入 user_info）
     "is_premium": "TEXT NOT NULL DEFAULT 'offline'",  # 正版状态："premium" / "offline"
-    "qq_name": "TEXT NOT NULL DEFAULT ''",       # 已废弃（保留列以兼容旧数据）
-    "qq_number": "TEXT NOT NULL DEFAULT ''",     # 已废弃（保留列以兼容旧数据）
     "attempts": "INTEGER NOT NULL DEFAULT 0",   # 已完成答卷次数（上限 2）
     "passed": "INTEGER NOT NULL DEFAULT 0",     # 是否已及格（1/0）
     "review_requested": "INTEGER NOT NULL DEFAULT 0",  # 本答卷周期是否已申请重审（1/0）
@@ -65,6 +64,16 @@ class ExamDatabase(UserDatabase):
                 self._conn.execute(
                     f"ALTER TABLE exam_profiles ADD COLUMN {name} {definition}"
                 )
+        # 彻底删除已废弃的 QQ 字段列（旧版 exam_profiles 曾包含；SQLite >= 3.35 支持 DROP COLUMN）
+        for legacy_col in ("qq_name", "qq_number"):
+            if legacy_col in existing:
+                try:
+                    self._conn.execute(
+                        f"ALTER TABLE exam_profiles DROP COLUMN {legacy_col}"
+                    )
+                    print(f"[exam-db] 已删除废弃列 {legacy_col}", flush=True)
+                except Exception as exc:
+                    print(f"[exam-db] 删除列 {legacy_col} 失败: {exc}", flush=True)
         self._conn.commit()
 
     # ------------------------------------------------------------------

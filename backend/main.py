@@ -50,6 +50,35 @@ from ws_server import WsCommandServer  # noqa: E402
 
 ws_server = WsCommandServer("127.0.0.1", int(read_config().get("ws_port") or 8765))
 
+# MCDR 每 5 分钟主动上报的服务器运行数据（数据来源：RCON `tick query` + `list`，见 mcdr2web 插件）。
+# 由 ws_server 的 report_tps 指令处理器更新，/api/server/status 读取。
+_SERVER_TPS_CACHE: dict = {
+    "tps": None,
+    "mspt": None,
+    "healthy": None,
+    "max": None,
+    "updated_at": None,
+}
+
+
+async def _handle_report_tps(data) -> dict:
+    """处理 MCDR 主动上报的 TPS/MSPT/玩家上限（每 tps_report_interval 秒一次，默认 5 分钟）。"""
+    if isinstance(data, dict):
+        _SERVER_TPS_CACHE["tps"] = data.get("tps")
+        _SERVER_TPS_CACHE["mspt"] = data.get("mspt")
+        _SERVER_TPS_CACHE["healthy"] = data.get("healthy")
+        _SERVER_TPS_CACHE["max"] = data.get("max")
+        _SERVER_TPS_CACHE["updated_at"] = datetime.datetime.now().isoformat(timespec="seconds")
+        print(
+            f"[server-status] MCDR 上报 TPS={data.get('tps')} MSPT={data.get('mspt')} "
+            f"max={data.get('max')}",
+            flush=True,
+        )
+    return {"success": True}
+
+
+ws_server.register("report_tps")(_handle_report_tps)
+
 # 头像存储目录、大小上限、允许的 MIME 类型。
 AVATAR_DIR = PROJECT_ROOT / "data" / "avatar"
 MAX_AVATAR_SIZE = 2 * 1024 * 1024  # 2MB
@@ -576,6 +605,9 @@ def _error_response(code: str, status: int) -> JSONResponse:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 记录主事件循环引用：供线程池中的同步端点经 run_coroutine_threadsafe 调用 WS 命令服务
+    global MAIN_LOOP
+    MAIN_LOOP = asyncio.get_running_loop()
     user_db.connect()
     user_info_db.connect()
     message_db.connect()
@@ -635,56 +667,134 @@ def _attach_message_author(msg: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 服务器实时状态（mcstatus 探测，后端每 5 分钟刷新缓存；路由在 api/server.py）
+# 服务器实时状态：全部数据来自 MCDR 插件（WS 通路），后端每 5 分钟刷新缓存。
+# 路由在 api/server.py（/api/server/status）。
 # ---------------------------------------------------------------------------
 
-# 状态缓存：{data, fetched_at}。首次请求时触发探测，之后每 SERVER_STATUS_TTL 秒刷新。
+# 状态缓存：{data, fetched_at}。首次请求时触发拉取，之后每 SERVER_STATUS_TTL 秒刷新。
 _SERVER_STATUS_LOCK = threading.Lock()
 _SERVER_STATUS_CACHE: dict = {"data": None, "fetched_at": 0.0}
 SERVER_STATUS_TTL = 300  # 5 分钟
 
 
-def _server_status_config() -> dict:
-    """从 config.json 读取游戏服务器地址（host/port/timeout），缺失时用默认值。"""
-    cfg = _config().get("server", {}) or {}
+# ---------------------------------------------------------------------------
+# MCDR 插件通信：WS 请求封装 + 在线名单 / 白名单业务
+# （ws_server 为 asyncio 服务、运行在主事件循环；线程池中的同步端点
+#   须经 run_coroutine_threadsafe 提交请求，见下方 ws_request_sync）
+# ---------------------------------------------------------------------------
+
+# 主事件循环引用：由 lifespan 启动时记录（模块导入阶段为 None）。
+MAIN_LOOP: asyncio.AbstractEventLoop | None = None
+
+
+def ws_request_sync(command: str, data=None, timeout: float = 10.0) -> dict:
+    """同步调用 WS 命令服务（供线程池中的同步端点使用）。
+
+    返回完整响应 dict（{"request_id", "success", "data"}）；
+    WS 未启动 / 未连接 / 超时等异常时返回 {"success": False, "data": 原因}，
+    绝不向调用方抛异常。
+    """
+    if MAIN_LOOP is None:
+        return {"success": False, "data": "WS 服务未启动"}
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            ws_server.request(command, data, timeout), MAIN_LOOP
+        )
+        return future.result(timeout + 1)
+    except Exception as exc:
+        return {"success": False, "data": f"{type(exc).__name__}: {exc}"}
+
+
+# 假人前缀：以 bot_ 开头的在线玩家视为假人，不计入官网在线人数。
+BOT_PREFIX = "bot_"
+
+
+def fetch_online_players() -> dict | None:
+    """向 MCDR 获取当前在线名单，并按 bot_ 前缀区分假人 / 真人。
+
+    :return: {"players": 全部名单, "real": 真人列表, "bots": 假人列表}；
+             WS 不可用（未启动 / 未连接 / 失败）时返回 None（由调用方回退）。
+    """
+    resp = ws_request_sync("get_player_list", timeout=3.0)
+    if not resp.get("success"):
+        return None
+    data = resp.get("data")
+    if isinstance(data, str):
+        data = [data]
+    if not isinstance(data, list):
+        return None
+    players = [str(p) for p in data if str(p).strip()]
+    bots = [n for n in players if n.lower().startswith(BOT_PREFIX)]
+    real = [n for n in players if not n.lower().startswith(BOT_PREFIX)]
+    return {"players": players, "real": real, "bots": bots}
+
+
+def is_player_online(player: str) -> bool:
+    """判断某个玩家是否在线（预留，前端暂未使用）。"""
+    resp = ws_request_sync("is_online", {"player": player}, timeout=3.0)
+    return bool(resp.get("success") and resp.get("data"))
+
+
+def get_whitelist() -> list[str]:
+    """获取白名单列表（预留，前端暂未使用；之后作为关于页成员墙）。"""
+    resp = ws_request_sync("get_whitelist", timeout=3.0)
+    data = resp.get("data") if resp.get("success") else []
+    if isinstance(data, str):
+        data = [data]
+    if not isinstance(data, list):
+        return []
+    return [str(p) for p in data if str(p).strip()]
+
+
+def _whitelist_op_ok(resp: dict) -> bool:
+    """白名单增删操作的幂等判定：success 为 True 即成功；
+    或 MCDR 端报"已存在 / 不存在"（already exist / is not exist 等）时，
+    同样视为已达到目标状态（不在调用方制造错误）。"""
+    if resp.get("success"):
+        return True
+    msg = str(resp.get("data") or "").lower()
+    return "already" in msg or "not exist" in msg or "不存在" in msg or "已存在" in msg
+
+
+def add_player_whitelist(player: str) -> dict:
+    """把玩家加入白名单（幂等：已在白名单视为成功）。"""
+    resp = ws_request_sync("add_player", {"player": player}, timeout=10.0)
+    ok = _whitelist_op_ok(resp)
+    if not ok:
+        print(f"[ws-whitelist] 添加白名单失败 {player}: {resp}", flush=True)
     return {
-        "host": str(cfg.get("host") or "h1.getmc.cn"),
-        "port": int(cfg.get("port") or 25565),
-        "timeout": float(cfg.get("timeout") or 5),
+        "success": ok,
+        "player": player,
+        "note": "added" if resp.get("success") else str(resp.get("data") or ""),
     }
 
 
-def _fetch_server_status() -> dict | None:
-    """用 mcstatus 的 JavaServer 请求服务器实时状态；失败返回 None。
+def remove_player_whitelist(player: str) -> dict:
+    """把玩家移出白名单（幂等：不在白名单视为成功）。"""
+    resp = ws_request_sync("remove_player", {"player": player}, timeout=10.0)
+    ok = _whitelist_op_ok(resp)
+    if not ok:
+        print(f"[ws-whitelist] 移除白名单失败 {player}: {resp}", flush=True)
+    return {
+        "success": ok,
+        "player": player,
+        "note": "removed" if resp.get("success") else str(resp.get("data") or ""),
+    }
 
-    可获取：在线状态 / 游戏版本 / 在线人数（当前/上限）/ 延迟。
-    TPS 无法通过 Minecraft 状态协议获得，留空（None），
-    待 MCDR 联动插件接入后再填充（见 mcdr_connecter_plugin/）。
+
+def remove_user_whitelist(uid: int) -> dict:
+    """移除某用户的全部白名单关联：主账号（player_name）+ 所有小号。
+
+    供管理员封禁时调用：把该用户在游戏服务器中的入口全部收回。
     """
-    try:
-        from mcstatus import JavaServer
-    except ImportError:
-        print("[server-status] mcstatus 未安装，无法获取服务器状态", flush=True)
-        return None
-    try:
-        cfg = _server_status_config()
-        server = JavaServer.lookup(f"{cfg['host']}:{cfg['port']}", timeout=cfg["timeout"])
-        status = server.status()
-        players = status.players
-        return {
-            "online": True,
-            "version": (status.version.name if status.version else "") or "",
-            "players": {
-                "online": int(getattr(players, "online", 0) or 0),
-                "max": int(getattr(players, "max", 0) or 0),
-            },
-            "latency_ms": int(getattr(status, "latency", 0) or 0),
-            "tps": None,
-            "updated_at": datetime.datetime.now().isoformat(timespec="seconds"),
-        }
-    except Exception as exc:
-        print(f"[server-status] 获取失败: {type(exc).__name__}: {exc}", flush=True)
-        return None
+    info = user_info_db.get_user_info(uid) or {}
+    names = []
+    pname = (info.get("player_name") or "").strip()
+    if pname:
+        names.append(pname)
+    names.extend(user_info_db.get_alt_accounts(uid))
+    results = [remove_player_whitelist(name) for name in names]
+    return {"success": all(r["success"] for r in results), "results": results}
 
 
 # ---------------------------------------------------------------------------
@@ -789,6 +899,8 @@ def _apply_exam_pass(uid: int) -> str | None:
     if current_permission < 2:
         user_db.set_permission(uid, 2)
     exam_db.mark_passed(uid)
+    # 出成绩（及格）即自动加入游戏服务器白名单（幂等；WS 不可用时仅记日志，不影响出成绩）
+    add_player_whitelist(pname)
     return None
 
 

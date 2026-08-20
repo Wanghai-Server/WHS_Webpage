@@ -56,12 +56,17 @@
                 "title": "Server Status",
                 "status": { "label": "Status", "online": "Online", "offline": "Offline" },
                 "players": { "label": "Players" },
-                "tps": { "label": "TPS", "unavailable": "—", "pending": "Provided by MCDR (coming soon)" },
+                "tps": { "label": "TPS", "unavailable": "—", "pending": "Not reported yet" },
                 "version": { "label": "Game Version", "value": "1.21.10", "note": "Java Edition" },
                 "round": { "label": "Current World", "value": "World 2" },
-                "nature": { "label": "Server Nature", "value": "Community-owned" },
                 "seed": { "label": "World Seed", "value": "wanghai_commune", "note": "Click to copy", "mapSeed": "-1865289266", "open": "Open full map on ChunkBase" },
                 "loading": "Loading…"
+            },
+            "members": {
+                "title": "Members",
+                "subtitle": "All whitelisted members of WangHai Server (avatars provided by mc-heads)",
+                "empty": "No members yet",
+                "loadFailed": "Failed to load members"
             },
             "history": {
                 "title": "Our Journey",
@@ -192,7 +197,8 @@
     "userMenu": {
         "profile": "Profile",
         "settings": "Settings",
-        "sign_out": "Sign Out"
+        "sign_out": "Sign Out",
+        "become_member": "Become an Official Member"
     },
     "register": {
         "username_placeholder": "Username (letters, digits, underscore)",
@@ -450,6 +456,7 @@
         "passed": "Congratulations! You have officially joined WangHai Server",
         "failed": "Not passed (passing line is 60% of the total score)",
         "totalScore": "Total {total} · Score {obtained}",
+        "whitelistHint": "Your game account has been added to the server whitelist — you may join the server anytime",
         "retake": "Retake",
         "retakeStarted": "Retake started",
         "reviewRequest": "Request Answer Sheet Review",

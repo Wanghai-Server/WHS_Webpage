@@ -17,7 +17,10 @@ from main import (
     _error_response,
     _hash_password,
     _verify_password,
+    add_player_whitelist,
     get_current_user,
+    remove_player_whitelist,
+    remove_user_whitelist,
     user_db,
     user_info_db,
 )
@@ -293,6 +296,9 @@ def set_user_banned(uid: int, payload: dict = Body(...), user: dict | None = Dep
         return _error_response("cannot_modify_higher_permission", 403)
     banned = bool(payload.get("banned"))
     user_db.set_banned(uid, banned)
+    # 封禁即移除该用户全部白名单关联（主账号 + 小号）；解封不自动加回
+    if banned:
+        remove_user_whitelist(uid)
     return {"success": True, "banned": banned}
 
 
@@ -478,6 +484,8 @@ def add_alt_account(uid: int, payload: dict = Body(...), user: dict | None = Dep
     if len(user_info_db.get_alt_accounts(uid)) >= 2:
         return _error_response("alt_accounts_full", 400)
     user_info_db.add_alt_account(uid, name, premium)
+    # 注册小号自动加入游戏服务器白名单（幂等；失败仅记日志，不影响注册结果）
+    add_player_whitelist(name)
     return {"success": True, "accounts": _build_accounts(uid)}
 
 
@@ -491,4 +499,7 @@ def remove_alt_account(uid: int, alt_name: str, user: dict | None = Depends(get_
     if not USERNAME_RE.fullmatch(alt_name):
         return _error_response("player_name_invalid", 400)
     removed = user_info_db.remove_alt_account(uid, alt_name)
+    # 注销小号自动移除其白名单（幂等；失败仅记日志）
+    if removed:
+        remove_player_whitelist(alt_name)
     return {"success": True, "removed": removed, "accounts": _build_accounts(uid)}

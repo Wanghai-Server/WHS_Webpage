@@ -583,7 +583,7 @@ onUnmounted(() => {
                     <span v-if="sheet.profile && sheet.profile.passed" class="sheet-passed">{{ t('admin.examPassed') }}</span>
                   </span>
                   <span v-if="sheet.profile" class="sheet-profile">
-                    {{ sheet.profile.player_name || '' }} · {{ sheet.profile.qq_name || '' }} · {{ sheet.profile.qq_number || '' }}
+                    {{ sheet.profile.player_name || '' }}
                   </span>
                 </div>
                 <div class="sheet-list">
@@ -858,7 +858,6 @@ onUnmounted(() => {
 
 .cell-uid:hover {
   color: var(--text-color);
-  text-decoration: underline;
 }
 
 .badge {

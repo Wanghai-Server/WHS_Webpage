@@ -132,6 +132,7 @@ const birthdayLabel = computed(() => {
 
 .markdown :deep(a) {
   color: var(--links-color);
+  text-decoration: none;
 }
 
 .markdown :deep(code) {

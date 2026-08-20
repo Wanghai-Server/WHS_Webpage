@@ -228,7 +228,6 @@ async function onToggleFollow() {
 
 .uid-clickable:hover {
   color: var(--text-color);
-  text-decoration: underline;
 }
 
 .bui-right {
@@ -290,7 +289,6 @@ async function onToggleFollow() {
 
 .stat-clickable:hover {
   color: var(--text-color);
-  text-decoration: underline;
 }
 
 .stat-sep {

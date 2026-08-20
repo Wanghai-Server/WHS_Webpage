@@ -59,7 +59,8 @@ function openPlayer(member) {
 }
 
 // ---------------------------------------------------------------------------
-// 服务器实时状态：GET /api/server/status（后端每 5 分钟探测并缓存）
+// 服务器实时状态：GET /api/server/status（数据全部来自 MCDR 插件：
+// 在线名单/TPS/MSPT/玩家上限；后端每 5 分钟刷新缓存，前端同步轮询）
 // ---------------------------------------------------------------------------
 const serverStatus = ref(null)
 const statusOnline = computed(() => serverStatus.value?.online === true)
@@ -86,14 +87,53 @@ async function fetchServerStatus() {
   // 后端不可达时按离线处理（下一轮 5 分钟轮询会重试）
   serverStatus.value = {
     online: false,
-    version: '',
     players: { online: 0, max: 0 },
-    latency_ms: null,
     tps: null,
   }
 }
 
 let statusTimer = null
+
+// ---------------------------------------------------------------------------
+// 成员墙：获取白名单玩家（/api/server/whitelist），用 mc-heads 头像服务
+// 只展示头像；点击头像打开可复用的 player_info 悬浮窗（3D 模型 + 主页跳转）
+// ---------------------------------------------------------------------------
+const members = ref([])
+const membersLoading = ref(false)
+const membersFailed = ref(false)
+// 头像加载失败的玩家名（mc-heads 对离线/未知玩家可能返回 404）→ 显示占位图标
+const avatarFailedNames = ref(new Set())
+
+function memberAvatar(name) {
+  return `https://mc-heads.net/avatar/${encodeURIComponent(String(name))}/96`
+}
+
+function avatarFailed(name) {
+  return avatarFailedNames.value.has(name)
+}
+
+function onAvatarError(name) {
+  avatarFailedNames.value.add(name)
+}
+
+async function fetchMembers() {
+  membersLoading.value = true
+  membersFailed.value = false
+  try {
+    const res = await fetch('/api/server/whitelist')
+    const data = await res.json().catch(() => null)
+    if (res.ok && data && Array.isArray(data.players)) {
+      members.value = data.players
+    } else {
+      membersFailed.value = true
+    }
+  } catch (e) {
+    console.warn(e)
+    membersFailed.value = true
+  } finally {
+    membersLoading.value = false
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 世界种子：点击复制种子；旁边提供 ChunkBase 完整地图外链
@@ -195,12 +235,15 @@ onMounted(() => {
   fetchServerStatus()
   statusTimer = setInterval(fetchServerStatus, 300000)
 
-  // 4) 时间线：计算章节高度，随页面滚动横向推进（页面任意位置滚动均生效）
+  // 4) 成员墙：拉取白名单玩家列表（头像由 mc-heads 提供）
+  fetchMembers()
+
+  // 5) 时间线：计算章节高度，随页面滚动横向推进（页面任意位置滚动均生效）
   updateTimelineLayout()
   window.addEventListener('scroll', onPageScroll, { passive: true })
   window.addEventListener('resize', updateTimelineLayout)
 
-  // 5) 滚动显现：进入视口后上浮淡入
+  // 6) 滚动显现：进入视口后上浮淡入
   const els = pageRef.value?.querySelectorAll('.reveal') || []
   if (reducedMotion) {
     els.forEach((el) => el.classList.add('visible'))
@@ -321,10 +364,10 @@ onUnmounted(() => {
             {{ t('pages.about.stats.tps.pending') }}
           </span>
         </div>
-        <!-- 游戏版本 -->
+        <!-- 游戏版本（硬编码，不再依赖后端探测） -->
         <div class="stat-cell">
           <span class="stat-label">{{ stats.version.label }}</span>
-          <span class="stat-value stat-value-sm">{{ serverStatus?.version || stats.version.value }}</span>
+          <span class="stat-value stat-value-sm">{{ stats.version.value }}</span>
           <span class="stat-note">{{ stats.version.note }}</span>
         </div>
         <!-- 当前周目 -->
@@ -332,12 +375,7 @@ onUnmounted(() => {
           <span class="stat-label">{{ stats.round.label }}</span>
           <span class="stat-value">{{ stats.round.value }}</span>
         </div>
-        <!-- 服务器性质 -->
-        <div class="stat-cell">
-          <span class="stat-label">{{ stats.nature.label }}</span>
-          <span class="stat-value stat-value-sm">{{ stats.nature.value }}</span>
-        </div>
-        <!-- 世界种子（整行，点击复制；右侧外链跳转 ChunkBase 完整地图） -->
+        <!-- 世界种子（普通格尺寸，位于原"服务器性质"位置；点击复制，右上角外链打开 ChunkBase 完整地图） -->
         <div
           class="stat-cell seed-cell"
           role="button"
@@ -549,6 +587,43 @@ onUnmounted(() => {
     <div class="reveal">
       <JoinusTips />
     </div>
+
+    <!-- ==================== 10. 成员墙（白名单玩家头像，点击打开 player_info） ==================== -->
+    <section class="section">
+      <div class="section-head reveal">
+        <span class="head-bar"></span>
+        <h2>{{ t('pages.about.members.title') }}</h2>
+      </div>
+
+      <!-- 整块"墙"卡片背景（高于网页背景）；内容为异步渲染故不带 reveal -->
+      <div class="members-wall reveal">
+        <p class="members-subtitle">{{ t('pages.about.members.subtitle') }}</p>
+
+        <div v-if="membersLoading" class="members-status">{{ t('pages.about.stats.loading') }}</div>
+        <p v-else-if="membersFailed" class="members-status">{{ t('pages.about.members.loadFailed') }}</p>
+        <p v-else-if="members.length === 0" class="members-status">{{ t('pages.about.members.empty') }}</p>
+        <div v-else class="members-grid">
+          <button
+            v-for="name in members"
+            :key="name"
+            type="button"
+            class="member-avatar"
+            :title="name"
+            :aria-label="name"
+            @click="openPlayer({ playerName: name, name })"
+          >
+            <img
+              v-if="!avatarFailed(name)"
+              :src="memberAvatar(name)"
+              :alt="name"
+              loading="lazy"
+              @error="onAvatarError(name)"
+            />
+            <span v-else class="member-avatar-fallback"><User :size="16" /></span>
+          </button>
+        </div>
+      </div>
+    </section>
   </main>
 
   <!-- 玩家信息悬浮窗（可复用组件：3D 模型 + 主页跳转） -->
@@ -854,14 +929,11 @@ onUnmounted(() => {
   color: #ef4444;
 }
 
-/* 种子单元格：整行 + 可点击复制 */
+/* 种子单元格：普通格尺寸（位于原"服务器性质"位置），整格可点击复制；
+   右上角为 ChunkBase 完整地图外链按钮（不再单独占一整行） */
 .seed-cell {
-  grid-column: 1 / -1;
-  flex-direction: row;
-  flex-wrap: wrap;
-  column-gap: 14px;
-  row-gap: 4px;
-  padding: 22px 20px;
+  position: relative;
+  flex-direction: column;
   cursor: pointer;
 }
 
@@ -874,7 +946,10 @@ onUnmounted(() => {
   letter-spacing: 0.5px;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  word-break: break-all;
+  max-width: 100%;
 }
 
 .seed-copy {
@@ -882,14 +957,16 @@ onUnmounted(() => {
   color: #ebaa28;
 }
 
-/* ChunkBase 完整地图外链（种子格右侧图标按钮） */
+/* ChunkBase 完整地图外链（种子格右上角图标按钮） */
 .seed-chunkbase-link {
-  margin-left: auto;
+  position: absolute;
+  top: 10px;
+  right: 10px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 999px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: transparent;
@@ -905,6 +982,81 @@ onUnmounted(() => {
   color: #ebaa28;
   border-color: rgba(235, 170, 40, 0.5);
   background: rgba(235, 170, 40, 0.08);
+}
+
+/* ------------------------------------------------------------------ */
+/* 成员墙（白名单玩家头像，mc-heads 头像服务）                          */
+/* 整块卡片背景（与全站 .glass-card / .stats-panel 风格一致），          */
+/* 体现"墙"高于网页背景                                                */
+/* ------------------------------------------------------------------ */
+.members-wall {
+  background: var(--card-color);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 20px;
+  padding: 28px 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
+}
+
+.members-subtitle {
+  margin: 0 0 24px;
+  max-width: 640px;
+  font-size: 15px;
+  line-height: 1.7;
+  text-align: center;
+  color: var(--links-color);
+}
+
+.members-status {
+  margin: 0;
+  padding: 40px 0;
+  text-align: center;
+  color: var(--links-color);
+}
+
+.members-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(48px, 1fr));
+  gap: 12px;
+  justify-items: center;
+}
+
+/* 方形头像（用户要求不裁剪成圆形；尺寸较小） */
+.member-avatar {
+  position: relative;
+  display: block;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: var(--btn-hover);
+  cursor: pointer;
+  overflow: hidden;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+  box-shadow: 0 0 0 3px transparent;
+}
+
+.member-avatar:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 0 0 3px rgba(235, 170, 40, 0.55);
+}
+
+.member-avatar img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.member-avatar-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  color: var(--links-color);
 }
 
 /* ------------------------------------------------------------------ */

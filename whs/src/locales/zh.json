@@ -56,12 +56,17 @@
                 "title": "服务器状态",
                 "status": { "label": "在线状态", "online": "在线", "offline": "离线" },
                 "players": { "label": "在线人数" },
-                "tps": { "label": "TPS", "unavailable": "—", "pending": "待 MCDR 接入后显示" },
+                "tps": { "label": "TPS", "unavailable": "—", "pending": "暂无数据，等待服务器上报" },
                 "version": { "label": "游戏版本", "value": "1.21.10", "note": "Java 版" },
                 "round": { "label": "当前周目", "value": "第二周目" },
-                "nature": { "label": "服务器性质", "value": "社区共有" },
                 "seed": { "label": "世界种子", "value": "wanghai_commune", "note": "点击复制", "mapSeed": "-1865289266", "open": "在 ChunkBase 打开完整地图" },
                 "loading": "获取中…"
+            },
+            "members": {
+                "title": "成员墙",
+                "subtitle": "望海服务器正式成员一览（数据来自游戏白名单，头像由 mc-heads 提供）",
+                "empty": "暂无成员",
+                "loadFailed": "成员加载失败，请稍后重试"
             },
             "history": {
                 "title": "历史沿革",
@@ -192,7 +197,8 @@
     "userMenu": {
         "profile": "个人资料",
         "settings": "设置",
-        "sign_out": "退出登录"
+        "sign_out": "退出登录",
+        "become_member": "成为我们的正式成员"
     },
     "register": {
         "username_placeholder": "用户名（字母、数字、下划线）",
@@ -450,6 +456,7 @@
         "passed": "恭喜通过！你已正式加入望海服务器",
         "failed": "未通过（及格线为总分的 60%）",
         "totalScore": "总分 {total} · 得分 {obtained}",
+        "whitelistHint": "你的游戏账号已加入服务器白名单，可以随时进入服务器游玩",
         "retake": "重新作答",
         "retakeStarted": "已开始重新作答",
         "reviewRequest": "申请重审答题卡",

@@ -235,6 +235,7 @@ onUnmounted(() => {
 
 .detail-content :deep(a) {
   color: var(--links-color);
+  text-decoration: none;
 }
 
 .detail-content :deep(code) {

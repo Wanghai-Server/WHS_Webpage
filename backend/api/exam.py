@@ -416,8 +416,6 @@ def exam_review(user: dict | None = Depends(get_current_user)):
     content = (
         f"用户 {target['username']}（UID {user['uid']}）申请重审答题卡。\n"
         f"游戏名称：{profile.get('player_name', '')}\n"
-        f"QQ 名称：{profile.get('qq_name', '')}\n"
-        f"QQ 号：{profile.get('qq_number', '')}\n"
         f"当前得分：{obtained} / {cfg['total_score']}\n"
         f"请管理员前往「考试管理」查看该用户的答题卡。"
     )
