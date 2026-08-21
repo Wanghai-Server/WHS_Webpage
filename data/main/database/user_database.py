@@ -572,29 +572,46 @@ class UserInfoDatabase(UserDatabase, BasicDatabase):
         return player_name
 
     def player_name_exists(self, player_name: str) -> bool:
-        """判断玩家名称是否已被占用。"""
-        row = self._conn.execute(
+        """判断玩家名称是否已被占用（作为主账号 player_name 或任意用户的小号）。
+
+        与 :meth:`get_uid_by_player_name` 一致地查小号（alt_accounts JSON 列表）：
+        成员墙等场景里小号没有独立账号，按小号名查找应命中其所属用户。
+        """
+        row1 = self._conn.execute(
             f"SELECT 1 FROM {self.TABLE_NAME} WHERE player_name = ? LIMIT 1",
             (player_name,),
         ).fetchone()
-        return row is not None
+        if row1 is not None:
+            return True
+        row2 = self._conn.execute(
+            f"SELECT 1 FROM {self.TABLE_NAME} WHERE alt_accounts IS NOT NULL "
+            f"AND EXISTS (SELECT 1 FROM json_each(alt_accounts) WHERE value = ?) LIMIT 1",
+            (player_name,),
+        ).fetchone()
+        return row2 is not None
 
     def get_uid_by_player_name(self, player_name: str) -> int | None:
         """按玩家名（player_name）反查 uid；不存在返回 None。"""
-        row = self._conn.execute(
+        row1 = self._conn.execute(
             f"SELECT uid FROM {self.TABLE_NAME} WHERE player_name = ? LIMIT 1",
             (player_name,),
         ).fetchone()
-        return int(row["uid"]) if row else None
+        row2 = self._conn.execute(
+            f"SELECT uid FROM {self.TABLE_NAME} WHERE alt_accounts IS NOT NULL AND EXISTS ( SELECT 1 FROM json_each(alt_accounts) WHERE value = ?)",
+            (player_name,),
+        ).fetchone()
+        if row1:
+            return int(row1["uid"])
+        elif row2:
+            return int(row2["uid"])
+        else:
+            return None
 
     def set_player_name(self, uid: int, player_name: str) -> None:
         """设置玩家的 Minecraft 名称（仅更新 player_name，不影响其它字段）。"""
         player_name = self._validate_player_name(player_name)
-        other = self._conn.execute(
-            f"SELECT uid FROM {self.TABLE_NAME} WHERE player_name = ? AND uid != ? LIMIT 1",
-            (player_name, uid),
-        ).fetchone()
-        if other is not None:
+        # 全局查重：不能与他人主账号（player_name）或小号（alt_accounts）重名
+        if self.account_name_taken_by_other(uid, player_name):
             raise PlayerNameExistsError(f"玩家名 {player_name!r} 已被占用")
         if self.get_user_info(uid) is None:
             self.set_user_info(uid)  # 预建空行
@@ -702,17 +719,18 @@ class UserInfoDatabase(UserDatabase, BasicDatabase):
 
     def account_name_taken_by_other(self, uid: int, name: str) -> bool:
         """全局查重：name 是否被其它用户占用（作为其主账号 player_name 或小号）。"""
-        row = self._conn.execute(
+        row1 = self._conn.execute(
             f"SELECT 1 FROM {self.TABLE_NAME} WHERE player_name = ? AND uid != ? LIMIT 1",
             (name, uid),
         ).fetchone()
-        if row:
+        row2 = self._conn.execute(
+            f"SELECT uid FROM {self.TABLE_NAME} WHERE alt_accounts IS NOT NULL AND uid != ? AND EXISTS ( SELECT 1 FROM json_each(alt_accounts) WHERE value = ?)",
+            (uid, name,),
+        ).fetchone()
+        if row1:
             return True
-        for r in self._conn.execute(
-            f"SELECT alt_accounts FROM {self.TABLE_NAME} WHERE uid != ?", (uid,)
-        ).fetchall():
-            if name in self._parse_json_list(r["alt_accounts"]):
-                return True
+        if row2:
+            return True
         return False
 
     # ------------------------------------------------------------------

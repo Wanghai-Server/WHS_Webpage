@@ -266,7 +266,7 @@ onUnmounted(() => {
   margin-bottom: 20px;
   border-radius: 999px;
   padding: 4px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .mode-tabs button {

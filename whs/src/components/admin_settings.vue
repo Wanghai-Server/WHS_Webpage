@@ -762,7 +762,7 @@ onUnmounted(() => {
 }
 
 .panel-close:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -826,7 +826,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--links-color);
 }
 
@@ -899,7 +899,7 @@ onUnmounted(() => {
 }
 
 .icon-btn:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -943,7 +943,7 @@ onUnmounted(() => {
 }
 
 .page-btn:hover:not(:disabled) {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .page-btn:disabled {
@@ -966,7 +966,7 @@ onUnmounted(() => {
   padding: 12px 16px;
   margin-bottom: 14px;
   border-radius: 12px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-color);

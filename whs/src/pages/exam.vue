@@ -10,6 +10,8 @@ import ExamQuestion from '../components/exam_question.vue'
 import DocViewer from '../components/doc_viewer.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
+import { Copy } from 'lucide-vue-next'
+import { copyText } from '../composables/clipboard.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -268,6 +270,29 @@ async function requestReview() {
   }
 }
 
+// 复制服务器IP
+const copied = ref(false)
+let copyTimer = null
+async function copyIP() {
+  try {
+    const res = await fetch('/api/exam/get_ip', { headers: authHeaders() })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      const ok = await copyText(data.ip)
+      if (ok) {
+        copied.value = true
+        clearTimeout(copyTimer)
+        copyTimer = setTimeout(() => (copied.value = false), 2000)
+        showTip('info', t('exam.copiedIP'))
+      }
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } finally {
+    copied.value = false
+  }
+}
+
 // 路由切换（上一题/下一题/提交均通过路由变化触发）：
 // 先保存当前题的答案，再切换题目（输入不再实时保存，避免快速作答丢失）。
 // 注意：首次进入答题页时 URL 可能没有 ?question 参数（startAnswer 不写 URL），
@@ -415,6 +440,10 @@ onUnmounted(() => {
         </div>
 
         <!-- 及格后：提示白名单已加入（考试通过时后端已自动加入游戏服务器白名单） -->
+        <button v-if="profile.passed" class="start-btn" @click="copyIP">
+          <copy :size="18"></copy>
+          <span>{{ t('exam.getIP') }}</span>
+        </button>
         <p v-if="profile.passed" class="whitelist-hint">{{ t('exam.whitelistHint') }}</p>
 
         <!-- 仅不及格时显示操作区；及格后成绩单只展示成绩 -->
@@ -515,14 +544,14 @@ onUnmounted(() => {
 }
 
 .notice-content :deep(code) {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   padding: 2px 6px;
   border-radius: 6px;
   font-size: 13px;
 }
 
 .notice-content :deep(pre) {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   padding: 12px;
   border-radius: 10px;
   overflow-x: auto;
@@ -553,7 +582,7 @@ onUnmounted(() => {
 
 .doc-view-btn:hover {
   color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .field {
@@ -681,7 +710,7 @@ onUnmounted(() => {
 
 .nav-btn:hover {
   color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .nav-btn.primary {
@@ -731,7 +760,7 @@ onUnmounted(() => {
 .score-box {
   padding: 20px;
   border-radius: 16px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   margin-bottom: 20px;
 }
 
@@ -761,7 +790,7 @@ onUnmounted(() => {
 
 /* 及格后的白名单提示（小字） */
 .whitelist-hint {
-  margin: 0 0 16px;
+  margin-top: 16px;
   font-size: 12.5px;
   color: var(--links-color);
 }

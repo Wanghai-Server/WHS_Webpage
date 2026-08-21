@@ -193,7 +193,7 @@ onUnmounted(() => {
 }
 
 .player-modal-close:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 

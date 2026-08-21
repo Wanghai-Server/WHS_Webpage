@@ -30,6 +30,7 @@ from main import (
     message_db,
     user_db,
     user_info_db,
+    _config,
 )
 
 router = APIRouter()
@@ -433,6 +434,17 @@ def exam_review(user: dict | None = Depends(get_current_user)):
         sent += 1
     exam_db.set_review_requested(user["uid"], True)
     return {"success": True, "notified": sent}
+
+
+@router.get("/api/exam/get_ip")
+def exam_get_ip(user: dict | None = Depends(get_current_user)):
+    if user is None:
+        return _error_response("unauthorized", 401)
+    profile = exam_db.get_profile(user["uid"]) or {}
+    if bool(profile.get("passed")):
+        return { "ip": f"{_config().get("server", {}).get("host", "")}:{_config().get("server", {}).get("port", "")}"}
+    else:
+        return _error_response("permission_denied", 403)
 
 
 @router.get("/api/admin/exam/candidates")

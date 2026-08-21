@@ -725,7 +725,7 @@ onUnmounted(() => {
 }
 
 .btn.modify:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 /* 危险操作（注销）按钮 */
@@ -768,7 +768,7 @@ onUnmounted(() => {
 
 .avatar-upload:hover {
   border-color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .avatar-upload input {

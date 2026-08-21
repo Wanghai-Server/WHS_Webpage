@@ -138,14 +138,14 @@ const birthdayLabel = computed(() => {
 .markdown :deep(code) {
   padding: 2px 6px;
   border-radius: 6px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   font-family: monospace;
 }
 
 .markdown :deep(pre) {
   padding: 12px;
   border-radius: 10px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   overflow-x: auto;
 }
 

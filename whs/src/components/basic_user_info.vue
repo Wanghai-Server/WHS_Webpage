@@ -183,7 +183,7 @@ async function onToggleFollow() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--links-color);
 }
 
@@ -258,7 +258,7 @@ async function onToggleFollow() {
 }
 
 .follow-btn.following {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 

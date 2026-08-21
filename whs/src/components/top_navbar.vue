@@ -811,7 +811,7 @@ onUnmounted(() => {
 }
 
 .mobile-menu a:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -837,7 +837,7 @@ onUnmounted(() => {
 }
 
 .mobile-menu .nav-action:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 

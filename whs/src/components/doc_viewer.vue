@@ -94,7 +94,7 @@ onMounted(loadDoc)
   gap: 12px;
   padding: 14px 18px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.2);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .doc-title {
@@ -137,7 +137,7 @@ onMounted(loadDoc)
 
 .doc-download:hover {
   color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .doc-close {
@@ -155,7 +155,7 @@ onMounted(loadDoc)
 
 .doc-close:hover {
   color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .doc-body {

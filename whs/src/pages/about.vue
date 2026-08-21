@@ -9,6 +9,7 @@ import {
   Mountain, Map, Sparkles, Hammer,
   Ban, Globe, Activity, Bot, User,
   Copy, Check, ArrowDown, ChevronRight, ExternalLink,
+  ShieldCheck, GraduationCap, Bell, Cpu,
 } from 'lucide-vue-next'
 
 import Top_navbar from '../components/top_navbar.vue'
@@ -23,19 +24,23 @@ const router = useRouter()
 // ---------------------------------------------------------------------------
 // 内容数据：全部来自 locales（pages.about.* / join.*），页面内零硬编码文案
 // ---------------------------------------------------------------------------
-const visionItems = tm('pages.about.vision.items')
-const historyItems = tm('pages.about.history.items')
-const governanceItems = tm('pages.about.governance.items')
-const featureItems = tm('pages.about.features.items')
-const ruleItems = tm('pages.about.rules.items')
-const teamMembers = tm('pages.about.team.members')
-const stats = tm('pages.about.stats')
+// tm() 本身读取 vue-i18n 的响应式依赖但不具响应性：必须在 computed 中调用，
+// 语言切换时才会重新求值、跟随翻译（模板中自动解包，无需 .value）
+const visionItems = computed(() => tm('pages.about.vision.items'))
+const historyItems = computed(() => tm('pages.about.history.items'))
+const governanceItems = computed(() => tm('pages.about.governance.items'))
+const featureItems = computed(() => tm('pages.about.features.items'))
+const ruleItems = computed(() => tm('pages.about.rules.items'))
+const teamMembers = computed(() => tm('pages.about.team.members'))
+const stats = computed(() => tm('pages.about.stats'))
+const aboutItems = computed(() => tm('pages.about.about.items'))
 
 // 各区块卡片图标（与词条数组按下标一一对应）
 const visionIcons = [Zap, TrainFront, Boxes, Users]
 const governanceIcons = [Landmark, Vote, BookOpen, Scale]
 const featureIcons = [Boxes, TrainFront, Mountain, Map, Sparkles, Hammer]
 const ruleIcons = [Ban, Globe, Activity]
+const aboutIcons = [ShieldCheck, GraduationCap, Activity, Bell, Users, Globe]
 
 // 团队成员角色
 const roleKeys = { owner: 'role_owner', co_owner: 'role_co_owner', admin: 'role_admin' }
@@ -139,13 +144,13 @@ async function fetchMembers() {
 // 世界种子：点击复制种子；旁边提供 ChunkBase 完整地图外链
 // （种子图弹窗已回退，后续考虑经 MCDR 插件解析 .mca 实现种子图）
 // ---------------------------------------------------------------------------
-const chunkbaseMapUrl = `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(stats.seed.mapSeed)}`
+const chunkbaseMapUrl = `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(stats.value.seed.mapSeed)}`
 
 // 复制世界种子
 const copied = ref(false)
 let copyTimer = null
 async function copySeed() {
-  const ok = await copyText(stats.seed.value)
+  const ok = await copyText(stats.value.seed.value)
   if (ok) {
     copied.value = true
     clearTimeout(copyTimer)
@@ -375,7 +380,7 @@ onUnmounted(() => {
           <span class="stat-label">{{ stats.round.label }}</span>
           <span class="stat-value">{{ stats.round.value }}</span>
         </div>
-        <!-- 世界种子（普通格尺寸，位于原"服务器性质"位置；点击复制，右上角外链打开 ChunkBase 完整地图） -->
+        <!-- 世界种子（普通格尺寸，点击复制，右上角外链打开 ChunkBase 完整地图） -->
         <div
           class="stat-cell seed-cell"
           role="button"
@@ -595,32 +600,76 @@ onUnmounted(() => {
         <h2>{{ t('pages.about.members.title') }}</h2>
       </div>
 
+      <p class="vision-text reveal">{{ t('pages.about.members.text') }}</p>
+
       <!-- 整块"墙"卡片背景（高于网页背景）；内容为异步渲染故不带 reveal -->
       <div class="members-wall reveal">
-        <p class="members-subtitle">{{ t('pages.about.members.subtitle') }}</p>
-
         <div v-if="membersLoading" class="members-status">{{ t('pages.about.stats.loading') }}</div>
         <p v-else-if="membersFailed" class="members-status">{{ t('pages.about.members.loadFailed') }}</p>
         <p v-else-if="members.length === 0" class="members-status">{{ t('pages.about.members.empty') }}</p>
         <div v-else class="members-grid">
-          <button
+          <div
             v-for="name in members"
             :key="name"
-            type="button"
-            class="member-avatar"
-            :title="name"
-            :aria-label="name"
-            @click="openPlayer({ playerName: name, name })"
+            class="member-cell"
           >
-            <img
-              v-if="!avatarFailed(name)"
-              :src="memberAvatar(name)"
-              :alt="name"
-              loading="lazy"
-              @error="onAvatarError(name)"
-            />
-            <span v-else class="member-avatar-fallback"><User :size="16" /></span>
-          </button>
+            <!-- 悬浮名字标签：悬停成员格时在头像上方淡入显示 -->
+            <span class="member-name">{{ name }}</span>
+            <button
+              type="button"
+              class="member-avatar"
+              :title="name"
+              :aria-label="name"
+              @click="openPlayer({ playerName: name, name })"
+            >
+              <img
+                v-if="!avatarFailed(name)"
+                :src="memberAvatar(name)"
+                :alt="name"
+                loading="lazy"
+                @error="onAvatarError(name)"
+              />
+              <span v-else class="member-avatar-fallback"><User :size="16" /></span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 11. 关于此网站 ==================== -->
+    <section class="section">
+      <div class="section-head reveal">
+        <span class="head-bar"></span>
+        <h2>{{ t('pages.about.about.title') }}</h2>
+      </div>
+
+      <p class="vision-text reveal">{{ t('pages.about.about.text') }}</p>
+
+      <div class="card-grid cols-3">
+        <div
+          v-for="(item, i) in aboutItems"
+          :key="i"
+          class="reveal"
+          :style="{ transitionDelay: `${(i % 3) * 70}ms` }"
+        >
+          <div class="glass-card">
+            <div class="card-icon">
+              <component :is="aboutIcons[i]" :size="22" />
+            </div>
+            <h3>{{ item.title }}</h3>
+            <p>{{ item.desc }}</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 技术栈说明（与 GamesAI 说明条同款样式） -->
+      <div class="ai-callout reveal">
+        <div class="card-icon">
+          <Cpu :size="24" />
+        </div>
+        <div class="ai-callout-body">
+          <h3>{{ t('pages.about.about.techTitle') }}</h3>
+          <p>{{ t('pages.about.about.techText') }}</p>
         </div>
       </div>
     </section>
@@ -1020,6 +1069,54 @@ onUnmounted(() => {
   justify-items: center;
 }
 
+/* 成员格：头像按钮 + 悬浮名字标签的定位容器（宽度与按钮一致） */
+.member-cell {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+/* 悬浮名字标签：悬停（或键盘聚焦）成员格时在头像上方淡入显示 */
+.member-name {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translate(-50%, 4px);
+  padding: 3px 10px;
+  border-radius: 6px;
+  background: var(--card-color);
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.18);
+  color: var(--text-color);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  z-index: 20;
+}
+
+/* 标签指向头像的小箭头 */
+.member-name::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--card-color);
+}
+
+.member-cell:hover .member-name,
+.member-cell:focus-within .member-name {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
 /* 方形头像（用户要求不裁剪成圆形；尺寸较小） */
 .member-avatar {
   position: relative;
@@ -1029,7 +1126,7 @@ onUnmounted(() => {
   padding: 0;
   border: none;
   border-radius: 0;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   cursor: pointer;
   overflow: hidden;
   transition:

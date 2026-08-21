@@ -487,7 +487,7 @@ defineExpose({ saveNow })
   font-weight: 600;
   padding: 2px 10px;
   border-radius: 999px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--links-color);
 }
 
@@ -541,12 +541,12 @@ defineExpose({ saveNow })
 }
 
 .q-option:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .q-option.selected {
   border-color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .q-option input {

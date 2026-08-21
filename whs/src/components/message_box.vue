@@ -471,7 +471,7 @@ defineExpose({ close })
 }
 
 .head-close:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -514,7 +514,7 @@ defineExpose({ close })
 }
 
 .message-head-row:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .message-title {
@@ -573,7 +573,7 @@ defineExpose({ close })
 }
 
 .edit-btn:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -592,7 +592,7 @@ defineExpose({ close })
 }
 
 .delete-btn:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: #e5484d;
 }
 
@@ -612,7 +612,7 @@ defineExpose({ close })
 }
 
 .read-btn:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 

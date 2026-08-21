@@ -226,7 +226,7 @@ onMounted(() => {
   display: inline-flex;
   padding: 4px;
   border-radius: 999px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .switch-thumb {

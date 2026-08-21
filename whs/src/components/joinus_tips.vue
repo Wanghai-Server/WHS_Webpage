@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ChevronRight } from 'lucide-vue-next'
@@ -7,7 +8,8 @@ import { ChevronRight } from 'lucide-vue-next'
 // 文案来自顶层 join.* 词条（zh/en），使用方无需传参。
 const { t, tm } = useI18n()
 const router = useRouter()
-const joinSteps = tm('join.steps')
+// tm() 不具响应性：用 computed 包裹，语言切换时跟随翻译（模板自动解包）
+const joinSteps = computed(() => tm('join.steps'))
 </script>
 
 <template>

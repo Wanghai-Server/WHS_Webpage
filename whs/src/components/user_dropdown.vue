@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { User, Settings, LogOut } from 'lucide-vue-next'
+import { User, Settings, LogOut, Users } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 
 const { t } = useI18n()
@@ -20,6 +20,7 @@ const fullname = computed(() => user.value?.fullname || '')
 
 // 正式成员判定：权限 >= 2（player）。未达标的登录用户显示"成为正式成员"入口
 const isMember = computed(() => (user.value?.permission ?? 0) >= 2)
+const isAdmin = computed(() => (user.value?.permission ?? 0) >= 3)
 
 // 个人资料：用户页 profile 标签（?tab=profile）
 function goProfile() {
@@ -29,6 +30,10 @@ function goProfile() {
 // 设置：用户页 settings 标签（?tab=settings），由页面按 URL query 自动映射
 function goSettings() {
   router.push({ path: `/user/${user.value?.uid}`, query: { tab: 'settings' } })
+}
+
+function goAdminSettings() {
+  router.push({ path: `/user/${user.value?.uid}`, query: { tab: 'admin' } })
 }
 
 function signOut() {
@@ -75,6 +80,12 @@ function signOut() {
     <button class="dropdown-item" type="button" @click="goSettings">
       <Settings :size="18" />
       <span>{{ t('userMenu.settings') }}</span>
+    </button>
+
+    <!-- 管理员（权限 >= 3）：跳转到管理员设置页 -->
+    <button v-if="isAdmin" class="dropdown-item" type="button" @click="goAdminSettings">
+      <Users :size="18"></Users>
+      <span>{{ t('userMenu.admin') }}</span>
     </button>
   </div>
 </template>
@@ -128,7 +139,7 @@ function signOut() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--links-color);
 }
 
@@ -179,7 +190,7 @@ function signOut() {
 }
 
 .dropdown-signout:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 /* 未成为正式成员：成为成员入口（金色，与 joinus 页按钮同色 #ebaa28） */
@@ -201,7 +212,7 @@ function signOut() {
 }
 
 .dropdown-joinus:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: #d99a1f;
 }
 
@@ -224,7 +235,7 @@ function signOut() {
 }
 
 .dropdown-item:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .dropdown-item svg {

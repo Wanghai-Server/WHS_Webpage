@@ -3,7 +3,7 @@ import concurrent.futures
 import json
 import re
 import uuid
-from typing import Any, Awaitable, Callable, Dict, Optional
+from typing import Any, Callable, Awaitable
 
 import websockets
 from websockets.asyncio.client import ClientConnection
@@ -30,7 +30,7 @@ PLUGIN_METADATA = {
 
 PLUGIN_ID = "mcdr2web"
 CONFIG_FILE = "mcdr2web.json"
-DEFAULT_CONFIG: Dict[str, Any] = {
+DEFAULT_CONFIG: dict[str, Any] = {
     "ws_host": "127.0.0.1",
     "ws_port": 8765,
     # TPS/MSPT 主动上报间隔（秒）：通过 RCON 执行 `tick query` 采集后上报后端
@@ -39,13 +39,13 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 RECONNECT_DELAY = 5.0
 REQUEST_TIMEOUT = 10.0
 
-server_interface: Optional[PluginServerInterface] = None
-config: Dict[str, Any] = {}
-send_queue: Optional[asyncio.Queue[dict]] = None
-pending: Dict[str, asyncio.Future] = {}
+server_interface: 'PluginServerInterface | None' = None
+config: dict[str, Any] = {}
+send_queue: asyncio.Queue[dict] | None = None
+pending: dict[str, asyncio.Future] = {}
 connected: bool = False
-main_loop_future: Optional[concurrent.futures.Future] = None
-tps_loop_future: Optional[concurrent.futures.Future] = None
+main_loop_future: concurrent.futures.Future | None = None
+tps_loop_future: concurrent.futures.Future | None = None
 
 async def _handle_ping(data: Any) -> str:
     return "pong"
@@ -87,7 +87,7 @@ async def _handle_remove_player(data: Any) -> Any:
     return True
 
 
-command_handlers: Dict[str, Callable[[Any], Awaitable[Any]]] = {
+command_handlers: dict[str, Callable[[Any], Awaitable[Any]]] = {
     "ping": _handle_ping,
     # 在线名单 / 在线判断（whs 官网在线人数只统计真人，bot_ 前缀视为假人）
     "get_player_list": _handle_get_player_list,
@@ -210,7 +210,7 @@ def request_sync(command: str, data: Any = None, timeout: float = REQUEST_TIMEOU
 # TPS / MSPT 周期上报（RCON `tick query`，默认每 5 分钟主动上报一次后端）
 # ---------------------------------------------------------------------------
 
-def parse_tick_query_output(text: str) -> Optional[Dict[str, Any]]:
+def parse_tick_query_output(text: str) -> dict[str, Any] | None:
     """解析 Minecraft `tick query` 输出，返回 {"tps", "mspt", "healthy"}；解析失败返回 None。
 
     输出示例（1.16.2+，RCON 返回多行文本）：
@@ -242,7 +242,7 @@ def parse_tick_query_output(text: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def collect_tps() -> Optional[Dict[str, Any]]:
+def collect_tps() -> dict[str, Any] | None:
     """通过 RCON 发送 `tick query` 采集当前 TPS / MSPT；RCON 不可用或解析失败返回 None。"""
     output = server_interface.rcon_query("tick query")
     if not output:
@@ -259,7 +259,7 @@ def collect_tps() -> Optional[Dict[str, Any]]:
     return parsed
 
 
-def parse_list_output(text: str) -> Optional[int]:
+def parse_list_output(text: str) -> int | None:
     """解析 Minecraft `list` 命令输出中的玩家上限（max-players）。
 
     输出示例："There are 3 of a max of 200 players online: Steve, Alex, Notch"
@@ -275,7 +275,7 @@ def parse_list_output(text: str) -> Optional[int]:
         return None
 
 
-def collect_max_players() -> Optional[int]:
+def collect_max_players() -> int | None:
     """通过 RCON 发送 `list` 命令获取服务器玩家上限；RCON 不可用或解析失败返回 None。"""
     output = server_interface.rcon_query("list")
     if not output:

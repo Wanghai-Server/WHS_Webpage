@@ -8,7 +8,7 @@
   --text-color-rgb: 51, 51, 51;
   --links-color: #7c8b9e;
   --notice-color: rgba(235, 170, 40, 0.7);
-  --btn-hover: rgba(51, 51, 51, 0.08);
+  --float-bg: rgba(51, 51, 51, 0.08);
 }
 
 html.dark {
@@ -21,7 +21,7 @@ html.dark {
   --text-color-rgb: 245, 245, 245;
   --links-color: #cbd5e1;
   --notice-color: rgba(240, 184, 96, 0.7);
-  --btn-hover: rgba(245, 245, 245, 0.08);
+  --float-bg: rgba(245, 245, 245, 0.08);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -35,7 +35,7 @@ html.dark {
     --text-color-rgb: 245, 245, 245;
     --links-color: #cbd5e1;
     --notice-color: rgba(240, 184, 96, 0.7);
-    --btn-hover: rgba(245, 245, 245, 0.08);
+    --float-bg: rgba(245, 245, 245, 0.08);
   }
 }
 

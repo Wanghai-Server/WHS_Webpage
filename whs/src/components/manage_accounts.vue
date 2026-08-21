@@ -447,7 +447,7 @@ async function saveMainPremium() {
 }
 
 .btn.modify:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .btn.modify.danger {
@@ -532,7 +532,7 @@ async function saveMainPremium() {
 }
 
 .dialog-close:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 

@@ -276,7 +276,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  background: var(--card-color);
+  background: var(--navbar-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 20px;
   overflow: hidden;
@@ -289,7 +291,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   justify-content: space-between;
   gap: 12px;
   padding: 16px 20px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+  border-bottom: 1px solid var(--links-color);
 }
 
 .sheet-head h3 {
@@ -316,7 +318,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
 }
 
 .sheet-close:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -336,10 +338,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  border-radius: 12px;
+  background: var(--float-bg);
   font-size: 14px;
+  font-weight: 600;
   color: var(--text-color);
 }
 

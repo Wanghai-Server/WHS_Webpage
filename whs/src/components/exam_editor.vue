@@ -701,7 +701,7 @@ onMounted(fetchConfig)
 
 .tool-btn:hover {
   color: var(--text-color);
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .tool-btn.primary {
@@ -807,14 +807,14 @@ onMounted(fetchConfig)
 }
 
 .tips-preview :deep(code) {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   padding: 2px 6px;
   border-radius: 6px;
   font-size: 13px;
 }
 
 .tips-preview :deep(pre) {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   padding: 10px;
   border-radius: 8px;
   overflow-x: auto;
@@ -851,7 +851,7 @@ onMounted(fetchConfig)
   align-items: center;
   gap: 10px;
   padding: 10px 14px;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   flex-wrap: wrap;
 }
 

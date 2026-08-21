@@ -208,7 +208,7 @@ onUnmounted(() => {
 }
 
 .fl-close:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--text-color);
 }
 
@@ -247,7 +247,7 @@ onUnmounted(() => {
 }
 
 .fl-row:hover {
-  background: var(--btn-hover);
+  background: var(--float-bg);
 }
 
 .fl-avatar {
@@ -262,7 +262,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--btn-hover);
+  background: var(--float-bg);
   color: var(--links-color);
 }
 

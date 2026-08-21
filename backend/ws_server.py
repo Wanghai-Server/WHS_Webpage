@@ -13,6 +13,7 @@
 import asyncio
 import json
 import uuid
+from typing import Any
 
 import websockets
 
@@ -91,7 +92,7 @@ class WsCommandServer:
     async def _handle_message(self, ws, raw: str) -> None:
         """处理一条客户端消息：要么是客户端请求，要么是对服务端请求的响应。"""
         try:
-            payload = json.loads(raw)
+            payload: dict[str, Any] = json.loads(raw)
         except (json.JSONDecodeError, TypeError):
             print(f"[ws-server] 收到非法消息: {str(raw)[:200]!r}", flush=True)
             return

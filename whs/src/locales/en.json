@@ -64,7 +64,7 @@
             },
             "members": {
                 "title": "Members",
-                "subtitle": "All whitelisted members of WangHai Server (avatars provided by mc-heads)",
+                "text": "All whitelisted members of WangHai Server (avatars provided by mc-heads.net)",
                 "empty": "No members yet",
                 "loadFailed": "Failed to load members"
             },
@@ -124,6 +124,20 @@
                     { "name": "chaofan_0526", "role": "admin", "playerName": "chaofan_0526", "desc": "Introduction coming soon." },
                     { "name": "hongyan250", "role": "admin", "playerName": "hongyan250", "desc": "Introduction coming soon." }
                 ]
+            },
+            "about": {
+                "title": "About This Website",
+                "text": "This website is the official portal of Wanghai Server, owned and operated by the server team. We aim to offer players a secure and efficient interface for account management and server services, as well as to serve as the official community and data asset management platform.",
+                "items": [
+                    { "title": "Accounts & Security", "desc": "Register, log in, and manage avatars and profiles in one place. Passwords are salted and hashed, and sessions use signed tokens to keep accounts safe." },
+                    { "title": "Entry Exam", "desc": "Take the whitelist questionnaire online with automatic grading. Passing automatically whitelists you on the game server, while admins can review and re-score answers." },
+                    { "title": "Live Server Status", "desc": "Real-time player count, TPS and player cap, reported automatically by the game server through the MCDR plugin." },
+                    { "title": "Message Center", "desc": "System announcements and direct messages in one place, so exam results and review notifications are never missed." },
+                    { "title": "Member Wall", "desc": "Browse whitelisted members and click any avatar to view player info and their profile page." },
+                    { "title": "Bilingual & Dark Mode", "desc": "Switch between Chinese and English, choose light, dark or system themes, with responsive layouts for desktop and mobile." }
+                ],
+                "techTitle": "Tech Stack",
+                "techText": "The frontend is built with Vue 3 + Vite, the backend runs on FastAPI + SQLite, and real-time communication with the game server is handled by an MCDReforged plugin. The project is open source under the MIT license."
             },
             "copied": "Copied"
         }
@@ -197,6 +211,7 @@
     "userMenu": {
         "profile": "Profile",
         "settings": "Settings",
+        "admin": "Admin Settings",
         "sign_out": "Sign Out",
         "become_member": "Become an Official Member"
     },
@@ -457,6 +472,8 @@
         "failed": "Not passed (passing line is 60% of the total score)",
         "totalScore": "Total {total} · Score {obtained}",
         "whitelistHint": "Your game account has been added to the server whitelist — you may join the server anytime",
+        "getIP": "Obtain the server IP address",
+        "copiedIP": "Copied the server IP address",
         "retake": "Retake",
         "retakeStarted": "Retake started",
         "reviewRequest": "Request Answer Sheet Review",
