@@ -1,4 +1,8 @@
 {
+    "dialog": {
+        "confirm": "OK",
+        "cancel": "Cancel"
+    },
     "pageTitle": {
         "home": "WangHai Server",
         "about": "About",
@@ -6,7 +10,8 @@
         "wiki": "Wiki",
         "login": "Login / Register",
         "user": "User Center",
-        "joinus": "Join Us"
+        "joinus": "Join Us",
+        "search": "Full Search"
     },
     "nav": {
         "title": "WHS",
@@ -16,6 +21,23 @@
         "login": "Login / Register",
         "menu": "Menu",
         "back": "Back"
+    },
+    "search": {
+        "title": "Full Search",
+        "placeholder": "Search wiki, users, player names…",
+        "loading": "Searching…",
+        "noResults": "No matching results",
+        "allResults": "View all results",
+        "wikiTab": "Wiki",
+        "usersTab": "Users",
+        "wikiLabel": "Wiki pages",
+        "usersLabel": "Users",
+        "searchWiki": "Search Wiki",
+        "fullSearch": "Full Search",
+        "uid": "UID",
+        "fullname": "Nickname",
+        "playerName": "Player name",
+        "altAccounts": "Alts"
     },
     "pages": {
         "home": {
@@ -31,8 +53,95 @@
             "description": "The community forum is under construction. Stay tuned!"
         },
         "wiki": {
-            "title": "Wiki",
-            "description": "The server wiki is under construction. Stay tuned!"
+            "title": "WangHai Wiki",
+            "description": "The official wiki of WangHai Server — guides, rules and knowledge, all written in Markdown with the outline parsed automatically from headings.",
+            "search": {
+                "placeholder": "Search the wiki…",
+                "noResults": "No matching pages",
+                "hint": "Press Enter to open the first result",
+                "allResults": "View all results",
+                "resultsTitle": "Search results"
+            },
+            "home": {
+                "groups": "Sections",
+                "recent": "Recently updated",
+                "empty": "The wiki is empty, waiting for its first article.",
+                "pages": "pages",
+                "wordOfDay": "Word of the day",
+                "wordRefresh": "Shuffle"
+            },
+            "actions": {
+                "newPage": "New page",
+                "edit": "Edit",
+                "history": "History",
+                "delete": "Delete",
+                "save": "Save",
+                "restore": "Restore this version",
+                "close": "Close",
+                "back": "Back"
+            },
+            "meta": {
+                "lastUpdated": "Last updated",
+                "rev": "Rev",
+                "revisions": "revisions",
+                "contributors": "Contributors",
+                "system": "System",
+                "minPermission": "Edit permission",
+                "langNotice": "This page has no {lang} version; showing the {other} version."
+            },
+            "editor": {
+                "slugPlaceholder": "Page path, e.g. guide/quick-start",
+                "slugHint": "Lowercase letters, digits, hyphens and slashes only",
+                "contentPlaceholder": "Write in Markdown… (the first # heading becomes the page title; all headings # ~ ###### are nested into the outline tree)",
+                "summary": "Edit summary (optional)",
+                "saved": "Saved",
+                "undo": "Undo",
+                "saving": "Saving…",
+                "dirty": "Unsaved changes",
+                "conflict": "This page has been modified by someone else",
+                "conflictDesc": "You were editing an older version. Saving now will overwrite the latest content.",
+                "forceSave": "Save anyway",
+                "loadLatest": "Load latest content",
+                "confirmLeave": "You have unsaved changes. Leave anyway?",
+                "chars": "chars",
+                "resize": "Drag to resize panes",
+                "resizeH": "Drag to extend or shrink the editor height",
+                "saveFailed": "Save failed",
+                "upload": "Upload image / video / audio",
+                "uploading": "Uploading…",
+                "disambig": "Disambiguation page",
+                "renameWarning": "The path changed: saving will create the page at the new path and delete the old one."
+            },
+            "history": {
+                "title": "Revision history",
+                "empty": "No revisions yet",
+                "restoreConfirm": "Restore this version? A new revision will be created.",
+                "current": "Current version",
+                "viewing": "Viewing version",
+                "backToPage": "Back to page"
+            },
+            "notFound": {
+                "title": "Page not found",
+                "desc": "This page may have been deleted, or the path is incorrect.",
+                "create": "Create this page"
+            },
+            "disambig": {
+                "banner": "Disambiguation page: several similar entries are listed here — choose the one you meant."
+            },
+            "permission": {
+                "denied": "You do not have permission to edit the wiki",
+                "notEnough": "Your permission is not high enough to edit this page",
+                "updated": "Permission updated",
+                "cannotManageHigher": "You cannot manage pages with a higher edit permission",
+                "newPermissionHigher": "Cannot set the page edit permission higher than your own",
+                "levels": {
+                    "2": "Members",
+                    "3": "Admins",
+                    "4": "Owner"
+                }
+            },
+            "confirmDelete": "Delete this page? All of its revisions will also be removed.",
+            "loadError": "Failed to load, please try again later"
         },
         "about": {
             "title": "About Us",
@@ -127,17 +236,21 @@
             },
             "about": {
                 "title": "About This Website",
-                "text": "This website is the official portal of Wanghai Server, owned and operated by the server team. We aim to offer players a secure and efficient interface for account management and server services, as well as to serve as the official community and data asset management platform.",
+                "text": "This website is the official portal of Wanghai Server, owned and operated by the server team. We aim to offer players a secure and efficient interface for account management and server services, as well as to serve as the official community and data asset management platform. The built-in wiki is maintained by the server team — guides, rules and knowledge all in one place.",
                 "items": [
                     { "title": "Accounts & Security", "desc": "Register, log in, and manage avatars and profiles in one place. Passwords are salted and hashed, and sessions use signed tokens to keep accounts safe." },
                     { "title": "Entry Exam", "desc": "Take the whitelist questionnaire online with automatic grading. Passing automatically whitelists you on the game server, while admins can review and re-score answers." },
                     { "title": "Live Server Status", "desc": "Real-time player count, TPS and player cap, reported automatically by the game server through the MCDR plugin." },
                     { "title": "Message Center", "desc": "System announcements and direct messages in one place, so exam results and review notifications are never missed." },
                     { "title": "Member Wall", "desc": "Browse whitelisted members and click any avatar to view player info and their profile page." },
-                    { "title": "Bilingual & Dark Mode", "desc": "Switch between Chinese and English, choose light, dark or system themes, with responsive layouts for desktop and mobile." }
+                    { "title": "Bilingual & Dark Mode", "desc": "Switch between Chinese and English, choose light, dark or system themes, with responsive layouts for desktop and mobile." },
+                    { "title": "Server Wiki", "desc": "The official wiki covers guides, rules and knowledge. Every page is written in Markdown with the outline parsed automatically from headings, with real-time Chinese/English switching and per-page edit permissions." }
                 ],
+                "wikiTitle": "Official Wiki",
+                "wikiText": "The wiki collects the server's guides, rules and knowledge. All content is written in Markdown and stored in the database, with outlines parsed automatically from headings; it supports real-time Chinese/English switching, revision history with one-click rollback, and per-page edit permissions, maintained together by the community.",
+                "wikiLink": "Go to Wiki",
                 "techTitle": "Tech Stack",
-                "techText": "The frontend is built with Vue 3 + Vite, the backend runs on FastAPI + SQLite, and real-time communication with the game server is handled by an MCDReforged plugin. The project is open source under the MIT license."
+                "techText": "The frontend is built with Vue 3 + Vite, the backend runs on FastAPI + SQLite, and real-time communication with the game server is handled by an MCDReforged plugin; wiki pages are stored as Markdown in SQLite, with outlines parsed from headings at render time. The project is open source under the MIT license."
             },
             "copied": "Copied"
         }

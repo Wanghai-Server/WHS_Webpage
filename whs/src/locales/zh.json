@@ -1,4 +1,8 @@
 {
+    "dialog": {
+        "confirm": "确定",
+        "cancel": "取消"
+    },
     "pageTitle": {
         "home": "望海服务器",
         "about": "关于",
@@ -6,7 +10,8 @@
         "wiki": "维基",
         "login": "登录/注册",
         "user": "用户中心",
-        "joinus": "加入我们"
+        "joinus": "加入我们",
+        "search": "全量搜索"
     },
     "nav": {
         "title": "望海服务器",
@@ -16,6 +21,23 @@
         "login": "登录/注册",
         "menu": "菜单",
         "back": "返回"
+    },
+    "search": {
+        "title": "全量搜索",
+        "placeholder": "搜索 Wiki、用户、玩家名…",
+        "loading": "搜索中…",
+        "noResults": "未找到相关内容",
+        "allResults": "查看全部结果",
+        "wikiTab": "Wiki",
+        "usersTab": "用户",
+        "wikiLabel": "Wiki 页面",
+        "usersLabel": "用户",
+        "searchWiki": "搜索Wiki",
+        "fullSearch": "全量搜索",
+        "uid": "UID",
+        "fullname": "昵称",
+        "playerName": "玩家名",
+        "altAccounts": "小号"
     },
     "pages": {
         "home": {
@@ -31,8 +53,94 @@
             "description": "社区论坛正在建设中，敬请期待。"
         },
         "wiki": {
-            "title": "维基",
-            "description": "服务器维基正在建设中，敬请期待。"
+            "title": "望海维基",
+            "description": "望海服务器官方维基 —— 攻略、规则与百科，全部以 Markdown 书写，页面目录自动从标题解析。",
+            "search": {
+                "placeholder": "搜索维基…",
+                "noResults": "未找到相关页面",
+                "hint": "回车打开第一个结果",
+                "allResults": "查看全部结果",
+                "resultsTitle": "搜索结果"
+            },
+            "home": {
+                "groups": "知识分组",
+                "recent": "最近更新",
+                "empty": "维基还是空的，等待第一篇文章。",
+                "pages": "篇",
+                "wordOfDay": "今日词条",
+                "wordRefresh": "换一个"
+            },
+            "actions": {
+                "newPage": "新建页面",
+                "edit": "编辑",
+                "history": "历史",
+                "delete": "删除",
+                "save": "保存",
+                "restore": "恢复此版本",
+                "close": "关闭",
+                "back": "返回"
+            },            "meta": {
+                "lastUpdated": "最后更新",
+                "rev": "版本",
+                "revisions": "修订",
+                "contributors": "贡献者",
+                "system": "系统",
+                "minPermission": "编辑权限",
+                "langNotice": "该页面暂无{lang}版本，以下为{other}版本。"
+            },
+            "editor": {
+                "slugPlaceholder": "页面路径，如 guide/quick-start",
+                "slugHint": "仅小写字母、数字、短横线和斜杠",
+                "contentPlaceholder": "使用 Markdown 书写…（首个 # 标题将作为页面标题，全部标题按 # ~ ###### 层级自动进入目录树）",
+                "summary": "编辑摘要（可选）",
+                "saved": "已保存",
+                "undo": "撤销",
+                "saving": "保存中…",
+                "dirty": "有未保存的修改",
+                "conflict": "页面已被他人修改",
+                "conflictDesc": "你基于旧版本编辑。继续保存将覆盖最新内容。",
+                "forceSave": "强制保存",
+                "loadLatest": "加载最新内容",
+                "confirmLeave": "有未保存的修改，确定离开吗？",
+                "chars": "字",
+                "resize": "拖动调整左右大小",
+                "resizeH": "拖动拉长或缩短编辑区高度",
+                "saveFailed": "保存失败",
+                "upload": "上传图片 / 视频 / 音频",
+                "uploading": "上传中…",
+                "disambig": "消歧义页",
+                "renameWarning": "路径已变更：保存后将新建新路径页面并删除原路径页面。"
+            },
+            "history": {
+                "title": "修订历史",
+                "empty": "暂无修订记录",
+                "restoreConfirm": "确定恢复到该版本吗？将生成一条新修订。",
+                "current": "当前版本",
+                "viewing": "正在查看版本",
+                "backToPage": "返回页面"
+            },
+            "notFound": {
+                "title": "页面不存在",
+                "desc": "该页面可能已被删除，或路径有误。",
+                "create": "创建此页"
+            },
+            "disambig": {
+                "banner": "消歧义页：该页面列出名称相近的多个条目，请根据描述选择前往。"
+            },
+            "permission": {
+                "denied": "你没有编辑维基的权限",
+                "notEnough": "你的权限不足以编辑此页面",
+                "updated": "权限已更新",
+                "cannotManageHigher": "不能修改更高编辑权限等级的页面",
+                "newPermissionHigher": "不能把页面编辑权限设置得高于自己的权限",
+                "levels": {
+                    "2": "常规成员",
+                    "3": "管理员",
+                    "4": "服主"
+                }
+            },
+            "confirmDelete": "确定删除该页面吗？其全部修订记录也会一并删除。",
+            "loadError": "加载失败，请稍后重试"
         },
         "about": {
             "title": "关于我们",
@@ -127,17 +235,21 @@
             },
             "about": {
                 "title": "关于此网站",
-                "text": "本网站作为望海服务器的官方网站，由望海服务器所有并负责运营。我们致力于为玩家打造一个高效、安全的账号管理与服务器服务窗口，同时亦是服务器官方社区与玩家数据资产管理的重要平台。",
+                "text": "本网站作为望海服务器的官方网站，由望海服务器所有并负责运营。我们致力于为玩家打造一个高效、安全的账号管理与服务器服务窗口，同时亦是服务器官方社区与玩家数据资产管理的重要平台。站内维基由服务器官方维护，攻略、规则与百科一览无余。",
                 "items": [
                     { "title": "账号与安全", "desc": "注册、登录、头像与个人资料一站式管理；密码加盐哈希存储，登录态使用签名令牌，守护账号安全。" },
                     { "title": "入服考试", "desc": "审核问卷在线作答、自动判分，及格后自动加入游戏白名单，管理员可在线复审与评分。" },
                     { "title": "实时服务器状态", "desc": "在线人数、TPS 与玩家上限实时展示，数据由游戏服务器经 MCDR 插件自动上报。" },
                     { "title": "消息中心", "desc": "系统公告与定向消息集中推送，考试结果、审核通知等重要消息不错过。" },
                     { "title": "成员墙", "desc": "展示白名单正式成员，点击头像即可查看玩家信息与个人主页。" },
-                    { "title": "双语与深色模式", "desc": "中英双语一键切换，浅色 / 深色 / 跟随系统三种主题，适配桌面与移动端。" }
+                    { "title": "双语与深色模式", "desc": "中英双语一键切换，浅色 / 深色 / 跟随系统三种主题，适配桌面与移动端。" },
+                    { "title": "服务器维基", "desc": "官方维基收录攻略、规则与百科；全部页面以 Markdown 书写，目录自动从标题解析，支持中英双语实时切换与按页面定制的编辑权限。" }
                 ],
+                "wikiTitle": "官方维基",
+                "wikiText": "维基收录服务器的攻略、规则与百科，全部内容以 Markdown 书写并存储于数据库，页面目录自动从标题解析；支持中英双语实时切换、修订历史与一键回滚，编辑权限可按页面定制，由社区成员共同维护。",
+                "wikiLink": "前往维基",
                 "techTitle": "本站技术栈",
-                "techText": "前端基于 Vue 3 + Vite 构建，后端采用 FastAPI + SQLite，并与游戏服务器通过 MCDReforged 插件实时通信。项目遵循 MIT 协议开源。"
+                "techText": "前端基于 Vue 3 + Vite 构建，后端采用 FastAPI + SQLite，并与游戏服务器通过 MCDReforged 插件实时通信；维基页面以 Markdown 存储于 SQLite，页面目录在渲染时自动从标题解析。项目遵循 MIT 协议开源。"
             },
             "copied": "已复制"
         }

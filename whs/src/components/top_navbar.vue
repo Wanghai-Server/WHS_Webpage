@@ -7,6 +7,7 @@ import { User, Mail, X, ArrowLeft } from 'lucide-vue-next'
 import MessageBox from './message_box.vue'
 import MessageDetail from './message_detail.vue'
 import UserDropdown from './user_dropdown.vue'
+import GlobalSearch from './global_search.vue'
 import { useAuth } from '../composables/useAuth'
 
 const props = defineProps({
@@ -239,8 +240,8 @@ function animateBreakpointSwitch() {
   const itemsSelector = isMobile
     ? '.menu-toggle, .login-mobile'
     : scrolled.value
-      ? '.logo-text, .links a'
-      : '.logo-text, .links a, .login-btn'
+      ? '.logo-text, .links a, .gs-toggle'
+      : '.logo-text, .links a, .gs-toggle, .login-btn'
 
   animate(root.querySelectorAll(itemsSelector), {
     opacity: [0, 1],
@@ -274,8 +275,8 @@ function playEntranceAnimation() {
   const itemsSelector = isMobile
     ? '.menu-toggle, .logo, .login-mobile'
     : scrolled.value
-      ? '.logo, .links a'
-      : '.logo, .links a, .login-btn'
+      ? '.logo, .links a, .gs-toggle'
+      : '.logo, .links a, .gs-toggle, .login-btn'
 
   // 导航栏容器整体淡入
   animate(navbarRef.value, {
@@ -345,6 +346,7 @@ onUnmounted(() => {
           <span v-else class="nav-label">{{ l.label }}</span>
         </template>
       </nav>
+      <GlobalSearch />
       <div class="user-menu" @mouseenter="openUserMenu" @mouseleave="closeUserMenu">
         <RouterLink :to="userLink" class="login-btn">
           <template v-if="isLoggedIn">

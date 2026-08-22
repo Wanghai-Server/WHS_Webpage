@@ -3,9 +3,10 @@ import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 
 // 可复用的 Tabs 导航组件（下滑线式）：
 // 激活项下方有一条金色下划线，切换时下划线平滑滑动到对应标签。
-// 通过 v-model 双向绑定激活 key；items 为 [{key, label}]。
+// 通过 v-model 双向绑定激活 key；items 为 [{key, label, count?}]，
+// count 为正整数时在标签右侧渲染圆形数量徽章（类似未读计数）。
 const props = defineProps({
-  items: { type: Array, default: () => [] }, // [{ key, label }]
+  items: { type: Array, default: () => [] }, // [{ key, label, count? }]
   modelValue: { type: String, default: '' }, // 当前激活的 key
 })
 
@@ -63,7 +64,7 @@ function onTabClick(key) {
       role="tab"
       :aria-selected="item.key === modelValue"
       @click="onTabClick(item.key)"
-    >{{ item.label }}</button>
+    >{{ item.label }}<span v-if="item.count" class="tabs-count" aria-hidden="true">{{ item.count > 99 ? '99+' : item.count }}</span></button>
     <span ref="indicatorRef" class="tabs-indicator" aria-hidden="true"></span>
   </nav>
 </template>
@@ -79,6 +80,9 @@ function onTabClick(key) {
 
 .tabs-item {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   padding: 10px 18px;
   border: none;
   background: transparent;
@@ -89,6 +93,23 @@ function onTabClick(key) {
   white-space: nowrap;
   cursor: pointer;
   transition: color 0.2s ease;
+}
+
+/* 圆形数量徽章（类似消息未读计数；金色实心 + 深色文字保证对比度） */
+.tabs-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #ebaa28;
+  color: #1c1917;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
 }
 
 .tabs-item:hover {

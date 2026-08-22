@@ -38,12 +38,18 @@ from data.main.database.user_database import (
     UserDatabaseError,
     UserInfoDatabase,
 )
+from data.main.database.wiki_database import (
+    ERROR_MESSAGES as WIKI_DB_ERROR_MESSAGES,
+    WikiDatabase,
+    WikiDatabaseError,
+)
 
 # 用户数据库实例：随服务启动连接、随服务关闭释放。
 user_db = UserDatabase()
 user_info_db = UserInfoDatabase()
 message_db = MessageDatabase()
 exam_db = ExamDatabase()
+wiki_db = WikiDatabase()
 
 # MCDR 插件通信的 WS 命令服务：仅监听环回地址，端口来自 config.json 的 ws_port。
 from ws_server import WsCommandServer  # noqa: E402
@@ -329,6 +335,7 @@ def _clear_failures(uid: int) -> None:
 # 汇总双语错误消息（数据库错误 + 后端错误）。
 ERROR_MESSAGES = {
     **USER_DB_ERROR_MESSAGES,
+    **WIKI_DB_ERROR_MESSAGES,
     "avatar_too_large": {
         "zh": "头像大小不能超过 2MB",
         "en": "Avatar must not exceed 2MB",
@@ -586,6 +593,21 @@ ERROR_STATUS: dict[str, int] = {
     "alt_accounts_full": 400,
     "premium_invalid": 400,
     "no_main_account": 400,
+    "wiki_page_not_found": 404,
+    "wiki_slug_invalid": 400,
+    "wiki_lang_invalid": 400,
+    "wiki_slug_exists": 409,
+    "wiki_content_empty": 400,
+    "wiki_content_too_large": 413,
+    "wiki_revision_conflict": 409,
+    "wiki_revision_not_found": 404,
+    "wiki_page_has_children": 409,
+    "wiki_permission_invalid": 400,
+    "wiki_upload_unsupported": 400,
+    "wiki_upload_too_large": 413,
+    "wiki_upload_not_found": 404,
+    "wiki_redirect_invalid": 400,
+    "wiki_redirect_not_found": 404,
 }
 
 # 未收录错误码时的兜底双语消息。
@@ -612,6 +634,7 @@ async def lifespan(app: FastAPI):
     user_info_db.connect()
     message_db.connect()
     exam_db.connect()
+    wiki_db.connect()
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -629,6 +652,7 @@ async def lifespan(app: FastAPI):
     user_info_db.close()
     message_db.close()
     exam_db.close()
+    wiki_db.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -651,6 +675,18 @@ async def user_not_active_error_handler(request: Request, exc: UserNotActiveErro
     """封禁 / 锁定账号的统一拒绝：403 + 结构化双语错误码（前端用 tips 提示）。"""
     return JSONResponse(
         status_code=ERROR_STATUS.get(exc.code, 403),
+        content={
+            "code": exc.code,
+            "message": ERROR_MESSAGES.get(exc.code, _DEFAULT_ERROR_MESSAGE),
+        },
+    )
+
+
+@app.exception_handler(WikiDatabaseError)
+async def wiki_database_error_handler(request: Request, exc: WikiDatabaseError):
+    """把数据层抛出的维基错误翻译成结构化 + 双语的响应。"""
+    return JSONResponse(
+        status_code=ERROR_STATUS.get(exc.code, 400),
         content={
             "code": exc.code,
             "message": ERROR_MESSAGES.get(exc.code, _DEFAULT_ERROR_MESSAGE),
@@ -939,9 +975,11 @@ from api.auth import router as auth_router
 from api.avatar import router as avatar_router
 from api.exam import router as exam_router
 from api.message import router as message_router
+from api.search import router as search_router
 from api.server import router as server_router
 from api.site import router as site_router
 from api.user import router as user_router
+from api.wiki import router as wiki_router
 
 app.include_router(site_router)
 app.include_router(auth_router)
@@ -950,3 +988,5 @@ app.include_router(avatar_router)
 app.include_router(message_router)
 app.include_router(exam_router)
 app.include_router(server_router)
+app.include_router(search_router)
+app.include_router(wiki_router)

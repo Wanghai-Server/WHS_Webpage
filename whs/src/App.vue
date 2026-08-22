@@ -3,6 +3,7 @@ import { watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import Tips from './components/tips.vue'
+import DialogBox from './components/dialog_box.vue'
 import { useAuth } from './composables/useAuth'
 import { useSiteConfig } from './composables/useSiteConfig'
 
@@ -60,4 +61,5 @@ watch([() => route.meta.titleKey, locale, () => siteConfig.value?.title_suffix],
 <template>
   <router-view />
   <Tips />
+  <DialogBox />
 </template>

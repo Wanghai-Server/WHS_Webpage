@@ -26,6 +26,11 @@ PASSWORD_PATTERN = re.compile(r"^[\x00-\x7f]+$")
 # 合法的 SQL 标识符（表名 / 列名）。
 _IDENTIFIER_PATTERN = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
+
+def _escape_like(text: str) -> str:
+    """转义 LIKE 通配符，使搜索词按字面匹配。"""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
 # 表结构：列名 -> 列定义（已修正为 SQLite 标准类型）。
 USER_TABLE_COLUMNS: dict[str, str] = {
     "uid": "INTEGER PRIMARY KEY AUTOINCREMENT",   # 自增且永不重复
@@ -497,6 +502,52 @@ class UserDatabase(BasicDatabase):
             f"SELECT username FROM {self.TABLE_NAME} ORDER BY uid"
         ).fetchall()
         return [row["username"] for row in rows]
+
+    # ------------------------------------------------------------------
+    # 全量搜索（用户部分）：username / uid / fullname / player_name / 小号名
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _parse_alt_list(raw) -> list[str]:
+        """解析 alt_accounts 的 JSON 文本为字符串列表；空/非法返回 []。"""
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw) if isinstance(raw, str) else raw
+        except (TypeError, ValueError):
+            return []
+        if not isinstance(data, list):
+            return []
+        return [str(x) for x in data]
+
+    def search_users(self, query: str, limit: int = 20) -> list[dict[str, Any]]:
+        """按 username / uid / fullname / player_name / 小号名搜索用户（仅公开字段）。
+
+        排序：精确 username → username 包含 → 精确 uid → player_name / fullname /
+        小号包含，再按 uid 升序。返回条目含 uid/username/fullname/player_name/alts。
+        """
+        q = (query or "").strip()
+        if not q:
+            return []
+        like = f"%{_escape_like(q)}%"
+        uid_exact = q if q.isdigit() else ""
+        rows = self._conn.execute(
+            f"SELECT u.uid, u.username, u.fullname, i.player_name, i.alt_accounts "
+            f"FROM users u LEFT JOIN user_info i ON i.uid = u.uid "
+            f"WHERE u.username LIKE ? ESCAPE '\\' OR u.fullname LIKE ? ESCAPE '\\' "
+            f"OR i.player_name LIKE ? ESCAPE '\\' OR i.alt_accounts LIKE ? ESCAPE '\\' "
+            f"OR CAST(u.uid AS TEXT) = ? "
+            f"ORDER BY (u.username = ?) DESC, (u.username LIKE ? ESCAPE '\\') DESC, "
+            f"(CAST(u.uid AS TEXT) = ?) DESC, u.uid LIMIT ?",
+            (like, like, like, like, uid_exact, q, like, uid_exact, limit),
+        ).fetchall()
+        results = []
+        for row in rows:
+            item = self._row_to_dict(row)
+            item["alts"] = self._parse_alt_list(item.get("alt_accounts"))
+            item.pop("alt_accounts", None)
+            results.append(item)
+        return results
 
 
 # 用户信息表结构：uid 与 users 表一致（非自增），其余字段可空（NULL 表示“不透露”）。

@@ -40,7 +40,7 @@ const visionIcons = [Zap, TrainFront, Boxes, Users]
 const governanceIcons = [Landmark, Vote, BookOpen, Scale]
 const featureIcons = [Boxes, TrainFront, Mountain, Map, Sparkles, Hammer]
 const ruleIcons = [Ban, Globe, Activity]
-const aboutIcons = [ShieldCheck, GraduationCap, Activity, Bell, Users, Globe]
+const aboutIcons = [ShieldCheck, GraduationCap, Activity, Bell, Users, Globe, BookOpen]
 
 // 团队成员角色
 const roleKeys = { owner: 'role_owner', co_owner: 'role_co_owner', admin: 'role_admin' }
@@ -659,6 +659,21 @@ onUnmounted(() => {
             <h3>{{ item.title }}</h3>
             <p>{{ item.desc }}</p>
           </div>
+        </div>
+      </div>
+
+      <!-- 官方维基说明条（与 GamesAI 说明条同款样式，带跳转按钮） -->
+      <div class="ai-callout reveal">
+        <div class="card-icon">
+          <BookOpen :size="24" />
+        </div>
+        <div class="ai-callout-body">
+          <h3>{{ t('pages.about.about.wikiTitle') }}</h3>
+          <p>{{ t('pages.about.about.wikiText') }}</p>
+          <RouterLink class="ai-link" to="/wiki">
+            {{ t('pages.about.about.wikiLink') }}
+            <ChevronRight :size="16" />
+          </RouterLink>
         </div>
       </div>
 

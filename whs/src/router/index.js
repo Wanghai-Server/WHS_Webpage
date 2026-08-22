@@ -23,14 +23,58 @@ const routes = [
   {
     path: '/wiki',
     name: 'Wiki',
-    component: () => import("../pages/wiki/index.vue"),
-    meta: { titleKey: 'pageTitle.wiki'}
+    component: () => import("../pages/wiki/layout.vue"),
+    meta: { titleKey: 'pageTitle.wiki'},
+    children: [
+      {
+        path: '',
+        name: 'WikiHome',
+        component: () => import("../pages/wiki/index.vue"),
+      },
+      {
+        path: 'page/:slug(.*)',
+        name: 'WikiPage',
+        component: () => import("../pages/wiki/page_view.vue"),
+      },
+      {
+        // 新建页面：静态段（edit/:slug(.*) 需要斜杠，/wiki/edit 匹配不到）
+        path: 'edit',
+        name: 'WikiEditNew',
+        component: () => import("../pages/wiki/page_editor.vue"),
+      },
+      {
+        path: 'edit/:slug(.*)',
+        name: 'WikiEdit',
+        component: () => import("../pages/wiki/page_editor.vue"),
+      },
+      {
+        path: 'history/:slug(.*)',
+        name: 'WikiHistory',
+        component: () => import("../pages/wiki/page_history.vue"),
+      },
+      {
+        path: 'search',
+        name: 'WikiSearch',
+        component: () => import("../pages/wiki/search.vue"),
+      },
+      // wiki 下的未知子路径：重定向回维基首页（父级已匹配，不会触发全局 301）
+      {
+        path: ':pathMatch(.*)*',
+        redirect: '/wiki',
+      },
+    ]
   },
   {
     path: '/login',
     name: 'Login',
     component: () => import("../pages/login.vue"),
     meta: { titleKey: 'pageTitle.login'}
+  },
+  {
+    path: '/search',
+    name: 'Search',
+    component: () => import("../pages/search.vue"),
+    meta: { titleKey: 'pageTitle.search'}
   },
   {
     path: '/user/:uid',
