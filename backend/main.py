@@ -10,6 +10,7 @@ import smtplib
 import sys
 import threading
 import time
+import traceback
 import urllib.parse
 import urllib.request
 from contextlib import asynccontextmanager
@@ -284,7 +285,12 @@ async def _verify_hcaptcha(response: str) -> bool:
 
 
 def _send_email(to: str, subject: str, body: str, locale: str = "zh") -> bool:
-    """通过 SMTP 发送邮件；失败返回 False（不抛异常，由调用方降级处理）。"""
+    """通过 SMTP 发送邮件；失败返回 False（不抛异常，由调用方降级处理）。
+
+    分阶段打印日志（连接/登录/发送），并在 except 中输出完整 traceback，
+    便于定位远程 SMTP 服务器在哪个阶段断开连接。
+    """
+    server = None
     try:
         smtp_public = read_whs_config().get("smtp", {})
         smtp_private = read_config().get("smtp", {})
@@ -305,14 +311,33 @@ def _send_email(to: str, subject: str, body: str, locale: str = "zh") -> bool:
         msg.set_content(body)
 
         server_cls = smtplib.SMTP_SSL if use_ssl else smtplib.SMTP
-        with server_cls(host, port, timeout=10) as server:
-            if username:
-                server.login(username, password)
-            server.send_message(msg)
+        print(f"[smtp] 连接 {host}:{port} (ssl={use_ssl}) ...", flush=True)
+        # 注意：若服务器在握手/横幅阶段就断开（如 IP 被策略拦截），
+        # 这里构造时即抛 SMTPServerDisconnected，登录尚未执行
+        server = server_cls(host, port, timeout=10)
+        print("[smtp] 连接成功（greeting 已读取）", flush=True)
+        if username:
+            print("[smtp] 登录中 ...", flush=True)
+            server.login(username, password)
+            print("[smtp] 登录成功", flush=True)
+        print(f"[smtp] 发送到 {to} ...", flush=True)
+        server.send_message(msg)
+        print("[smtp] 已发送", flush=True)
         return True
     except Exception as exc:
+        traceback.print_exc()
         print(f"[smtp] 发送失败: {type(exc).__name__}: {exc}", flush=True)
         return False
+    finally:
+        if server is not None:
+            try:
+                server.quit()
+            except Exception:
+                # 服务器可能已主动关闭连接（邮件其实已发出，QUIT 失败不算发送失败）
+                try:
+                    server.close()
+                except Exception:
+                    pass
 
 
 def _record_failure(uid: int, kind: str) -> bool:
