@@ -27,6 +27,7 @@ function renderTips(content) {
 // 附图上传：共享隐藏 file input，openUpload 记录目标对象（题目 / 选项 / tips），
 // 上传成功后：题目与选项写入目标的 image 字段；tips 模式把 Markdown 图片语法追加到说明末尾。
 const fileInputRef = ref(null)
+const docInputRef = ref(null)
 const uploadTarget = ref(null)
 const uploadingImg = ref(false)
 const uploadingDoc = ref(false)
