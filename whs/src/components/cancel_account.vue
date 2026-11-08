@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
@@ -24,6 +25,7 @@ const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
 // 验证项：邮箱验证码（发到当前登录邮箱）+ 旧密码 + 人机验证
 const code = ref('')
 const oldPassword = ref('')
+const showPassword = ref(false)
 const hcaptchaToken = ref('')
 const sendCooldown = ref(0)
 let cooldownTimer = null
@@ -195,9 +197,11 @@ onUnmounted(() => {
           <p class="hint">{{ t('settings.cancelHint') }}</p>
 
           <div class="field">
-            <label class="label">{{ t('auth.code') }}</label>
             <div class="code-row">
-              <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
+              <label class="float-field">
+                <input v-model="code" type="text" placeholder=" " autocomplete="one-time-code" />
+                <span class="float-label">{{ t('auth.code') }}</span>
+              </label>
               <button type="button" class="btn ghost" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
                 <span v-if="sendingCode" class="spinner"></span>
                 {{ sendCooldown > 0 ? `${sendCooldown}s` : t('settings.sendCode') }}
@@ -205,14 +209,27 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <div class="field">
-            <label class="label">{{ t('settings.currentPassword') }}</label>
-            <input
-              v-model="oldPassword"
-              type="password"
-              :placeholder="t('settings.currentPassword')"
-              autocomplete="current-password"
-            />
+          <div class="field pwd-field">
+            <label class="float-field">
+              <input
+                v-model="oldPassword"
+                :type="showPassword ? 'text' : 'password'"
+                placeholder=" "
+                autocomplete="current-password"
+              />
+              <span class="float-label">{{ t('settings.currentPassword') }}</span>
+            </label>
+            <button
+              type="button"
+              class="pwd-toggle"
+              :aria-label="showPassword ? t('auth.hide_password') : t('auth.show_password')"
+              :title="showPassword ? t('auth.hide_password') : t('auth.show_password')"
+              :aria-pressed="showPassword"
+              @click="showPassword = !showPassword"
+            >
+              <EyeOff v-if="showPassword" :size="18" />
+              <Eye v-else :size="18" />
+            </button>
           </div>
 
           <div class="h-captcha">
@@ -258,6 +275,8 @@ onUnmounted(() => {
 }
 
 .dialog {
+  /* 半透明毛玻璃对话框：浮动标签底色跟随对话框背景，避免白色补丁 */
+  --float-label-bg: var(--navbar-bg);
   width: min(420px, 100%);
   max-height: 90vh;
   overflow-y: auto;
@@ -285,42 +304,12 @@ onUnmounted(() => {
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   margin-bottom: 14px;
-}
-
-.label {
-  font-size: 14px;
-  color: var(--links-color);
-}
-
-.field input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  outline: none;
-  transition: border-color 0.2s ease;
-}
-
-.field input:focus {
-  border-color: var(--text-color);
 }
 
 .code-row {
   display: flex;
   gap: 10px;
-}
-
-.code-row input {
-  flex: 1;
-  min-width: 0;
 }
 
 .h-captcha {
@@ -339,6 +328,10 @@ onUnmounted(() => {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 10px 20px;
   border-radius: 12px;
   font: inherit;

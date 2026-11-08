@@ -3,6 +3,7 @@ import { ref, computed, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import ForgotPassword from './forgot_password.vue'
 import { useAuth } from '../composables/useAuth'
 import { sha256 } from '../composables/sha256'
@@ -24,6 +25,7 @@ const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
 const mode = ref('account')
 const identifier = ref('')
 const password = ref('')
+const showPassword = ref(false)
 const email = ref('')
 const code = ref('')
 const loading = ref(false)
@@ -182,25 +184,45 @@ onUnmounted(() => {
     <form class="form" novalidate @submit.prevent="submit">
       <!-- 账密登录 -->
       <template v-if="mode === 'account'">
-        <input
-          v-model="identifier"
-          type="text"
-          :placeholder="t('auth.identifier')"
-          autocomplete="username"
-        />
-        <input
-          v-model="password"
-          type="password"
-          :placeholder="t('auth.password')"
-          autocomplete="current-password"
-        />
+        <label class="float-field">
+          <input v-model="identifier" type="text" placeholder=" " autocomplete="username" />
+          <span class="float-label">{{ t('auth.identifier') }}</span>
+        </label>
+        <div class="pwd-field">
+          <label class="float-field">
+            <input
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder=" "
+              autocomplete="current-password"
+            />
+            <span class="float-label">{{ t('auth.password') }}</span>
+          </label>
+          <button
+            type="button"
+            class="pwd-toggle"
+            :aria-label="showPassword ? t('auth.hide_password') : t('auth.show_password')"
+            :title="showPassword ? t('auth.hide_password') : t('auth.show_password')"
+            :aria-pressed="showPassword"
+            @click="showPassword = !showPassword"
+          >
+            <EyeOff v-if="showPassword" :size="18" />
+            <Eye v-else :size="18" />
+          </button>
+        </div>
       </template>
 
       <!-- 邮箱验证码登录 -->
       <template v-else>
-        <input v-model="email" type="email" :placeholder="t('auth.email')" autocomplete="email" />
+        <label class="float-field">
+          <input v-model="email" type="email" placeholder=" " autocomplete="email" />
+          <span class="float-label">{{ t('auth.email') }}</span>
+        </label>
         <div class="code-row">
-          <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
+          <label class="float-field">
+            <input v-model="code" type="text" placeholder=" " autocomplete="one-time-code" />
+            <span class="float-label">{{ t('auth.code') }}</span>
+          </label>
           <button type="button" class="send-code" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
             <span v-if="sendingCode" class="spinner"></span>
             {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
@@ -293,33 +315,16 @@ onUnmounted(() => {
   gap: 14px;
 }
 
-.form input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  outline: none;
-  transition: border-color 0.2s ease;
-}
-
-.form input:focus {
-  border-color: var(--text-color);
-}
-
 .code-row {
   display: flex;
   gap: 10px;
 }
 
-.code-row input {
-  flex: 1;
-}
-
 .send-code {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   flex-shrink: 0;
   padding: 0 16px;
   border-radius: 12px;
@@ -341,6 +346,10 @@ onUnmounted(() => {
 }
 
 .submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 12px;
   border-radius: 12px;
   border: none;

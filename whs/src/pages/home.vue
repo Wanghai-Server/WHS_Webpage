@@ -102,7 +102,7 @@ onUnmounted(() => {
     <!-- 注册弹窗：复用 register.vue 并注入 email -->
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="showRegister" class="modal-overlay" @click.self="showRegister = false">
+        <div v-if="showRegister" class="modal-overlay">
           <div class="modal">
             <RegisterForm :prefill="{ email }" @switch-login="goLogin" />
           </div>

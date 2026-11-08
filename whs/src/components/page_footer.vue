@@ -68,6 +68,10 @@ onMounted(() => {
               <RouterLink to="/about">{{ t('nav.about') }}</RouterLink>
               <!-- 附属内容（暂无） -->
             </li>
+            <li>
+              <RouterLink to="/feedback">{{ t('nav.feedback') }}</RouterLink>
+              <!-- 附属内容（暂无） -->
+            </li>
           </ul>
         </div>
 

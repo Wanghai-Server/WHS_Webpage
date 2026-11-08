@@ -29,9 +29,10 @@ watch([() => siteConfig.value?.title_suffix, lang], () => {
 }, { immediate: true })
 
 const query = ref(String(route.query.q || ''))
-const tab = ref('wiki') // 'wiki' | 'users'
+const tab = ref('wiki') // 'wiki' | 'users' | 'feedback'
 const wikiResults = ref([])
 const usersResults = ref([])
+const feedbackResults = ref([])
 const loading = ref(false)
 const searched = ref(false)
 let timer = null
@@ -42,6 +43,7 @@ async function runSearch() {
   if (!q) {
     wikiResults.value = []
     usersResults.value = []
+    feedbackResults.value = []
     searched.value = false
     return
   }
@@ -53,11 +55,13 @@ async function runSearch() {
     if (current !== seq) return
     wikiResults.value = (data && data.wiki) || []
     usersResults.value = (data && data.users) || []
+    feedbackResults.value = (data && data.feedback) || []
     searched.value = true
   } catch {
     if (current !== seq) return
     wikiResults.value = []
     usersResults.value = []
+    feedbackResults.value = []
     searched.value = true
   } finally {
     if (current === seq) loading.value = false
@@ -105,11 +109,22 @@ function formatTime(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function feedbackStatusLabel(status) {
+  const key = `feedback.status${status.charAt(0).toUpperCase()}${status.slice(1)}`
+  return t(key)
+}
+
+function feedbackCategoryLabel(category) {
+  const key = `feedback.category${category.charAt(0).toUpperCase()}${category.slice(1)}`
+  return t(key)
+}
+
 // Tabs（与 user 页同款：金色下滑线 + 平滑滑动）：Wiki | 用户，
 // 结果数作为圆形徽章（count）显示在标签右侧
 const tabItems = computed(() => [
   { key: 'wiki', label: t('search.wikiTab'), count: wikiResults.value.length || 0 },
   { key: 'users', label: t('search.usersTab'), count: usersResults.value.length || 0 },
+  { key: 'feedback', label: t('search.feedbackTab'), count: feedbackResults.value.length || 0 },
 ])
 
 // "搜索Wiki"按钮：跳转专注搜索
@@ -158,7 +173,7 @@ function goWikiSearch() {
       <div v-if="loading" class="search-state">
         <span class="spinner"></span>
       </div>
-      <p v-else-if="searched && !wikiResults.length && !usersResults.length" class="search-state">
+      <p v-else-if="searched && !wikiResults.length && !usersResults.length && !feedbackResults.length" class="search-state">
         {{ t('search.noResults') }}
       </p>
 
@@ -181,7 +196,7 @@ function goWikiSearch() {
       </template>
 
       <!-- 用户结果 -->
-      <template v-else>
+      <template v-else-if="tab === 'users'">
         <p v-if="usersResults.length" class="result-group">{{ t('search.usersLabel') }}</p>
         <ul v-if="usersResults.length" class="user-list">
           <li v-for="user in usersResults" :key="user.uid" class="user-item">
@@ -208,6 +223,28 @@ function goWikiSearch() {
         </ul>
         <p v-else-if="searched" class="search-state">{{ t('search.noResults') }}</p>
       </template>
+
+      <!-- 反馈结果 -->
+      <template v-else>
+        <p v-if="feedbackResults.length" class="result-group">{{ t('search.feedbackLabel') }}</p>
+        <ul v-if="feedbackResults.length" class="result-list">
+          <li v-for="item in feedbackResults" :key="item.id" class="result-item">
+            <RouterLink :to="`/feedback/${item.id}`" class="result-link">
+              <span class="feedback-head">
+                <span class="result-title">{{ item.title }}</span>
+                <span class="feedback-status" :class="`is-${item.status}`">{{ feedbackStatusLabel(item.status) }}</span>
+              </span>
+              <span v-if="item.snippet" class="result-snippet">{{ item.snippet }}</span>
+              <span class="result-meta">
+                <span class="feedback-cat">{{ feedbackCategoryLabel(item.category) }}</span>
+                <span v-if="item.author_name" class="feedback-author">{{ item.author_name }}</span>
+                <time>{{ formatTime(item.updated_at) }}</time>
+              </span>
+            </RouterLink>
+          </li>
+        </ul>
+        <p v-else-if="searched" class="search-state">{{ t('feedback.noResults') }}</p>
+      </template>
     </main>
 
     <Page_footer />
@@ -229,6 +266,8 @@ function goWikiSearch() {
   /* 底部留白：与底部导航栏之间保持空隙（同 wiki 布局 48px） */
   padding: 0 16px 48px;
   flex: 1;
+  /* 关键：宽度包含左右内边距，避免手机端 100% + padding 溢出屏幕 */
+  box-sizing: border-box;
 }
 
 .search-title {
@@ -482,5 +521,48 @@ function goWikiSearch() {
   color: var(--text-color);
   font-size: 12px;
   line-height: 20px;
+}
+/* 反馈结果 */
+.feedback-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.feedback-status {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.feedback-status.is-pending {
+  background: rgba(235, 170, 40, 0.16);
+  color: #d99a1f;
+}
+
+.feedback-status.is-resolved {
+  background: rgba(34, 197, 94, 0.15);
+  color: #16a34a;
+}
+
+.feedback-status.is-closed {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--links-color);
+}
+
+.feedback-cat {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: var(--float-bg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.feedback-author {
+  font-size: 12.5px;
+  color: var(--links-color);
 }
 </style>

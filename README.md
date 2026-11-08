@@ -1,6 +1,6 @@
 # WHS Webpage
 
-望海服务器（WangHai Server）官方网站。Vue 3 单页前端 + FastAPI 后端 + SQLite，内置完整用户系统（注册 / 登录 / 资料 / 头像 / 关注 / 消息 / 入服考试 / 管理端）与自研现代化维基，并通过本机 WebSocket 与 Minecraft 服务器的 MCDR 插件双向通信（在线名单、TPS、白名单）。
+望海服务器（WangHai Server）官方网站。Vue 3 单页前端 + FastAPI 后端 + SQLite，内置完整用户系统（注册 / 登录 / 资料 / 头像 / 关注 / 消息 / 入服考试 / 反馈中心 / 管理端）与自研现代化维基，并通过本机 WebSocket 与 Minecraft 服务器的 MCDR 插件双向通信（在线名单、TPS、白名单）。
 
 - 中英文双语切换（vue-i18n + 维基内容按语言实时请求后端）
 - 深色 / 浅色主题，响应式布局
@@ -16,7 +16,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 83 条）
+6. HTTP API（共 90 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -34,7 +34,7 @@
 浏览器（Vue 3 SPA）
    │  静态资源：Vite dev/preview 或生产环境 nginx/Caddy 托管 whs/dist
    │  HTTP /api/* ──(dev/preview 代理 或 反向代理)──▶ FastAPI（uvicorn 127.0.0.1:8000）
-   │                                                  ├─ 5 个数据库单例 → data/database/*.db（sqlite3，无 ORM）
+   │                                                  ├─ 6 个数据库单例 → data/database/*.db（sqlite3，无 ORM）
    │                                                  ├─ 上传目录 data/{avatar,exam_image,exam_upload,wiki_upload}
    │                                                  ├─ WsCommandServer（127.0.0.1:<ws_port>，默认 8765）
    │                                                  │    ⇅ JSON：{request_id, command|success, data}
@@ -57,7 +57,9 @@
 - 中英文双语：界面文案走 vue-i18n（`whs/src/locales/{zh,en}.json`），首次按浏览器语言选择并持久化到 localStorage。
 - 深色 / 浅色主题：CSS 变量实现，支持跟随系统偏好，选择结果持久化。
 - 响应式布局，桌面 / 移动端适配。
-- 顶部导航（返回按钮、自定义导航、全局搜索、消息盒子、头像菜单）、底部页脚（语言 / 主题切换）。
+- 顶部导航（自定义导航、全局搜索、消息盒子、头像菜单；手机端以「搜索按钮 + 用户头像」替代桌面导航）、底部页脚（语言 / 主题切换）。
+- 手机端导航搜索按钮直接跳转 `/search` 全量搜索页（桌面端仍为滑入式搜索小面板）；导航栏各元素带依次淡入下滑入场动效。
+- 手机端（≤768px）所有对话框统一为底部弹层：贴底、全宽、顶部 20px 圆角、最高占屏高 80%、内部滚动，并从底部滑入 / 滑出；桌面端保持居中弹窗不变。
 - 非法路由（不存在的站内路径）按 `whs_config.json` 的 `301` 配置统一跳转（站内路径或外链）。
 
 ### 用户系统
@@ -68,7 +70,8 @@
 - 登录态：HMAC-SHA256 自签 token（JWT 风格，无第三方依赖），`Authorization: Bearer <token>`，有效期 7 天。
 - 账号状态：`banned`（封禁）/ `locked`（锁定）由统一依赖拦截，受保护接口一律 403。
 - 用户主页：昵称 / 生日 / 性别 / Markdown 简介 / 头像；关注与粉丝列表；UID 复制。
-- 账号设置：改资料、改头像、改邮箱（验证码）、改密码（旧密码 + 验证码）、找回密码、注销账号。
+- 账号设置：改资料、改头像、改邮箱（验证码）、改密码（旧密码 + 验证码）、找回密码、退出登录、注销账号。
+- 密码可见性：登录 / 注册 / 找回密码 / 修改密码 / 注销账号的密码框右侧带眼睛按钮，可切换明文 / 密文；注册等多密码框表单共用一个按钮同时控制。
 - 游戏账户：绑定主账号与最多 2 个小号，记录正版 / 离线标记，支持修改主账号正版状态；添加小号自动加入游戏白名单。
 - 权限等级：`0=guest / 1=user / 2=player / 3=admin / 4=owner`；注册默认 1，入服考试及格自动升到 2。
 
@@ -101,8 +104,18 @@
 
 ### 全站搜索
 
-- 顶部导航搜索：防抖实时建议，Wiki 页面与用户分组展示；标题 / 用户名 / 玩家名 / UID 完全相等时直接打开对应页面。
-- `/search` 全量搜索页：一次请求同时检索 Wiki（FTS5 + 摘要）与用户（用户名 / uid / 玩家名 / 昵称 / 小号名）。
+- 顶部导航搜索（桌面端）：滑入式小面板，防抖实时建议，Wiki 页面与用户分组展示；标题 / 用户名 / 玩家名 / UID 完全相等时直接打开对应页面。手机端导航搜索按钮直接进入 `/search`。
+- `/search` 全量搜索页：一次请求同时检索 Wiki（FTS5 + 摘要）、用户（用户名 / uid / 玩家名 / 昵称 / 小号名）与反馈（标题 / 正文 + 命中摘要）；结果按「Wiki / 用户 / 反馈」标签页分组展示。
+
+### 反馈中心
+
+- 公开浏览：`/feedback` 列表（分页、状态筛选、关键词搜索）与 `/feedback/:id` 详情页；列表/详情无需登录。
+- 提交与评论需登录：标题 + 分类（问题 / 建议 / 其他）+ Markdown 正文，支持编辑预览；详情页评论区支持 Markdown，登录用户可跟帖。
+- 状态流转：`pending`（待处理）/ `resolved`（已处理）/ `closed`（已关闭）；管理员可在详情页或管理端修改状态。
+- 权限：作者可编辑 / 删除自己的反馈；管理员（permission ≥ 3）可删除任意反馈、修改状态。
+- 管理端：用户页「管理员」→「反馈管理」，列表支持状态筛选、分页、查看、改状态、删除（带确认框）。
+- 入口：底部页脚「快速链接 → 反馈」；顶部导航不放入口。
+- 存储：`feedback` + `feedback_comments` 两张 SQLite 表（`data/database/feedback.db`）。
 
 ### 服务器状态
 
@@ -151,7 +164,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 83 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 90 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -159,8 +172,9 @@ WHS_Webpage/
 │   │   ├── avatar.py                # 头像上传与读取
 │   │   ├── message.py               # 系统消息 / 定向消息 / 已读 / 消息管理
 │   │   ├── exam.py                  # 入服考试（考生端 + 管理端）
+│   │   ├── feedback.py              # 反馈中心（列表 / 详情 / 提交 / 编辑 / 删除 / 评论 / 状态）
 │   │   ├── server.py                # 服务器实时状态
-│   │   ├── search.py                # 全站搜索（Wiki + 用户）
+│   │   ├── search.py                # 全站搜索（Wiki + 用户 + 反馈）
 │   │   └── wiki.py                  # 维基（页面 / 修订 / 重定向 / 消歧义 / 媒体）
 │   └── venv/                        # Python 虚拟环境（不入库）
 │
@@ -176,12 +190,14 @@ WHS_Webpage/
 │   │       ├── user_database.py     # users / user_info 表 + 迁移 + 游戏账户
 │   │       ├── message_database.py  # messages 表
 │   │       ├── exam_database.py     # exam_answers / exam_profiles 表
-│   │       └── wiki_database.py     # pages / revisions / redirects / FTS5 + 消歧义构建
+│   │       ├── wiki_database.py     # pages / revisions / redirects / FTS5 + 消歧义构建
+│   │       └── feedback_database.py # feedback / feedback_comments 表 + 分页/搜索
 │   ├── database/                    # SQLite 运行时文件（不入库）
 │   │   ├── basic_user_data.db
 │   │   ├── basic_message_data.db
 │   │   ├── exam_data.db
-│   │   └── wiki.db
+│   │   ├── wiki.db
+│   │   └── feedback.db
 │   ├── avatar/                      # 头像文件（不入库）
 │   ├── exam_image/                  # 试卷附图 / 说明文档（不入库）
 │   ├── exam_upload/                 # 答题附件（不入库）
@@ -211,16 +227,18 @@ WHS_Webpage/
 │       │   ├── sha256.js            # 前端密码哈希
 │       │   ├── clipboard.js
 │       │   └── wiki/{api,locale,markdown}.js  # 维基 API 封装 / 语言状态 / Markdown 管线
-│       ├── components/              # 33 个可复用组件
-│       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box
+│       ├── components/              # 35 个可复用组件
+│       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
+│       │   ├── 反馈：feedback_editor
 │       │   ├── 考试：exam_question / exam_editor / doc_viewer
 │       │   ├── 维基：wiki_markdown / wiki_outline / wiki_outline_node / wiki_search / wiki_page_404
 │       │   └── 管理：admin_settings / admin_user_panel / joinus_tips
-│       └── pages/                   # 14 个页面
+│       └── pages/                   # 16 个页面
 │           ├── home.vue / about.vue / login.vue / user.vue / search.vue / joinus.vue / exam.vue
 │           ├── forum/index.vue      # 论坛（静态占位）
+│           ├── feedback/            # 反馈中心：index（列表） / detail（详情）
 │           └── wiki/                # index / layout / page_view / page_editor / page_history / search
 │
 ├── mcdr_connecter_plugin/           # MCDR 插件（mcdr2web）
@@ -347,7 +365,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 83 条）
+## 6. HTTP API（共 90 条）
 
 ### 6.1 约定
 
@@ -483,9 +501,21 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/api/search` | 公开 | 全站搜索 `?q=&lang=`：`{wiki: [...], users: [...]}`（各 20 条） |
+| GET | `/api/search` | 公开 | 全站搜索 `?q=&lang=`：`{wiki: [...], users: [...], feedback: [...]}`（各 20 条） |
 
-### 6.10 维基（16 条）
+### 6.10 反馈（7 条）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/feedback` | 公开 | 反馈列表 `?page=&page_size=&status=&category=&q=`；返回 `{total, page, page_size, items}`，每项含作者名、摘要、评论数 |
+| GET | `/api/feedback/{feedback_id}` | 可选 | 反馈详情：`{feedback, comments, viewer}`；`viewer` 含 `logged_in / can_edit / can_delete / can_moderate` |
+| POST | `/api/feedback` | 登录 | 提交反馈 `{title, content, category}`；`category` ∈ `bug / suggestion / other`，状态默认 `pending` |
+| PUT | `/api/feedback/{feedback_id}` | 仅作者 | 编辑反馈 `{title, content, category}` |
+| DELETE | `/api/feedback/{feedback_id}` | 作者或 ≥3 | 删除反馈（应用层级联删除评论） |
+| POST | `/api/feedback/{feedback_id}/comments` | 登录 | 发表评论 `{content}`（Markdown） |
+| PUT | `/api/admin/feedback/{feedback_id}/status` | ≥3 | 修改状态 `{status}`；`status` ∈ `pending / resolved / closed` |
+
+### 6.11 维基（16 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
@@ -569,6 +599,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | `data/database/basic_message_data.db` | `messages` |
 | `data/database/exam_data.db` | `exam_answers` + `exam_profiles` |
 | `data/database/wiki.db` | `pages` + `revisions` + `redirects` + `wiki_fts`（FTS5 虚表） |
+| `data/database/feedback.db` | `feedback` + `feedback_comments` |
 
 - 路径统一锚定到 `data/database/`（与启动时的工作目录无关）。
 - 每个库一个进程级连接；`check_same_thread=False` + 连接级 `RLock` 串行化访问，`cached_statements=0`。
@@ -641,6 +672,27 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | `passed` | 是否通过 |
 | `review_requested` | 本轮是否已申请重审 |
 | `updated_at` | 更新时间 |
+
+**`feedback`**
+
+| 列 | 说明 |
+|----|------|
+| `id` | 主键 |
+| `title` / `content` | 标题 / Markdown 正文 |
+| `category` | `bug` / `suggestion` / `other` |
+| `status` | `pending` / `resolved` / `closed` |
+| `author_uid` | 提交者 uid |
+| `created_at` / `updated_at` | 创建 / 最近编辑时间 |
+
+**`feedback_comments`**
+
+| 列 | 说明 |
+|----|------|
+| `id` | 主键 |
+| `feedback_id` | → `feedback.id`（删反馈时由应用层级联删除） |
+| `author_uid` | 评论者 uid |
+| `content` | Markdown 评论正文 |
+| `created_at` | 评论时间 |
 
 **`pages`**
 

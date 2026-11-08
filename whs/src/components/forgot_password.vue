@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
+import { Eye, EyeOff } from 'lucide-vue-next'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { sha256 } from '../composables/sha256'
@@ -25,6 +26,8 @@ let cooldownTimer = null
 // 第二页：新密码
 const newPassword = ref('')
 const confirmPassword = ref('')
+// 新密码 + 确认密码共用一个显示/隐藏按钮（按钮在“确认密码”框内）
+const showPasswords = ref(false)
 
 const step = ref('verify') // 'verify' | 'new'
 const loading = ref(false)
@@ -196,14 +199,18 @@ onUnmounted(() => {
           <p class="hint">{{ t('settings.verifyHint') }}</p>
 
           <div class="field">
-            <label class="label">{{ t('settings.email') }}</label>
-            <input v-model="email" type="email" :placeholder="t('auth.email')" autocomplete="email" />
+            <label class="float-field">
+              <input v-model="email" type="email" placeholder=" " autocomplete="email" />
+              <span class="float-label">{{ t('settings.email') }}</span>
+            </label>
           </div>
 
           <div class="field">
-            <label class="label">{{ t('auth.code') }}</label>
             <div class="code-row">
-              <input v-model="code" type="text" :placeholder="t('auth.code')" autocomplete="one-time-code" />
+              <label class="float-field">
+                <input v-model="code" type="text" placeholder=" " autocomplete="one-time-code" />
+                <span class="float-label">{{ t('auth.code') }}</span>
+              </label>
               <button type="button" class="btn ghost" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
                 <span v-if="sendingCode" class="spinner"></span>
                 {{ sendCooldown > 0 ? `${sendCooldown}s` : t('settings.sendCode') }}
@@ -237,23 +244,38 @@ onUnmounted(() => {
           <h3 class="title">{{ t('settings.passwordSection') }}</h3>
 
           <div class="field">
-            <label class="label">{{ t('settings.newPassword') }}</label>
-            <input
-              v-model="newPassword"
-              type="password"
-              :placeholder="t('settings.newPassword')"
-              autocomplete="new-password"
-            />
+            <label class="float-field">
+              <input
+                v-model="newPassword"
+                :type="showPasswords ? 'text' : 'password'"
+                placeholder=" "
+                autocomplete="new-password"
+              />
+              <span class="float-label">{{ t('settings.newPassword') }}</span>
+            </label>
           </div>
 
-          <div class="field">
-            <label class="label">{{ t('settings.confirmPassword') }}</label>
-            <input
-              v-model="confirmPassword"
-              type="password"
-              :placeholder="t('settings.confirmPassword')"
-              autocomplete="new-password"
-            />
+          <div class="field pwd-field">
+            <label class="float-field">
+              <input
+                v-model="confirmPassword"
+                :type="showPasswords ? 'text' : 'password'"
+                placeholder=" "
+                autocomplete="new-password"
+              />
+              <span class="float-label">{{ t('settings.confirmPassword') }}</span>
+            </label>
+            <button
+              type="button"
+              class="pwd-toggle"
+              :aria-label="showPasswords ? t('auth.hide_password') : t('auth.show_password')"
+              :title="showPasswords ? t('auth.hide_password') : t('auth.show_password')"
+              :aria-pressed="showPasswords"
+              @click="showPasswords = !showPasswords"
+            >
+              <EyeOff v-if="showPasswords" :size="18" />
+              <Eye v-else :size="18" />
+            </button>
           </div>
 
           <div class="actions">
@@ -285,6 +307,8 @@ onUnmounted(() => {
 }
 
 .dialog {
+  /* 半透明毛玻璃对话框：浮动标签底色跟随对话框背景，避免白色补丁 */
+  --float-label-bg: var(--navbar-bg);
   width: min(420px, 100%);
   max-height: 90vh;
   overflow-y: auto;
@@ -311,42 +335,12 @@ onUnmounted(() => {
 }
 
 .field {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   margin-bottom: 14px;
-}
-
-.label {
-  font-size: 14px;
-  color: var(--links-color);
-}
-
-.field input {
-  width: 100%;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  outline: none;
-  transition: border-color 0.2s ease;
-}
-
-.field input:focus {
-  border-color: var(--text-color);
 }
 
 .code-row {
   display: flex;
   gap: 10px;
-}
-
-.code-row input {
-  flex: 1;
-  min-width: 0;
 }
 
 .h-captcha {
@@ -365,6 +359,10 @@ onUnmounted(() => {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 10px 20px;
   border-radius: 12px;
   font: inherit;

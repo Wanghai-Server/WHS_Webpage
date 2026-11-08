@@ -15,12 +15,15 @@ import {
   ChevronLeft,
   ChevronRight,
   UserRound,
+  MessageSquare,
   X,
 } from 'lucide-vue-next'
 import ExamQuestion from './exam_question.vue'
 import ExamEditor from './exam_editor.vue'
+import StatusDropdown from './status_dropdown.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
+import { useDialogBox } from '../composables/useDialogBox'
 import { copyText } from '../composables/clipboard'
 
 const props = defineProps({
@@ -31,12 +34,14 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const { state: authState } = useAuth()
 const { showTip } = useTips()
+const dialogBox = useDialogBox()
 
 // 悬浮框开关
 const showUserPanel = ref(false)
 const showExamPanel = ref(false)
 const showExamConfigPanel = ref(false)
 const showAnswerSheet = ref(false)
+const showFeedbackPanel = ref(false)
 
 // ------------------------------------------------------------------
 // 用户管理（原表格逻辑迁入悬浮框）
@@ -344,10 +349,154 @@ function onSheetScoreSaved(payload) {
   }
 }
 
-// ESC：依次关闭答题卡 / 试卷管理 / 考试管理 / 用户管理
+// ------------------------------------------------------------------
+// 反馈管理
+// ------------------------------------------------------------------
+const feedbackItems = ref([])
+const feedbackTotal = ref(0)
+const feedbackPage = ref(1)
+const feedbackPageSize = 10
+const feedbackStatusFilter = ref('')
+const feedbackLoading = ref(false)
+const feedbackBusyId = ref(null)
+const feedbackTotalPages = computed(() =>
+  Math.max(1, Math.ceil(feedbackTotal.value / feedbackPageSize))
+)
+
+const FEEDBACK_STATUSES = ['pending', 'resolved', 'closed']
+
+const feedbackStatusOptions = computed(() => [
+  { value: '', label: t('admin.feedbackStatusAll') },
+  ...FEEDBACK_STATUSES.map((s) => ({ value: s, label: feedbackStatusLabel(s) })),
+])
+
+const feedbackRowStatusOptions = computed(() =>
+  FEEDBACK_STATUSES.map((s) => ({ value: s, label: feedbackStatusLabel(s) }))
+)
+
+function feedbackCategoryLabel(category) {
+  const key = `feedback.category${category.charAt(0).toUpperCase()}${category.slice(1)}`
+  return t(key)
+}
+
+function feedbackStatusLabel(status) {
+  const key = `feedback.status${status.charAt(0).toUpperCase()}${status.slice(1)}`
+  return t(key)
+}
+
+function formatTime(iso) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+async function fetchFeedbacks() {
+  feedbackLoading.value = true
+  try {
+    const params = new URLSearchParams({
+      page: String(feedbackPage.value),
+      page_size: String(feedbackPageSize),
+      status: feedbackStatusFilter.value,
+    })
+    const res = await fetch(`/api/feedback?${params.toString()}`)
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      feedbackItems.value = data.items || []
+      feedbackTotal.value = data.total || 0
+      if (feedbackPage.value > feedbackTotalPages.value && feedbackTotalPages.value >= 1) {
+        feedbackPage.value = feedbackTotalPages.value
+        await fetchFeedbacks()
+      }
+    } else {
+      feedbackItems.value = []
+      feedbackTotal.value = 0
+    }
+  } catch (e) {
+    feedbackItems.value = []
+    feedbackTotal.value = 0
+    console.warn(e)
+  } finally {
+    feedbackLoading.value = false
+  }
+}
+
+function openFeedbackPanel() {
+  showFeedbackPanel.value = true
+  fetchFeedbacks()
+}
+
+function onFeedbackFilterChange() {
+  feedbackPage.value = 1
+  fetchFeedbacks()
+}
+
+function feedbackGoPage(target) {
+  const next = Math.min(Math.max(1, target), feedbackTotalPages.value)
+  if (next === feedbackPage.value) return
+  feedbackPage.value = next
+  fetchFeedbacks()
+}
+
+async function changeFeedbackStatus(item, status) {
+  if (feedbackBusyId.value !== null) return
+  feedbackBusyId.value = item.id
+  try {
+    const res = await fetch(`/api/admin/feedback/${item.id}/status`, {
+      method: 'PUT',
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
+      body: JSON.stringify({ status }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      item.status = status
+      showTip('info', t('admin.feedbackStatusUpdated'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
+  } finally {
+    feedbackBusyId.value = null
+  }
+}
+
+async function deleteFeedbackItem(item) {
+  const ok = await dialogBox.confirm({
+    title: t('feedback.deleteConfirmTitle'),
+    message: t('admin.feedbackDeleteConfirm'),
+    danger: true,
+  })
+  if (!ok) return
+  try {
+    const res = await fetch(`/api/feedback/${item.id}`, {
+      method: 'DELETE',
+      headers: authHeaders(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      showTip('info', t('admin.feedbackDeleteSuccess'))
+      fetchFeedbacks()
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
+  }
+}
+
+function viewFeedback(item) {
+  router.push(`/feedback/${item.id}`)
+}
+
+// ESC：依次关闭答题卡 / 反馈管理 / 试卷管理 / 考试管理 / 用户管理
 function handleKeydown(e) {
   if (e.key !== 'Escape') return
   if (showAnswerSheet.value) showAnswerSheet.value = false
+  else if (showFeedbackPanel.value) showFeedbackPanel.value = false
   else if (showExamConfigPanel.value) showExamConfigPanel.value = false
   else if (showExamPanel.value) showExamPanel.value = false
   else if (showUserPanel.value) showUserPanel.value = false
@@ -379,7 +528,7 @@ onUnmounted(() => {
 
 <template>
   <section class="admin-settings">
-    <!-- 三个管理入口 -->
+    <!-- 四个管理入口 -->
     <div class="entry-row load-in">
       <button type="button" class="entry-card" @click="openUserPanel">
         <Users :size="26" />
@@ -395,6 +544,11 @@ onUnmounted(() => {
         <BookOpen :size="26" />
         <span class="entry-title">{{ t('admin.examConfigEntry') }}</span>
         <span class="entry-desc">{{ t('admin.examConfigEntryDesc') }}</span>
+      </button>
+      <button type="button" class="entry-card" @click="openFeedbackPanel">
+        <MessageSquare :size="26" />
+        <span class="entry-title">{{ t('admin.feedbackEntry') }}</span>
+        <span class="entry-desc">{{ t('admin.feedbackEntryDesc') }}</span>
       </button>
     </div>
 
@@ -619,6 +773,94 @@ onUnmounted(() => {
             </header>
             <div class="panel-body">
               <ExamEditor />
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 反馈管理悬浮框 -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showFeedbackPanel" class="panel-overlay" @click.self="showFeedbackPanel = false">
+          <div class="panel">
+            <header class="panel-head">
+              <h2 class="panel-title">{{ t('admin.feedbackEntry') }}</h2>
+              <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showFeedbackPanel = false">
+                <X :size="18" />
+              </button>
+            </header>
+
+            <div class="panel-body">
+              <div class="fb-filter-row">
+                <StatusDropdown
+                  v-model="feedbackStatusFilter"
+                  :options="feedbackStatusOptions"
+                  :aria-label="t('feedback.filterStatus')"
+                  @update:model-value="onFeedbackFilterChange"
+                />
+              </div>
+
+              <div v-if="feedbackLoading" class="table-empty"><span class="spinner"></span>{{ t('admin.loading') }}</div>
+              <div v-else-if="!feedbackItems.length" class="table-empty">{{ t('admin.feedbackEmpty') }}</div>
+              <template v-else>
+                <div class="table-scroll">
+                  <table class="user-table">
+                    <thead>
+                      <tr>
+                        <th>{{ t('feedback.titleLabel') }}</th>
+                        <th>{{ t('feedback.author') }}</th>
+                        <th>{{ t('feedback.statusLabel') }}</th>
+                        <th>{{ t('feedback.updatedAt') }}</th>
+                        <th class="th-actions">{{ t('admin.actions') }}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr v-for="item in feedbackItems" :key="item.id">
+                        <td>
+                          <div class="fb-title-cell">
+                            <button type="button" class="fb-feedback-title" :title="item.title" @click="viewFeedback(item)">
+                              {{ item.title }}
+                            </button>
+                            <span class="fb-cat-chip">{{ feedbackCategoryLabel(item.category) }}</span>
+                          </div>
+                        </td>
+                        <td class="fb-feedback-author">{{ item.author_name || t('feedback.anonymous') }}</td>
+                        <td>
+                          <StatusDropdown
+                            :model-value="item.status"
+                            :options="feedbackRowStatusOptions"
+                            variant="chip"
+                            :disabled="feedbackBusyId === item.id"
+                            :aria-label="t('feedback.statusLabel')"
+                            @update:model-value="(status) => changeFeedbackStatus(item, status)"
+                          />
+                        </td>
+                        <td class="fb-feedback-time">{{ formatTime(item.updated_at) }}</td>
+                        <td>
+                          <div class="row-actions">
+                            <button class="icon-btn" :title="t('admin.feedbackView')" :aria-label="t('admin.feedbackView')" @click="viewFeedback(item)">
+                              <Eye :size="18" />
+                            </button>
+                            <button class="icon-btn danger" :title="t('admin.feedbackDelete')" :aria-label="t('admin.feedbackDelete')" @click="deleteFeedbackItem(item)">
+                              <Trash2 :size="18" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <div class="pagination">
+                  <button class="page-btn" :disabled="feedbackPage <= 1 || feedbackLoading" @click="feedbackGoPage(feedbackPage - 1)">
+                    <ChevronLeft :size="18" />
+                  </button>
+                  <span class="page-info">{{ t('admin.pageInfo', { page: feedbackPage, total: feedbackTotalPages }) }}</span>
+                  <button class="page-btn" :disabled="feedbackPage >= feedbackTotalPages || feedbackLoading" @click="feedbackGoPage(feedbackPage + 1)">
+                    <ChevronRight :size="18" />
+                  </button>
+                </div>
+              </template>
             </div>
           </div>
         </div>
@@ -1043,6 +1285,10 @@ onUnmounted(() => {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 10px 20px;
   border-radius: 12px;
   font: inherit;
@@ -1065,5 +1311,54 @@ onUnmounted(() => {
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+/* 反馈管理 */
+.fb-filter-row {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+.fb-title-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+}
+
+.fb-cat-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--float-bg);
+  color: var(--links-color);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.fb-feedback-title {
+  display: block;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-color);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fb-feedback-title:hover {
+  color: var(--notice-color);
+}
+
+.fb-feedback-author,
+.fb-feedback-time {
+  color: var(--links-color);
+  font-size: 12.5px;
+  white-space: nowrap;
 }
 </style>

@@ -139,6 +139,10 @@ onMounted(fetchSuggestion)
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   flex: 1;
   padding: 12px;
   border-radius: 12px;

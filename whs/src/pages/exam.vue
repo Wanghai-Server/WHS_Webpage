@@ -321,7 +321,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <Top_navbar back-route="/joinus" :nav-routes="navRoutes" />
+  <Top_navbar :nav-routes="navRoutes" />
 
   <main class="exam-page">
     <div v-if="loading" class="placeholder"><span class="spinner"></span>{{ t('admin.loading') }}</div>
@@ -656,6 +656,10 @@ onUnmounted(() => {
 }
 
 .start-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   padding: 14px;
   border: none;
@@ -697,6 +701,10 @@ onUnmounted(() => {
 }
 
 .nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 12px 26px;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.35);
@@ -803,6 +811,10 @@ onUnmounted(() => {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 12px 24px;
   border-radius: 12px;
   font: inherit;

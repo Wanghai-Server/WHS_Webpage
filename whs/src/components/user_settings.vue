@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Pencil, UserRound, Trash2 } from 'lucide-vue-next'
+import { Pencil, UserRound, Trash2, LogOut } from 'lucide-vue-next'
 import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import ChangePassword from './change_password.vue'
 import CancelAccount from './cancel_account.vue'
@@ -17,9 +18,16 @@ const props = defineProps({
 const emit = defineEmits(['saved'])
 
 const { t, locale } = useI18n()
-const { state: authState, fetchMe } = useAuth()
+const router = useRouter()
+const { state: authState, fetchMe, clearAuth } = useAuth()
 const { showTip } = useTips()
 const hcaptchaSiteKey = useHcaptchaSiteKey()
+
+// 退出登录：清空本地登录态并回到首页（与顶部用户菜单的退出逻辑一致）
+function logout() {
+  clearAuth()
+  router.push('/')
+}
 
 const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
 
@@ -471,6 +479,17 @@ onUnmounted(() => {
       </div>
     </div>
 
+    <!-- 退出登录（仅本人；位于注销账号之上） -->
+    <div v-if="user.is_self" class="settings-card load-in" style="--load-delay: 360ms">
+      <div class="setting-row">
+        <span class="row-title">{{ t('settings.session') }}</span>
+        <button class="btn modify" @click="logout">
+          <LogOut :size="16" />
+          <span>{{ t('userMenu.sign_out') }}</span>
+        </button>
+      </div>
+    </div>
+
     <!-- 注销账号（危险操作，红色样式；仅本人，后端亦仅限本人） -->
     <div v-if="user.is_self" class="settings-card load-in" style="--load-delay: 400ms">
       <div class="setting-row">
@@ -519,13 +538,17 @@ onUnmounted(() => {
         <div class="dialog">
           <h3 class="dialog-title">{{ t('settings.changeEmail') }}</h3>
           <div class="field">
-            <label class="label">{{ t('settings.email') }}</label>
-            <input v-model="newEmail" type="email" :placeholder="t('auth.email')" />
+            <label class="float-field">
+              <input v-model="newEmail" type="email" placeholder=" " />
+              <span class="float-label">{{ t('settings.email') }}</span>
+            </label>
           </div>
           <div class="field">
-            <label class="label">{{ t('auth.code') }}</label>
             <div class="code-row">
-              <input v-model="emailCode" type="text" :placeholder="t('auth.code')" />
+              <label class="float-field">
+                <input v-model="emailCode" type="text" placeholder=" " />
+                <span class="float-label">{{ t('auth.code') }}</span>
+              </label>
               <button class="btn ghost" :disabled="emailCooldown > 0 || emailSendingCode" @click="sendEmailCode">
                 <span v-if="emailSendingCode" class="spinner"></span>
                 {{ emailCooldown > 0 ? `${emailCooldown}s` : t('settings.sendCode') }}
@@ -616,7 +639,7 @@ onUnmounted(() => {
   color: var(--links-color);
 }
 
-.field input,
+.field > input,
 .field select,
 .profile-input {
   width: 100%;
@@ -646,7 +669,7 @@ onUnmounted(() => {
   cursor: not-allowed;
 }
 
-.field input:focus,
+.field > input:focus,
 .field select:focus,
 .profile-input:focus {
   border-color: var(--text-color);
@@ -671,11 +694,6 @@ onUnmounted(() => {
 .code-row {
   display: flex;
   gap: 10px;
-}
-
-.code-row input {
-  flex: 1;
-  min-width: 0;
 }
 
 .card-actions {
@@ -816,6 +834,8 @@ onUnmounted(() => {
 }
 
 .dialog {
+  /* 半透明毛玻璃对话框：浮动标签底色跟随对话框背景，避免白色补丁 */
+  --float-label-bg: var(--navbar-bg);
   width: min(420px, 100%);
   max-height: 90vh;
   overflow-y: auto;

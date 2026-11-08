@@ -267,6 +267,10 @@ async function submit() {
 }
 
 .finish {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   width: 100%;
   padding: 12px;
   border-radius: 12px;

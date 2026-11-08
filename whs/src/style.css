@@ -143,3 +143,286 @@ body {
     animation-duration: 1.6s;
   }
 }
+
+/* ==========================================================================
+   浮动标签输入框（登录 / 注册 / 账号类表单统一使用）
+   - 输入框内显示标签文字；聚焦或已有内容时标签上浮到输入框边框线上
+   - 标签底色与输入框所在卡片一致（可用 --float-label-bg 按容器覆盖），用于盖住边框
+   ========================================================================== */
+.float-field {
+  position: relative;
+  display: block;
+  min-width: 0;
+}
+
+.float-field > input {
+  width: 100%;
+  box-sizing: border-box;
+  /* 上下内边距保持一致：浮动标签上浮后，输入文字仍位于输入框垂直中心 */
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  outline: none;
+  transition: border-color 0.2s ease;
+}
+
+.float-field > input:focus {
+  border-color: var(--text-color);
+}
+
+.float-field > input[readonly] {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* 未聚焦且无内容：标签位于输入框内，垂直居中 */
+.float-field > .float-label {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  max-width: calc(100% - 20px);
+  padding: 0 4px;
+  color: var(--links-color);
+  font-size: 15px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transition: top 0.18s ease, font-size 0.18s ease, color 0.18s ease,
+    background-color 0.18s ease;
+}
+
+/* 聚焦 / 已有内容：标签上浮到边框线上并缩小 */
+.float-field > input:focus + .float-label,
+.float-field > input:not(:placeholder-shown) + .float-label {
+  top: 0;
+  font-size: 11.5px;
+  color: var(--links-color);
+  background-color: var(--float-label-bg, var(--card-color));
+}
+
+/* 验证码行：浮动标签输入框自适应剩余宽度 */
+.code-row > .float-field {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ==========================================================================
+   图标 + 文字按钮：统一视觉居中
+   - 图标作为块级 flex 项参与居中，消除行内基线对齐造成的上下偏移
+   - 图标相对文字视觉重心上移 0.04em（汉字/拉丁字母的视觉中心略高于行框几何中心）
+   - spinner 作为图标参与居中时不再额外加右侧 margin（间距统一由按钮 gap 提供）
+   ========================================================================== */
+button > svg,
+a > svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+button > svg {
+  transform: translateY(-0.04em);
+}
+
+button > .spinner {
+  margin-right: 0;
+}
+/* ==========================================================================
+   密码可见性切换按钮（位于密码输入框内部右侧）
+   ========================================================================== */
+.pwd-field {
+  position: relative;
+}
+
+.pwd-field > .float-field > input {
+  padding-right: 46px;
+}
+
+.pwd-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.pwd-toggle:hover {
+  color: var(--text-color);
+  background: var(--float-bg);
+}
+
+.pwd-toggle:focus-visible {
+  outline: 2px solid var(--text-color);
+  outline-offset: 1px;
+}
+
+/* 导航栏搜索按钮：纯图标按钮不做“文字按钮”的 0.04em 上移，微调以对齐导航文字的视觉中心 */
+button.gs-toggle > svg {
+  transform: translateY(0.3px);
+}
+
+/* ==========================================================================
+   手机端（≤768px）弹层标准：从屏幕底部滑出、贴底、最高 80vh、内容超高内部滚动
+   桌面端（>768px）完全保持原有居中弹窗与动画
+   ========================================================================== */
+@keyframes whs-sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@media (max-width: 768px) {
+  /* 1) 遮罩层：改为底部对齐，去掉四周留白 */
+  .overlay,
+  .dialog-overlay,
+  .panel-overlay,
+  .sheet-overlay,
+  .publish-overlay,
+  .message-overlay,
+  .detail-overlay,
+  .fl-overlay,
+  .doc-overlay,
+  .player-modal-overlay,
+  .modal-overlay {
+    align-items: flex-end !important;
+    justify-content: center !important;
+    padding: 0 !important;
+  }
+
+  /* 2) 面板：贴底、全宽、顶部圆角、最高占屏高 80% */
+  .overlay > .dialog,
+  .dialog-overlay > .dialog,
+  .dialog-overlay > .dialog-box,
+  .dialog-overlay > .dialog-panel,
+  .panel-overlay > .panel,
+  .panel-overlay > .mini-dialog,
+  .sheet-overlay > .sheet-modal,
+  .publish-overlay > .publish-dialog,
+  .message-overlay > .message-box,
+  .detail-overlay > .detail-box,
+  .fl-overlay > .fl-modal,
+  .doc-overlay > .doc-panel,
+  .player-modal-overlay > .player-modal,
+  .modal-overlay > .modal {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 80vh !important;
+    margin: 0 !important;
+    border-radius: 20px 20px 0 0 !important;
+    border-bottom-width: 0 !important;
+    box-sizing: border-box;
+  }
+
+  /* 3) 内容可能超高的简单弹窗：面板自身滚动 */
+  .overlay > .dialog,
+  .dialog-overlay > .dialog,
+  .dialog-overlay > .dialog-panel,
+  .publish-overlay > .publish-dialog,
+  .panel-overlay > .panel,
+  .panel-overlay > .mini-dialog,
+  .modal-overlay > .modal {
+    overflow-y: auto !important;
+    overscroll-behavior: contain;
+  }
+
+  /* 4) 消息中心 / 消息详情：内容少时贴底只有内容高，内容多时最多 80vh 并内部滚动 */
+  .message-overlay > .message-box,
+  .detail-overlay > .detail-box {
+    height: auto !important;
+    max-height: 80vh !important;
+  }
+
+  /* 5) 首页注册弹窗：内部注册卡片铺满弹层面板 */
+  .modal-overlay .register-form {
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border-radius: 20px 20px 0 0 !important;
+  }
+
+  /* 6) 统一从底部滑入 / 滑出（覆盖桌面端的缩放淡入） */
+  .dialog-fade-enter-active .dialog,
+  .dialog-fade-leave-active .dialog,
+  .dialog-fade-enter-active .dialog-box,
+  .dialog-fade-leave-active .dialog-box,
+  .dialog-fade-enter-active .dialog-panel,
+  .dialog-fade-leave-active .dialog-panel,
+  .dialog-fade-enter-active .publish-dialog,
+  .dialog-fade-leave-active .publish-dialog,
+  .dialog-fade-enter-active .message-box,
+  .dialog-fade-leave-active .message-box,
+  .dialog-fade-enter-active .detail-box,
+  .dialog-fade-leave-active .detail-box,
+  .dialog-fade-enter-active .panel,
+  .dialog-fade-leave-active .panel,
+  .dialog-fade-enter-active .mini-dialog,
+  .dialog-fade-leave-active .mini-dialog,
+  .dialog-fade-enter-active .sheet-modal,
+  .dialog-fade-leave-active .sheet-modal,
+  .dialog-fade-enter-active .fl-modal,
+  .dialog-fade-leave-active .fl-modal,
+  .dialog-fade-enter-active .player-modal,
+  .dialog-fade-leave-active .player-modal,
+  .dialog-fade-enter-active .doc-panel,
+  .dialog-fade-leave-active .doc-panel {
+    transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.2s ease !important;
+  }
+
+  .dialog-fade-enter-from .dialog,
+  .dialog-fade-leave-to .dialog,
+  .dialog-fade-enter-from .dialog-box,
+  .dialog-fade-leave-to .dialog-box,
+  .dialog-fade-enter-from .dialog-panel,
+  .dialog-fade-leave-to .dialog-panel,
+  .dialog-fade-enter-from .publish-dialog,
+  .dialog-fade-leave-to .publish-dialog,
+  .dialog-fade-enter-from .message-box,
+  .dialog-fade-leave-to .message-box,
+  .dialog-fade-enter-from .detail-box,
+  .dialog-fade-leave-to .detail-box,
+  .dialog-fade-enter-from .panel,
+  .dialog-fade-leave-to .panel,
+  .dialog-fade-enter-from .mini-dialog,
+  .dialog-fade-leave-to .mini-dialog,
+  .dialog-fade-enter-from .sheet-modal,
+  .dialog-fade-leave-to .sheet-modal,
+  .dialog-fade-enter-from .fl-modal,
+  .dialog-fade-leave-to .fl-modal,
+  .dialog-fade-enter-from .player-modal,
+  .dialog-fade-leave-to .player-modal,
+  .dialog-fade-enter-from .doc-panel,
+  .dialog-fade-leave-to .doc-panel {
+    opacity: 1 !important;
+    transform: translateY(100%) !important;
+  }
+
+  /* 7) 无 Transition 的弹层：出现时上滑 */
+  .doc-overlay > .doc-panel {
+    animation: whs-sheet-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* 8) 首页注册弹窗（fade 过渡）：出现时上滑 */
+  .modal-overlay > .modal {
+    animation: whs-sheet-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+

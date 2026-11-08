@@ -32,6 +32,7 @@ from data.exam import (
     load_exam_config,
 )
 from data.main.database.exam_database import ExamDatabase
+from data.main.database.feedback_database import FeedbackDatabase, FeedbackDatabaseError
 from data.main.database.message_database import MessageDatabase
 from data.main.database.user_database import (
     ERROR_MESSAGES as USER_DB_ERROR_MESSAGES,
@@ -51,6 +52,7 @@ user_info_db = UserInfoDatabase()
 message_db = MessageDatabase()
 exam_db = ExamDatabase()
 wiki_db = WikiDatabase()
+feedback_db = FeedbackDatabase()
 
 # MCDR 插件通信的 WS 命令服务：仅监听环回地址，端口来自 config.json 的 ws_port。
 from ws_server import WsCommandServer  # noqa: E402
@@ -557,6 +559,42 @@ ERROR_MESSAGES = {
         "zh": "请先绑定主账号（游戏名称）",
         "en": "Please bind a main account first",
     },
+    "feedback_not_found": {
+        "zh": "反馈不存在",
+        "en": "Feedback not found",
+    },
+    "feedback_title_empty": {
+        "zh": "请填写反馈标题",
+        "en": "Please enter a feedback title",
+    },
+    "feedback_title_too_large": {
+        "zh": "反馈标题过长（最多 200 字符）",
+        "en": "Feedback title is too long (max 200 characters)",
+    },
+    "feedback_content_empty": {
+        "zh": "请填写反馈内容",
+        "en": "Please enter feedback content",
+    },
+    "feedback_content_too_large": {
+        "zh": "反馈内容过长（最多 100000 字符）",
+        "en": "Feedback content is too long (max 100000 characters)",
+    },
+    "feedback_category_invalid": {
+        "zh": "反馈分类不合法",
+        "en": "Invalid feedback category",
+    },
+    "feedback_status_invalid": {
+        "zh": "反馈状态不合法",
+        "en": "Invalid feedback status",
+    },
+    "feedback_comment_empty": {
+        "zh": "评论内容不能为空",
+        "en": "Comment content cannot be empty",
+    },
+    "feedback_comment_too_large": {
+        "zh": "评论内容过长（最多 20000 字符）",
+        "en": "Comment content is too long (max 20000 characters)",
+    },
 }
 
 # 错误码 -> HTTP 状态码。
@@ -633,6 +671,15 @@ ERROR_STATUS: dict[str, int] = {
     "wiki_upload_not_found": 404,
     "wiki_redirect_invalid": 400,
     "wiki_redirect_not_found": 404,
+    "feedback_not_found": 404,
+    "feedback_title_empty": 400,
+    "feedback_title_too_large": 413,
+    "feedback_content_empty": 400,
+    "feedback_content_too_large": 413,
+    "feedback_category_invalid": 400,
+    "feedback_status_invalid": 400,
+    "feedback_comment_empty": 400,
+    "feedback_comment_too_large": 413,
 }
 
 # 未收录错误码时的兜底双语消息。
@@ -660,6 +707,7 @@ async def lifespan(app: FastAPI):
     message_db.connect()
     exam_db.connect()
     wiki_db.connect()
+    feedback_db.connect()
     AVATAR_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -678,6 +726,7 @@ async def lifespan(app: FastAPI):
     message_db.close()
     exam_db.close()
     wiki_db.close()
+    feedback_db.close()
 
 
 app = FastAPI(lifespan=lifespan)
@@ -710,6 +759,18 @@ async def user_not_active_error_handler(request: Request, exc: UserNotActiveErro
 @app.exception_handler(WikiDatabaseError)
 async def wiki_database_error_handler(request: Request, exc: WikiDatabaseError):
     """把数据层抛出的维基错误翻译成结构化 + 双语的响应。"""
+    return JSONResponse(
+        status_code=ERROR_STATUS.get(exc.code, 400),
+        content={
+            "code": exc.code,
+            "message": ERROR_MESSAGES.get(exc.code, _DEFAULT_ERROR_MESSAGE),
+        },
+    )
+
+
+@app.exception_handler(FeedbackDatabaseError)
+async def feedback_database_error_handler(request: Request, exc: FeedbackDatabaseError):
+    """把数据层抛出的反馈错误翻译成结构化 + 双语的响应。"""
     return JSONResponse(
         status_code=ERROR_STATUS.get(exc.code, 400),
         content={
@@ -999,6 +1060,7 @@ def _notify_exam_passed(uid: int, admin_uid: int) -> None:
 from api.auth import router as auth_router
 from api.avatar import router as avatar_router
 from api.exam import router as exam_router
+from api.feedback import router as feedback_router
 from api.message import router as message_router
 from api.search import router as search_router
 from api.server import router as server_router
@@ -1012,6 +1074,7 @@ app.include_router(user_router)
 app.include_router(avatar_router)
 app.include_router(message_router)
 app.include_router(exam_router)
+app.include_router(feedback_router)
 app.include_router(server_router)
 app.include_router(search_router)
 app.include_router(wiki_router)

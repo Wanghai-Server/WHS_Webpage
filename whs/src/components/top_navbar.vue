@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { animate, stagger } from 'animejs'
-import { User, Mail, X, ArrowLeft } from 'lucide-vue-next'
+import { User, Mail, X, Search } from 'lucide-vue-next'
 import MessageBox from './message_box.vue'
 import MessageDetail from './message_detail.vue'
 import UserDropdown from './user_dropdown.vue'
@@ -11,13 +11,17 @@ import GlobalSearch from './global_search.vue'
 import { useAuth } from '../composables/useAuth'
 
 const props = defineProps({
-  backRoute: { type: String, default: '' },
   navRoutes: { type: Object, default: null },
 })
 
 const { t } = useI18n()
 const router = useRouter()
 const { state: authState } = useAuth()
+
+// 移动端搜索按钮：直接跳转到全量搜索页（桌面端仍使用 GlobalSearch 的小面板）
+function goSearch() {
+  router.push('/search')
+}
 
 // 登录态与头像
 const isLoggedIn = computed(() => !!authState.token)
@@ -42,14 +46,6 @@ const links = computed(() => {
     { key: 'nav.about', label: t('nav.about'), route: '/about' },
   ]
 })
-
-function goBack() {
-  if (props.backRoute) {
-    router.push(props.backRoute)
-  } else {
-    router.back()
-  }
-}
 
 // 导航栏高度（px），与下方 <style> 中的 height 保持一致，用于计算滚动阈值
 const NAVBAR_HEIGHT = 48
@@ -238,7 +234,7 @@ function animateBreakpointSwitch() {
   if (!root) return
 
   const itemsSelector = isMobile
-    ? '.menu-toggle, .login-mobile'
+    ? '.menu-toggle, .logo, .mobile-actions'
     : scrolled.value
       ? '.logo-text, .links a, .gs-toggle'
       : '.logo-text, .links a, .gs-toggle, .login-btn'
@@ -273,7 +269,7 @@ function playEntranceAnimation() {
 
   // 根据当前断点只选取可见元素，保证交错节奏整齐
   const itemsSelector = isMobile
-    ? '.menu-toggle, .logo, .login-mobile'
+    ? '.menu-toggle, .logo, .mobile-actions'
     : scrolled.value
       ? '.logo, .links a, .gs-toggle'
       : '.logo, .links a, .gs-toggle, .login-btn'
@@ -368,14 +364,25 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <!-- 移动端右侧：登录后显示头像 -->
-    <RouterLink :to="userLink" class="login-mobile">
-      <template v-if="isLoggedIn">
-        <img v-if="avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
-        <User v-else :size="20" />
-      </template>
-      <template v-else>{{ t('nav.login') }}</template>
-    </RouterLink>
+    <!-- 移动端右侧：搜索 + 登录/头像（桌面端隐藏） -->
+    <div class="mobile-actions">
+      <button
+        type="button"
+        class="search-mobile"
+        :aria-label="t('search.title')"
+        :title="t('search.title')"
+        @click="goSearch"
+      >
+        <Search :size="20" />
+      </button>
+      <RouterLink :to="userLink" class="login-mobile">
+        <template v-if="isLoggedIn">
+          <img v-if="avatarSrc" :src="avatarSrc" class="avatar-img" alt="avatar" />
+          <User v-else :size="20" />
+        </template>
+        <template v-else>{{ t('nav.login') }}</template>
+      </RouterLink>
+    </div>
 
     <!-- 桌面端脱离后的圆形登录按钮 -->
     <div class="user-fab-wrap" @mouseenter="openUserMenu" @mouseleave="closeUserMenu">
@@ -406,17 +413,6 @@ onUnmounted(() => {
       </nav>
     </Transition>
   </header>
-
-  <!-- 返回按钮：传入 backRoute 时显示 -->
-  <button
-    v-if="props.backRoute"
-    class="back-fab"
-    :class="{ scrolled }"
-    :aria-label="t('nav.back')"
-    @click="goBack"
-  >
-    <ArrowLeft :size="22" />
-  </button>
 
   <!-- 消息图标：桌面端滚动后吸附到导航栏左侧；页首/移动端时在屏幕左下角 -->
   <button
@@ -568,6 +564,9 @@ onUnmounted(() => {
 
 .login-btn {
   /* 与左侧链接之间的间距；JS 脱离动画里的 marginLeft: 28 与此保持一致 */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   margin-left: 28px;
   overflow: hidden;
   color: var(--links-color);
@@ -700,40 +699,6 @@ onUnmounted(() => {
   left: calc(50% - min(360px, 36%) - 60px);
 }
 
-/* 返回按钮：与消息/用户圆形按钮同风格。
-   页首（未吸附）时贴导航栏更近；小视口下用 max() 兜底防止溢出屏幕左缘。
-   滚动后位置由 .back-fab.scrolled 接管（-120px，保持原样）。 */
-.back-fab {
-  position: fixed;
-  top: 16px;
-  left: max(24px, calc(50% - min(540px, 45%) - 24px));
-  z-index: 4000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 48px;
-  height: 48px;
-  border-radius: 999px;
-  background: var(--navbar-bg);
-  border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  color: var(--text-color);
-  cursor: pointer;
-  transition: left 0.5s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.back-fab:hover {
-  color: var(--text-color);
-}
-
-/* 吸附后：返回按钮贴导航栏左侧（离 LOGO 近），消息按钮在其外侧 */
-/* 吸附后：返回按钮位置（原始值） */
-.back-fab.scrolled {
-  left: calc(50% - min(360px, 36%) - 120px);
-}
-
 /* 头像图 */
 .avatar-img {
   width: 100%;
@@ -771,6 +736,8 @@ onUnmounted(() => {
 /* 移动端右侧登录/注册（桌面端隐藏） */
 .login-mobile {
   display: none;
+  align-items: center;
+  gap: 6px;
   color: var(--links-color);
   text-decoration: none;
   font-size: 16px;
@@ -780,6 +747,39 @@ onUnmounted(() => {
 
 .login-mobile:hover {
   color: var(--text-color);
+}
+
+/* 移动端右侧操作区：搜索按钮 + 登录/头像（桌面端隐藏） */
+.mobile-actions {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  justify-self: end;
+}
+
+.search-mobile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.search-mobile:hover {
+  color: var(--text-color);
+  background: var(--float-bg);
+}
+
+.search-mobile:focus-visible {
+  outline: 2px solid #ebaa28;
+  outline-offset: 1px;
 }
 
 /* 移动端折叠菜单 */
@@ -887,20 +887,18 @@ onUnmounted(() => {
     display: none;
   }
 
+  .mobile-actions {
+    display: flex;
+  }
+
   .login-mobile {
     display: inline-flex;
-    justify-self: end;
   }
 
   /* 移动端消息图标始终固定在左下角，不吸附 */
   .message-fab.attached {
     top: calc(100vh - 72px);
     left: 24px;
-  }
-
-  /* 移动端返回按钮不随滚动左移（消息按钮不吸附到顶部） */
-  .back-fab.scrolled {
-    left: calc(50% - min(540px, 45%) - 60px);
   }
 }
 </style>

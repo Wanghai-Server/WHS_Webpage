@@ -69,7 +69,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 3000;
+  /* 全局确认/提示框必须位于所有弹层之上（面板 9500 / 反馈编辑器 9600 等） */
+  z-index: 11000;
   display: flex;
   align-items: center;
   justify-content: center;

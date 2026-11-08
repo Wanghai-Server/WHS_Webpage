@@ -77,6 +77,18 @@ const routes = [
     meta: { titleKey: 'pageTitle.search'}
   },
   {
+    path: '/feedback',
+    name: 'Feedback',
+    component: () => import("../pages/feedback/index.vue"),
+    meta: { titleKey: 'pageTitle.feedback'}
+  },
+  {
+    path: '/feedback/:id(\\d+)',
+    name: 'FeedbackDetail',
+    component: () => import("../pages/feedback/detail.vue"),
+    meta: { titleKey: 'pageTitle.feedback'}
+  },
+  {
     path: '/user/:uid',
     name: 'User',
     component: () => import("../pages/user.vue"),

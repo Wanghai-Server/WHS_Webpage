@@ -707,6 +707,10 @@ defineExpose({ close })
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 10px 20px;
   border-radius: 12px;
   font: inherit;
