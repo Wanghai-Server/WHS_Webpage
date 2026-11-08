@@ -1,0 +1,704 @@
+<!doctype html>
+<!--
+  WHS Webpage 维护页（单文件，不参与 Vite 构建）
+  ---------------------------------------------------------------------------
+  用途：当前端（Vite）服务不可用时，由 nginx 用本页暂时替代站点，提示正在维护。
+  部署位置：项目根目录 maintenance.html；无需构建、无外部依赖（样式/脚本/图标全部内联）。
+
+  nginx 用法示例（二选一）：
+    # 方式 A：反代上游 502/503/504 时回退，地址栏保持原 URL，刷新即会重试上游
+    error_page 502 503 504 /maintenance.html;
+    location = /maintenance.html {
+        root /path/to/WHS_Webpage;   # 指向本项目根目录
+        internal;                    # 可选：只允许内部跳转访问
+    }
+
+    # 方式 B：nginx 的 root 指向 whs/dist 时，可把本文件复制进 dist，然后：
+    location / { try_files $uri /maintenance.html; }
+
+  可编辑内容（都在下方 <script> 顶部）：
+    - I18N.zh / I18N.en 的 etaValue（预计恢复时间）、contactValue（联系方式）等文案；
+    - RETRY_SECONDS：自动重试的间隔秒数（默认 60）。
+  ---------------------------------------------------------------------------
+-->
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="description" content="望海服务器正在维护中，请稍后再试。" />
+  <title>服务器维护中 · 望海服务器</title>
+  <!-- 无 JavaScript 时的兜底：60 秒自动刷新一次 -->
+  <noscript><meta http-equiv="refresh" content="60" /></noscript>
+
+  <style>
+    /* ---------------------------------------------------------------------
+       配色 / 排版沿用主站（whs/src/style.css）的主题变量与视觉语言：
+       亮色奶油底 + 暗色海军蓝、金色强调、胶囊 + 毛玻璃 + 圆角卡片。
+       深色跟随系统自动切换（也支持手动加 html.dark 覆盖，便于调试）。
+       --------------------------------------------------------------------- */
+    :root {
+      --bg-color: #fff8e7;
+      --card-color: #ffffff;
+      --text-color: #333333;
+      --links-color: #7c8b9e;
+      --accent-color: #ebaa28;
+      --accent-hover: #d99a1f;
+      --accent-text: #1f2937;
+      --border-color: rgba(148, 163, 184, 0.28);
+      --float-bg: rgba(51, 51, 51, 0.08);
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+      --glow-1: rgba(235, 170, 40, 0.22);
+      --glow-2: rgba(124, 139, 158, 0.20);
+    }
+
+    html.dark {
+      --bg-color: #0b1d3a;
+      --card-color: #162d4a;
+      --text-color: #f5f5f5;
+      --links-color: #cbd5e1;
+      --border-color: rgba(148, 163, 184, 0.22);
+      --float-bg: rgba(245, 245, 245, 0.08);
+      --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+      --glow-1: rgba(240, 184, 96, 0.16);
+      --glow-2: rgba(59, 130, 246, 0.16);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not(.light) {
+        --bg-color: #0b1d3a;
+        --card-color: #162d4a;
+        --text-color: #f5f5f5;
+        --links-color: #cbd5e1;
+        --border-color: rgba(148, 163, 184, 0.22);
+        --float-bg: rgba(245, 245, 245, 0.08);
+        --shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+        --glow-1: rgba(240, 184, 96, 0.16);
+        --glow-2: rgba(59, 130, 246, 0.16);
+      }
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Arial', sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      -webkit-font-smoothing: antialiased;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    /* 背景光晕：金色 + 冷色两层径向渐变，弱化纯色背景的空旷感 */
+    .bg-glow {
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      background:
+        radial-gradient(46rem 30rem at 12% -8%, var(--glow-1), transparent 70%),
+        radial-gradient(38rem 26rem at 92% 108%, var(--glow-2), transparent 70%);
+    }
+
+    .page {
+      position: relative;
+      z-index: 1;
+      display: flex;
+      flex-direction: column;
+      width: 100%;
+      max-width: 960px;
+      min-height: 100vh;
+      margin: 0 auto;
+      padding: 32px 24px 0;
+    }
+
+    .content {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 24px 0 40px;
+      text-align: center;
+    }
+
+    /* 顶部状态胶囊 */
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      height: 40px;
+      padding: 0 20px;
+      border-radius: 999px;
+      background: var(--float-bg);
+      color: var(--text-color);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.14em;
+    }
+
+    .pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      animation: pulse-ring 1.8s ease-out infinite;
+    }
+
+    @keyframes pulse-ring {
+      0% {
+        box-shadow: 0 0 0 0 rgba(235, 170, 40, 0.55);
+      }
+      70% {
+        box-shadow: 0 0 0 10px rgba(235, 170, 40, 0);
+      }
+      100% {
+        box-shadow: 0 0 0 0 rgba(235, 170, 40, 0);
+      }
+    }
+
+    /* 服务器图标：圆角卡片 + 缓慢旋转的虚线环 */
+    .icon-wrap {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 88px;
+      height: 88px;
+      margin: 24px 0 4px;
+      border: 1px solid var(--border-color);
+      border-radius: 28px;
+      background: var(--card-color);
+      box-shadow: var(--shadow);
+      color: var(--accent-color);
+    }
+
+    .icon-wrap::after {
+      content: '';
+      position: absolute;
+      inset: -12px;
+      border: 1.5px dashed var(--border-color);
+      border-radius: 36px;
+      animation: spin 28s linear infinite;
+    }
+
+    .icon-wrap svg {
+      width: 42px;
+      height: 42px;
+    }
+
+    @keyframes spin {
+      to {
+        transform: rotate(360deg);
+      }
+    }
+
+    h1 {
+      margin: 20px 0 0;
+      font-size: clamp(30px, 5vw, 52px);
+      font-weight: 800;
+      line-height: 1.15;
+      letter-spacing: -0.01em;
+    }
+
+    .desc {
+      max-width: 620px;
+      margin: 14px 0 0;
+      font-size: 18px;
+      line-height: 1.75;
+      color: var(--text-color);
+      opacity: 0.72;
+    }
+
+    /* 维护信息卡 */
+    .info-card {
+      width: 100%;
+      max-width: 560px;
+      margin: 28px auto 0;
+      padding: 6px 26px;
+      text-align: left;
+      background: var(--card-color);
+      border: 1px solid var(--border-color);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .info-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 18px;
+      padding: 17px 0;
+    }
+
+    .info-label {
+      flex: 0 0 auto;
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--links-color);
+    }
+
+    .info-value {
+      flex: 1 1 260px;
+      font-size: 15.5px;
+      line-height: 1.55;
+    }
+
+    .info-divider {
+      height: 1px;
+      background: var(--border-color);
+    }
+
+    /* 操作区 */
+    .actions {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .retry-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      height: 48px;
+      padding: 0 32px;
+      border: none;
+      border-radius: 999px;
+      background: var(--accent-color);
+      color: var(--accent-text);
+      font: inherit;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 8px 24px rgba(235, 170, 40, 0.28);
+      transition: background-color 0.2s ease, transform 0.15s ease, box-shadow 0.2s ease;
+    }
+
+    .retry-btn:hover {
+      background: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+
+    .retry-btn:active {
+      transform: translateY(0);
+    }
+
+    .retry-btn:focus-visible {
+      outline: 2px solid var(--text-color);
+      outline-offset: 3px;
+    }
+
+    .retry-btn svg {
+      width: 18px;
+      height: 18px;
+    }
+
+    .countdown {
+      margin: 0;
+      font-size: 13.5px;
+      color: var(--links-color);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .js-note {
+      max-width: 560px;
+      margin: 22px 0 0;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--links-color);
+    }
+
+    /* 页脚：沿用主站页脚的上边框与语言切换胶囊 */
+    .site-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      width: 100%;
+      padding: 18px 0 24px;
+      border-top: 2px solid var(--text-color);
+    }
+
+    .footer-left {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-align: left;
+    }
+
+    .site-name {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .license {
+      font-size: 12px;
+      color: var(--links-color);
+    }
+
+    .lang-switch {
+      position: relative;
+      display: inline-flex;
+      flex: 0 0 auto;
+      padding: 4px;
+      border-radius: 999px;
+      background: var(--float-bg);
+    }
+
+    .lang-thumb {
+      position: absolute;
+      top: 4px;
+      bottom: 4px;
+      left: 4px;
+      width: 56px;
+      border-radius: 999px;
+      background: var(--card-color);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+      transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    .lang-switch[data-lang='en'] .lang-thumb {
+      transform: translateX(56px);
+    }
+
+    .lang-btn {
+      position: relative;
+      z-index: 1;
+      width: 56px;
+      height: 34px;
+      border: none;
+      background: transparent;
+      color: var(--links-color);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: color 0.2s ease;
+    }
+
+    .lang-btn.active {
+      color: var(--text-color);
+    }
+
+    .lang-btn:focus-visible {
+      outline: 2px solid var(--accent-color);
+      outline-offset: 1px;
+      border-radius: 999px;
+    }
+
+    /* 与主站一致的分块淡入动画 */
+    @keyframes load-in {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .load-in {
+      --load-delay: 0ms;
+      animation: load-in 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-delay: var(--load-delay);
+    }
+
+    @media (max-width: 768px) {
+      .page {
+        padding: 24px 20px 0;
+      }
+
+      .content {
+        padding: 16px 0 32px;
+      }
+
+      .icon-wrap {
+        width: 76px;
+        height: 76px;
+        border-radius: 24px;
+      }
+
+      .icon-wrap::after {
+        inset: -10px;
+        border-radius: 30px;
+      }
+
+      .icon-wrap svg {
+        width: 36px;
+        height: 36px;
+      }
+
+      .desc {
+        font-size: 16px;
+      }
+
+      .info-card {
+        padding: 4px 18px;
+      }
+
+      .site-footer {
+        justify-content: center;
+        text-align: center;
+      }
+
+      .footer-left {
+        align-items: center;
+        text-align: center;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .load-in {
+        animation: none;
+      }
+
+      .pulse-dot,
+      .icon-wrap::after {
+        animation: none;
+      }
+
+      body,
+      .retry-btn,
+      .lang-thumb {
+        transition: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <main class="page">
+    <div class="content">
+      <div class="pill load-in" style="--load-delay: 0ms">
+        <span class="pulse-dot" aria-hidden="true"></span>
+        <span data-i18n="badge">维护中</span>
+      </div>
+
+      <div class="icon-wrap load-in" style="--load-delay: 70ms" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+             stroke-linecap="round" stroke-linejoin="round">
+          <rect x="3" y="4" width="18" height="7" rx="2" />
+          <rect x="3" y="13" width="18" height="7" rx="2" />
+          <path d="M7 7.5h.01M7 16.5h.01" />
+          <path d="M11 7.5h6M11 16.5h6" />
+        </svg>
+      </div>
+
+      <h1 class="load-in" style="--load-delay: 140ms" data-i18n="title">服务器维护中</h1>
+      <p class="desc load-in" style="--load-delay: 210ms" data-i18n="description">
+        我们正在对服务器进行维护升级，期间官网与游戏服务可能暂时不可用。给你带来的不便，敬请谅解，感谢你的耐心等待。
+      </p>
+
+      <section class="info-card load-in" style="--load-delay: 280ms">
+        <div class="info-row">
+          <span class="info-label" data-i18n="etaLabel">预计恢复时间</span>
+          <span class="info-value" data-i18n="etaValue">待定（维护完成后自动恢复）</span>
+        </div>
+        <div class="info-divider" aria-hidden="true"></div>
+        <div class="info-row">
+          <span class="info-label" data-i18n="contactLabel">维护期间如需帮助</span>
+          <span class="info-value" data-i18n="contactValue">服务器管理员 / 官方 QQ 群：待填写</span>
+        </div>
+      </section>
+
+      <div class="actions load-in" style="--load-delay: 350ms">
+        <button id="retry-btn" class="retry-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+               stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12a9 9 0 0 1-9 9 9 9 0 0 1-9-9 9 9 0 0 1 9-9 9 9 0 0 1 6.74 2.74L21 8" />
+            <path d="M21 3v5h-5" />
+          </svg>
+          <span data-i18n="retry">立即重试</span>
+        </button>
+        <p class="countdown" id="countdown">将在 60 秒后自动重试</p>
+      </div>
+
+      <noscript>
+        <p class="js-note">
+          当前浏览器已禁用 JavaScript，页面不会自动重试；服务恢复后请手动刷新。
+          <br />
+          JavaScript is disabled: this page will not retry automatically. Please refresh manually after the service is restored.
+        </p>
+      </noscript>
+    </div>
+
+    <footer class="site-footer load-in" style="--load-delay: 420ms">
+      <div class="footer-left">
+        <span class="site-name" data-i18n="siteName">望海服务器 · WangHai Server</span>
+        <span class="license">MIT License, Copyright (c) 2026 WangHai Server</span>
+      </div>
+      <div class="lang-switch" data-lang="zh" role="group" aria-label="语言 / Language">
+        <span class="lang-thumb" aria-hidden="true"></span>
+        <button type="button" class="lang-btn active" data-lang="zh" aria-pressed="true">中文</button>
+        <button type="button" class="lang-btn" data-lang="en" aria-pressed="false">EN</button>
+      </div>
+    </footer>
+  </main>
+
+  <script>
+    (function () {
+      'use strict';
+
+      /* =====================================================================
+         可编辑配置
+         - 维护期间的文案：修改下方 I18N.zh / I18N.en（etaValue 预计恢复时间、
+           contactValue 联系方式等）。页面会自动按当前语言取值。
+         - 自动重试间隔（秒）：修改 RETRY_SECONDS。
+         ===================================================================== */
+      var RETRY_SECONDS = 60;
+
+      var I18N = {
+        zh: {
+          pageTitle: '服务器维护中 · 望海服务器',
+          badge: '维护中',
+          title: '服务器维护中',
+          description:
+            '我们正在对服务器进行维护升级，期间官网与游戏服务可能暂时不可用。给你带来的不便，敬请谅解，感谢你的耐心等待。',
+          etaLabel: '预计恢复时间',
+          etaValue: '待定（维护完成后自动恢复）',
+          contactLabel: '维护期间如需帮助',
+          contactValue: '服务器管理员 / 官方 QQ 群：待填写',
+          retry: '立即重试',
+          countdown: '将在 {n} 秒后自动重试',
+          siteName: '望海服务器 · WangHai Server',
+        },
+        en: {
+          pageTitle: 'Server Under Maintenance · WangHai Server',
+          badge: 'MAINTENANCE',
+          title: 'Server Under Maintenance',
+          description:
+            'We are performing maintenance on the server. The website and game service may be temporarily unavailable. We apologize for the inconvenience and appreciate your patience.',
+          etaLabel: 'Estimated recovery',
+          etaValue: 'TBD (restored automatically after maintenance)',
+          contactLabel: 'Need help during maintenance?',
+          contactValue: 'Server administrators / official QQ group: to be filled',
+          retry: 'Retry now',
+          countdown: 'Auto-retrying in {n}s',
+          siteName: '望海服务器 · WangHai Server',
+        },
+      };
+
+      var LANG_KEY = 'whs-maintenance-lang';
+      var currentLang = 'zh';
+      var startedAt = Date.now();
+      var countdownEl = null;
+
+      function detectLang() {
+        try {
+          var saved = localStorage.getItem(LANG_KEY);
+          if (saved === 'zh' || saved === 'en') return saved;
+        } catch (e) {
+          /* localStorage 不可用时忽略 */
+        }
+        var nav = (navigator.language || navigator.userLanguage || '').toLowerCase();
+        return nav.indexOf('zh') === 0 ? 'zh' : 'en';
+      }
+
+      function dict() {
+        return I18N[currentLang] || I18N.zh;
+      }
+
+      function applyLang(lang) {
+        currentLang = lang === 'en' ? 'en' : 'zh';
+        var d = dict();
+
+        document.documentElement.lang = currentLang === 'zh' ? 'zh-CN' : 'en';
+        document.title = d.pageTitle;
+
+        var nodes = document.querySelectorAll('[data-i18n]');
+        for (var i = 0; i < nodes.length; i++) {
+          var key = nodes[i].getAttribute('data-i18n');
+          if (Object.prototype.hasOwnProperty.call(d, key)) {
+            nodes[i].textContent = d[key];
+          }
+        }
+
+        var switcher = document.querySelector('.lang-switch');
+        if (switcher) switcher.setAttribute('data-lang', currentLang);
+
+        var buttons = document.querySelectorAll('.lang-btn');
+        for (var j = 0; j < buttons.length; j++) {
+          var active = buttons[j].getAttribute('data-lang') === currentLang;
+          buttons[j].classList.toggle('active', active);
+          buttons[j].setAttribute('aria-pressed', active ? 'true' : 'false');
+        }
+
+        try {
+          localStorage.setItem(LANG_KEY, currentLang);
+        } catch (e) {
+          /* 忽略持久化失败 */
+        }
+
+        updateCountdown(remainingSeconds());
+      }
+
+      function remainingSeconds() {
+        var elapsed = (Date.now() - startedAt) / 1000;
+        return Math.max(0, Math.ceil(RETRY_SECONDS - elapsed));
+      }
+
+      function updateCountdown(seconds) {
+        if (!countdownEl) return;
+        var template = dict().countdown;
+        countdownEl.textContent = template.replace('{n}', String(seconds));
+      }
+
+      function tick() {
+        var left = remainingSeconds();
+        if (left <= 0) {
+          // 时间到：整页刷新。若 nginx 已能连上上游，会直接回到正式站点。
+          window.location.reload();
+          return;
+        }
+        updateCountdown(left);
+      }
+
+      function init() {
+        countdownEl = document.getElementById('countdown');
+
+        applyLang(detectLang());
+
+        var retryBtn = document.getElementById('retry-btn');
+        if (retryBtn) {
+          retryBtn.addEventListener('click', function () {
+            window.location.reload();
+          });
+        }
+
+        var buttons = document.querySelectorAll('.lang-btn');
+        for (var i = 0; i < buttons.length; i++) {
+          buttons[i].addEventListener('click', function () {
+            applyLang(this.getAttribute('data-lang'));
+          });
+        }
+
+        updateCountdown(remainingSeconds());
+        setInterval(tick, 250);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+      } else {
+        init();
+      }
+    })();
+  </script>
+</body>
+</html>
+
