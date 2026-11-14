@@ -170,7 +170,7 @@ def totp_enable(payload: dict = Body(...), user: dict | None = Depends(get_curre
         # 避免用户第一次已成功、第二次却看到“错误或已过期”。
         if secret and mfa.verify_totp(secret, code) is not None:
             return {"success": True, "recovery_codes": [], "already_enabled": True}
-        return _err("mfa_not_enabled")
+        return _err("mfa_code_invalid")
     if not secret:
         return _err("mfa_not_enabled")
 
