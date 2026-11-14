@@ -807,14 +807,20 @@ async def lifespan(app: FastAPI):
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）
-    await ws_server.start()
-    ws_serve_task = asyncio.create_task(ws_server.wait_until_closed())
+    # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）。
+    # 该服务只是插件通道，端口被占用时不应阻断主服务，否则旧进程占着端口会让新代码
+    # 静默启动失败，用户仍然在同一端口上访问到旧实例。
+    ws_serve_task = None
+    try:
+        await ws_server.start()
+        ws_serve_task = asyncio.create_task(ws_server.wait_until_closed())
+    except OSError as exc:
+        print(f"[ws-server] 启动失败（端口可能被占用）：{exc}，主服务继续运行", flush=True)
 
     yield
 
-    await ws_server.stop()
     if ws_serve_task:
+        await ws_server.stop()
         await ws_serve_task
     user_db.close()
     user_info_db.close()
