@@ -99,6 +99,27 @@ function localMessage(data) {
 async function submit() {
   loading.value = true
   try {
+    // 验证器 App 免密登录：邮箱/账号 → 换取 mfa_token → 第二步输入 6 位码
+    if (mode.value === 'authenticator') {
+      if (!identifier.value.trim()) { showTip('warning', t('auth.identifier_required')); return }
+      const res = await fetch('/api/user/mfa/totp/login/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: identifier.value.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.mfa_required) {
+        mfaToken.value = data.mfa_token
+        mfaMethods.value = data.methods || { totp: true, microsoft: false }
+        mfaMode.value = 'totp'
+        mfaCode.value = ''
+        mfaStarted.value = true
+        return
+      }
+      showTip('error', localMessage(data))
+      return
+    }
+
     let body
     if (mode.value === 'account') {
       if (!identifier.value.trim()) { showTip('warning', t('auth.email_required')); return }
@@ -390,6 +411,11 @@ onUnmounted(() => {
         :class="{ active: mode === 'email' }"
         @click="mode = 'email'"
       >{{ t('auth.email_mode') }}</button>
+      <button
+        type="button"
+        :class="{ active: mode === 'authenticator' }"
+        @click="mode = 'authenticator'"
+      >{{ t('auth.totp_mode') }}</button>
     </div>
 
     <form class="form" novalidate @submit.prevent="submit">
@@ -424,7 +450,7 @@ onUnmounted(() => {
       </template>
 
       <!-- 邮箱验证码登录 -->
-      <template v-else>
+      <template v-else-if="mode === 'email'">
         <label class="float-field">
           <input v-model="email" type="email" placeholder=" " autocomplete="email" />
           <span class="float-label">{{ t('auth.email') }}</span>
@@ -439,6 +465,15 @@ onUnmounted(() => {
             {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
           </button>
         </div>
+      </template>
+
+      <!-- 验证器 App 免密登录 -->
+      <template v-else>
+        <label class="float-field">
+          <input v-model="identifier" type="text" placeholder=" " autocomplete="username" />
+          <span class="float-label">{{ t('auth.identifier') }}</span>
+        </label>
+        <p class="mfa-tip">{{ t('auth.totp_login_hint') }}</p>
       </template>
 
       <!-- 人机验证码（hCaptcha）：仅邮箱验证码登录模式需要（用于发送验证码） -->

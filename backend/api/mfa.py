@@ -17,10 +17,12 @@ from main import (
     ERROR_STATUS,
     _clear_code_failures,
     _error_response,
+    _find_by_identifier,
     _public_user,
     _record_failure,
     check_user_active,
     consume_mfa_token,
+    create_mfa_token,
     create_token,
     get_current_user,
     user_db,
@@ -88,8 +90,6 @@ def _mfa_user(mfa_token: str):
         return None, None
     user = user_db.get_user(uid=payload.get("uid"))
     if user is None:
-        return None, None
-    if check_user_active(user):
         return None, None
     return payload, user
 
@@ -305,6 +305,9 @@ def mfa_verify(payload: dict = Body(...)):
     if user is None:
         return _err("mfa_token_invalid")
     uid = user["uid"]
+    err = check_user_active(user)
+    if err:
+        return _err(err)
     methods = _methods(uid)
     mode = payload.get("mode") or "totp"
     code = payload.get("code") or ""
@@ -325,6 +328,31 @@ def mfa_verify(payload: dict = Body(...)):
     return _issue_session(user)
 
 
+@router.post("/api/user/mfa/totp/login/start")
+def totp_login_start(payload: dict = Body(...)):
+    """免密登录第一步：用邮箱 / UID / 用户名换取二次验证令牌。
+
+    只对已启用验证器 App 的账号开放；账号不存在与未启用返回同一提示，
+    避免被用来探测账号是否注册。验证码错误仍计入项目原有的失败次数。
+    """
+    identifier = (payload.get("identifier") or "").strip()
+    user = _find_by_identifier(identifier) if identifier else None
+    if user is None:
+        return _err("mfa_not_enabled")
+    err = check_user_active(user)
+    if err:
+        return _err(err)
+    methods = _methods(user["uid"])
+    if not methods["totp"]:
+        return _err("mfa_not_enabled")
+    return {
+        "mfa_required": True,
+        "mfa_token": create_mfa_token(user["uid"]),
+        "methods": methods,
+        "username": user.get("username", ""),
+    }
+
+
 @router.post("/api/user/mfa/ms/login/start")
 async def ms_login_start(payload: dict = Body(...)):
     """登录时发起微软账号批准（设备码流程）。"""
@@ -332,6 +360,9 @@ async def ms_login_start(payload: dict = Body(...)):
     _, user = _mfa_user(token)
     if user is None:
         return _err("mfa_token_invalid")
+    err = check_user_active(user)
+    if err:
+        return _err(err)
     if not _methods(user["uid"])["microsoft"]:
         return _err("mfa_not_enabled")
     try:
@@ -349,6 +380,9 @@ async def ms_login_poll(payload: dict = Body(...)):
     _, user = _mfa_user(token)
     if user is None:
         return _err("mfa_token_invalid")
+    err = check_user_active(user)
+    if err:
+        return _err(err)
     uid = user["uid"]
     challenge_id = (payload.get("challenge_id") or "").strip()
     try:
