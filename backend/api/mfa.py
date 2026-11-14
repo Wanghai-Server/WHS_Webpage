@@ -15,6 +15,7 @@ from fastapi import APIRouter, Body, Depends
 
 from main import (
     ERROR_STATUS,
+    _clear_code_failures,
     _error_response,
     _public_user,
     _record_failure,
@@ -57,6 +58,7 @@ def _proof_ok(uid: int, code: str, mode: str = "auto") -> bool:
         step = mfa.verify_totp(secret, code, int(data.get("mfa_last_step") or 0))
         if step is not None:
             user_db.set_mfa_last_step(uid, step)
+            _clear_code_failures(uid)
             return True
         if mode == "totp":
             _record_failure(uid, "code")
@@ -68,6 +70,7 @@ def _proof_ok(uid: int, code: str, mode: str = "auto") -> bool:
         if index is not None:
             stored.pop(index)
             user_db.set_recovery(uid, stored)
+            _clear_code_failures(uid)
             return True
 
     _record_failure(uid, "code")
@@ -133,11 +136,17 @@ async def totp_setup(payload: dict = Body(...), user: dict | None = Depends(get_
     uid = user["uid"]
     data = user_db.get_mfa(uid)
     # 已启用的账号不允许直接覆盖密钥：必须先证明持有当前验证器
-    if data.get("mfa_totp_confirmed") and not _proof_ok(uid, payload.get("code") or ""):
-        return _err("mfa_code_invalid")
-
-    secret = mfa.generate_secret()
-    user_db.set_totp_secret(uid, secret, confirmed=False)
+    if data.get("mfa_totp_confirmed"):
+        if not _proof_ok(uid, payload.get("code") or ""):
+            return _err("mfa_code_invalid")
+        secret = mfa.generate_secret()
+        user_db.set_totp_secret(uid, secret, confirmed=False)
+    else:
+        # 未启用时复用上一次生成的密钥：重复打开二维码弹窗不会让已扫入的密钥失效
+        secret = data.get("mfa_totp_secret")
+        if not secret or payload.get("regenerate"):
+            secret = mfa.generate_secret()
+            user_db.set_totp_secret(uid, secret, confirmed=False)
     account = user.get("username") or user.get("email") or str(uid)
     uri = mfa.otpauth_uri(secret, account)
     return {
@@ -160,12 +169,11 @@ def totp_enable(payload: dict = Body(...), user: dict | None = Depends(get_curre
 
     step = mfa.verify_totp(secret, payload.get("code") or "")
     if step is None:
-        if _record_failure(uid, "code"):
-            return _err("account_locked")
+        # 启用阶段输错只影响本次确认，不锁定账号
         return _err("mfa_code_invalid")
 
     user_db.confirm_totp(uid)
-    user_db.set_mfa_last_step(uid, step)
+    _clear_code_failures(uid)
 
     codes = mfa.generate_recovery_codes()
     user_db.set_recovery(uid, mfa.hash_recovery_codes(codes))

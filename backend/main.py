@@ -407,6 +407,13 @@ def _clear_failures(uid: int) -> None:
     _login_failures.pop(str(uid), None)
 
 
+def _clear_code_failures(uid: int) -> None:
+    """验证码校验通过后清零验证码失败计数，避免零星输错累积成锁号。"""
+    entry = _login_failures.get(str(uid))
+    if entry:
+        entry["code"] = 0
+
+
 # 汇总双语错误消息（数据库错误 + 后端错误）。
 ERROR_MESSAGES = {
     **USER_DB_ERROR_MESSAGES,
