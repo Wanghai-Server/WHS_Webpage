@@ -92,7 +92,7 @@ onUnmounted(() => {
           </div>
 
           <div class="detail-body">
-            <div class="detail-content" v-html="renderContent(props.message.content)"></div>
+            <div class="detail-content md-content" v-html="renderContent(props.message.content)"></div>
           </div>
         </div>
       </div>

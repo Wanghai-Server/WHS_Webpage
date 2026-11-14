@@ -387,6 +387,7 @@
         "close": "关闭",
         "publish": "发布消息",
         "publishPlaceholder": "输入系统消息内容（支持 Markdown）",
+        "preview": "预览",
         "titlePlaceholder": "消息标题",
         "titleEmpty": "消息标题不能为空",
         "untitled": "无标题",

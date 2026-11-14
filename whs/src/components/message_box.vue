@@ -1,9 +1,11 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Trash2, X, Check, Pencil, BrushCleaning } from 'lucide-vue-next'
+import { Plus, Trash2, X, Check, Pencil, BrushCleaning, Eye } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
+import MarkdownIt from 'markdown-it'
+import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 
 const { t, locale } = useI18n()
 const props = defineProps({
@@ -27,6 +29,11 @@ const editingMessage = ref(null)
 const publishTitle = ref('')
 const publishContent = ref('')
 const publishing = ref(false)
+// 发布预览：与消息详情使用同一套 markdown-it 配置（含 § 颜色代码），保证预览即最终效果
+const previewing = ref(false)
+const previewMd = new MarkdownIt({ html: false, linkify: true, breaks: true })
+colorCodesPlugin(previewMd)
+const previewHtml = computed(() => previewMd.render(publishContent.value || ''))
 // 进行中的消息操作（删除/标为已读）：记录消息 id，用于禁用对应按钮并显示圆环
 const busyMessageId = ref(null)
 
@@ -203,11 +210,23 @@ async function publish() {
   }
 }
 
+// 打开发布对话框（重置预览态）
+function openPublish() {
+  previewing.value = false
+  showPublish.value = true
+}
+
+// 切换「编辑 / 预览」
+function togglePreview() {
+  previewing.value = !previewing.value
+}
+
 // 打开编辑对话框：预填当前标题与内容
 function startEdit(m) {
   editingMessage.value = m
   publishTitle.value = m.title || ''
   publishContent.value = m.content || ''
+  previewing.value = false
 }
 
 // 关闭发布/编辑对话框并清空表单
@@ -216,6 +235,7 @@ function closeDialog() {
   editingMessage.value = null
   publishTitle.value = ''
   publishContent.value = ''
+  previewing.value = false
 }
 
 // 点击标题行：未读则先发送已读请求，再关闭消息盒并打开详情窗口
@@ -323,7 +343,7 @@ defineExpose({ close })
               <span class="read-all-text">{{ t('message.markAllRead') }}</span>
             </button>
             <!-- 管理员：发布消息 -->
-            <button v-if="isAdmin" type="button" class="publish-btn" @click="showPublish = true">
+            <button v-if="isAdmin" type="button" class="publish-btn" @click="openPublish">
               <Plus :size="16" />
               <span class="publish-text">{{ t('message.publish') }}</span>
             </button>
@@ -411,11 +431,25 @@ defineExpose({ close })
             :placeholder="t('message.titlePlaceholder')"
           />
           <textarea
+            v-if="!previewing"
             v-model="publishContent"
             class="publish-input"
             :placeholder="t('message.publishPlaceholder')"
           ></textarea>
+          <div v-else class="publish-preview md-content" v-html="previewHtml"></div>
           <div class="publish-actions">
+            <button
+              type="button"
+              class="btn preview-toggle"
+              :class="{ active: previewing }"
+              :disabled="publishing"
+              @click="togglePreview"
+            >
+              <Eye v-if="!previewing" :size="16" />
+              <Pencil v-else :size="16" />
+              {{ previewing ? t('message.edit') : t('message.preview') }}
+            </button>
+            <span class="publish-spacer"></span>
             <button type="button" class="btn cancel" :disabled="publishing" @click="closeDialog">
               {{ t('admin.cancel') }}
             </button>
@@ -721,7 +755,12 @@ defineExpose({ close })
 }
 
 .publish-dialog {
-  width: min(520px, 100%);
+  width: min(760px, 100%);
+  height: min(78vh, 680px);
+  max-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
   padding: 24px;
   border-radius: 16px;
   /* 与消息盒一致的毛玻璃半透明背景 */
@@ -731,15 +770,18 @@ defineExpose({ close })
   backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
+  overflow: hidden;
 }
 
 .publish-title {
+  flex-shrink: 0;
   margin: 0 0 16px;
   font-size: 18px;
   font-weight: 700;
 }
 
 .publish-title-input {
+  flex-shrink: 0;
   width: 100%;
   box-sizing: border-box;
   padding: 12px 14px;
@@ -759,9 +801,10 @@ defineExpose({ close })
 }
 
 .publish-input {
+  flex: 1 1 auto;
   width: 100%;
+  min-height: 0;
   box-sizing: border-box;
-  min-height: 160px;
   padding: 12px 14px;
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.25);
@@ -769,7 +812,7 @@ defineExpose({ close })
   color: var(--text-color);
   font: inherit;
   line-height: 1.6;
-  resize: vertical;
+  resize: none;
   outline: none;
   transition: border-color 0.2s ease;
 }
@@ -778,12 +821,29 @@ defineExpose({ close })
   border-color: var(--text-color);
 }
 
+/* 预览：与编辑区同尺寸，内容多时内部滚动 */
+.publish-preview {
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  overflow-y: auto;
+}
+
 /* 按钮靠左：取消在前，发布在后 */
 .publish-actions {
+  flex-shrink: 0;
   display: flex;
+  align-items: center;
   justify-content: flex-start;
   gap: 10px;
   margin-top: 16px;
+}
+
+.publish-spacer {
+  flex: 1;
 }
 
 .btn {
@@ -809,6 +869,40 @@ defineExpose({ close })
   border: none;
   background: var(--text-color);
   color: var(--bg-color);
+}
+
+/* 预览切换按钮：轻量描边样式，预览态高亮 */
+.btn.preview-toggle {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: transparent;
+  color: var(--links-color);
+}
+
+.btn.preview-toggle:hover,
+.btn.preview-toggle.active {
+  color: var(--text-color);
+}
+
+.btn.preview-toggle.active {
+  background: var(--float-bg);
+}
+
+/* 手机端：发布/编辑对话框保持底部弹层，但高度加大到 70vh 便于编辑与预览 */
+@media (max-width: 768px) {
+  .publish-dialog {
+    height: 70vh;
+    max-height: 80vh;
+    padding: 18px 16px;
+  }
+
+  .publish-title {
+    margin-bottom: 12px;
+    font-size: 17px;
+  }
+
+  .publish-actions {
+    flex-wrap: wrap;
+  }
 }
 
 .btn:disabled {

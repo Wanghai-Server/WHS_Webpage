@@ -3,7 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { animate, stagger } from 'animejs'
-import { User, Mail, X, Search } from 'lucide-vue-next'
+import { User, Mail, Search } from 'lucide-vue-next'
 import MessageBox from './message_box.vue'
 import MessageDetail from './message_detail.vue'
 import UserDropdown from './user_dropdown.vue'
@@ -104,16 +104,11 @@ function closeUserMenu() {
   }, 150)
 }
 
-// 点击消息图标：关闭时打开，打开时（图标变为叉）关闭
-function toggleMessages() {
-  if (showMessages.value) {
-    messageBoxRef.value?.close()
-  } else {
-    // 正常入口打开：播放弹出动画，并刷新未读数
-    messageBoxSkipAnim.value = false
-    showMessages.value = true
-    fetchUnreadCount()
-  }
+// 点击消息图标：打开消息盒（图标固定为「消息」，关闭交给消息盒右上角的 ×）
+function openMessages() {
+  messageBoxSkipAnim.value = false
+  showMessages.value = true
+  fetchUnreadCount()
 }
 
 // 未读系统消息数（红点）
@@ -423,10 +418,9 @@ onUnmounted(() => {
     class="message-fab"
     :class="{ attached: scrolled }"
     :aria-label="t('message.title')"
-    @click="toggleMessages"
+    @click="openMessages"
   >
-    <X v-if="showMessages" :size="22" />
-    <Mail v-else :size="22" />
+    <Mail :size="22" />
     <!-- 未读小红点（未登录/查看消息时不显示） -->
     <span
       v-if="unreadCount > 0 && !showMessages && !activeMessage"
@@ -646,12 +640,13 @@ onUnmounted(() => {
   color: var(--text-color);
 }
 
-/* 消息图标：页首/移动端在屏幕左下角，桌面端滚动后吸附到导航栏左侧 */
+/* 消息图标：页首/移动端在屏幕左下角，桌面端滚动后吸附到导航栏左侧。
+   层级低于消息盒 / 消息详情遮罩（z-index 3000），打开时不会浮在弹层之上 */
 .message-fab {
   position: fixed;
   top: calc(100vh - 72px); /* 24px 下边距 + 48px 高度 */
   left: 24px;
-  z-index: 4000;
+  z-index: 2500;
 
   display: flex;
   align-items: center;

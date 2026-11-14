@@ -388,6 +388,7 @@
         "close": "Close",
         "publish": "Publish",
         "publishPlaceholder": "Enter system message content (Markdown supported)",
+        "preview": "Preview",
         "titlePlaceholder": "Message title",
         "titleEmpty": "Message title cannot be empty",
         "untitled": "Untitled",
