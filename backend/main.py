@@ -158,10 +158,19 @@ def _b64url_decode(s: str) -> bytes:
     return base64.urlsafe_b64decode(s + pad)
 
 
-def create_token(uid: int, ttl: int = 7 * 24 * 3600) -> str:
-    """签发一个轻量 HMAC-SHA256 令牌（JWT 风格，无第三方依赖）。"""
+def create_token(uid: int, ttl: int = 7 * 24 * 3600, purpose: str = "session") -> str:
+    """签发一个轻量 HMAC-SHA256 令牌（JWT 风格，无第三方依赖）。
+
+    ``purpose`` 区分令牌用途：``session`` 为正常登录令牌，``mfa`` 为
+    通过密码校验后、仅用于完成二次验证的短期令牌（不会授予任何接口权限）。
+    """
     header = {"alg": "HS256", "typ": "JWT"}
-    payload = {"uid": uid, "exp": int(time.time()) + ttl}
+    payload = {
+        "uid": uid,
+        "exp": int(time.time()) + ttl,
+        "purpose": purpose,
+        "jti": secrets.token_hex(8),
+    }
     h = _b64url(json.dumps(header, separators=(",", ":")).encode())
     p = _b64url(json.dumps(payload, separators=(",", ":")).encode())
     sig = hmac.new(_token_secret().encode(), f"{h}.{p}".encode(), hashlib.sha256).digest()
@@ -183,6 +192,38 @@ def verify_token(token: str) -> dict | None:
         return None
 
 
+# 已使用的 MFA 令牌 jti -> 过期时间：一次性令牌，防止重放。
+_MFA_USED_JTI: dict[str, int] = {}
+
+
+def create_mfa_token(uid: int, ttl: int = 300) -> str:
+    """签发仅用于完成二次验证的短期令牌（默认 5 分钟）。"""
+    return create_token(uid, ttl, purpose="mfa")
+
+
+def verify_mfa_token(token: str) -> dict | None:
+    """校验 MFA 令牌（必须是 ``purpose == "mfa"``，且未过期）。"""
+    payload = verify_token(token)
+    if payload is None or payload.get("purpose") != "mfa":
+        return None
+    return payload
+
+
+def consume_mfa_token(token: str) -> dict | None:
+    """校验并作废 MFA 令牌（一次性）；失败返回 None。"""
+    payload = verify_mfa_token(token)
+    if payload is None:
+        return None
+    jti = payload.get("jti")
+    now = int(time.time())
+    for key in [k for k, exp in _MFA_USED_JTI.items() if exp < now]:
+        _MFA_USED_JTI.pop(key, None)
+    if not jti or jti in _MFA_USED_JTI:
+        return None
+    _MFA_USED_JTI[jti] = int(payload.get("exp") or now)
+    return payload
+
+
 def _hash_password(client_hash: str) -> str:
     """给前端传来的 sha256 哈希加盐，返回 "<salt>$<salted_hash>"。"""
     salt = secrets.token_hex(16)
@@ -201,8 +242,12 @@ def _verify_password(stored: str, client_hash: str) -> bool:
 
 
 def _public_user(user: dict) -> dict:
-    """去除 password 哈希，只返回可对外暴露的字段。"""
-    return {k: v for k, v in user.items() if k != "password"}
+    """去除 password 哈希与 MFA 敏感字段，只返回可对外暴露的字段。"""
+    return {
+        k: v
+        for k, v in user.items()
+        if k != "password" and not k.startswith("mfa_")
+    }
 
 
 def _find_by_identifier(identifier: str):
@@ -257,6 +302,9 @@ def get_current_user(authorization: str = Header(None)):
         return None
     payload = verify_token(authorization[7:])
     if payload is None:
+        return None
+    # MFA 一次性令牌只能用于完成二次验证，不能作为登录态访问接口
+    if payload.get("purpose", "session") != "session":
         return None
     user = user_db.get_user(uid=payload.get("uid"))
     if user is None:
@@ -359,6 +407,13 @@ def _clear_failures(uid: int) -> None:
     _login_failures.pop(str(uid), None)
 
 
+def _clear_code_failures(uid: int) -> None:
+    """验证码校验通过后清零验证码失败计数，避免零星输错累积成锁号。"""
+    entry = _login_failures.get(str(uid))
+    if entry:
+        entry["code"] = 0
+
+
 # 汇总双语错误消息（数据库错误 + 后端错误）。
 ERROR_MESSAGES = {
     **USER_DB_ERROR_MESSAGES,
@@ -378,6 +433,38 @@ ERROR_MESSAGES = {
     "code_invalid": {
         "zh": "验证码错误或已过期",
         "en": "Verification code is invalid or expired",
+    },
+    "mfa_code_invalid": {
+        "zh": "验证码错误或已过期",
+        "en": "Verification code is invalid or expired",
+    },
+    "mfa_token_invalid": {
+        "zh": "二次验证已过期，请重新登录",
+        "en": "Two-step verification expired, please sign in again",
+    },
+    "mfa_not_enabled": {
+        "zh": "该账号未启用双重验证",
+        "en": "Two-step verification is not enabled for this account",
+    },
+    "mfa_recovery_invalid": {
+        "zh": "恢复码无效或已被使用",
+        "en": "Recovery code is invalid or already used",
+    },
+    "mfa_ms_not_configured": {
+        "zh": "站点尚未配置微软账号登录，请联系管理员",
+        "en": "Microsoft sign-in is not configured on this site",
+    },
+    "mfa_ms_unavailable": {
+        "zh": "暂时无法连接微软登录服务，请稍后再试",
+        "en": "Microsoft sign-in service is temporarily unavailable",
+    },
+    "mfa_ms_challenge_invalid": {
+        "zh": "微软验证请求已失效，请重新发起",
+        "en": "Microsoft verification request expired, please start again",
+    },
+    "mfa_ms_account_mismatch": {
+        "zh": "微软账号与已绑定的账号不一致",
+        "en": "Microsoft account does not match the bound account",
     },
     "captcha_invalid": {
         "zh": "人机验证未通过",
@@ -611,6 +698,14 @@ ERROR_STATUS: dict[str, int] = {
     "avatar_unsupported_type": 400,
     "avatar_not_found": 404,
     "code_invalid": 400,
+    "mfa_code_invalid": 400,
+    "mfa_token_invalid": 401,
+    "mfa_not_enabled": 400,
+    "mfa_recovery_invalid": 400,
+    "mfa_ms_not_configured": 400,
+    "mfa_ms_unavailable": 502,
+    "mfa_ms_challenge_invalid": 400,
+    "mfa_ms_account_mismatch": 403,
     "captcha_invalid": 400,
     "invalid_credentials": 401,
     "unauthorized": 401,
@@ -712,14 +807,20 @@ async def lifespan(app: FastAPI):
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）
-    await ws_server.start()
-    ws_serve_task = asyncio.create_task(ws_server.wait_until_closed())
+    # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）。
+    # 该服务只是插件通道，端口被占用时不应阻断主服务，否则旧进程占着端口会让新代码
+    # 静默启动失败，用户仍然在同一端口上访问到旧实例。
+    ws_serve_task = None
+    try:
+        await ws_server.start()
+        ws_serve_task = asyncio.create_task(ws_server.wait_until_closed())
+    except OSError as exc:
+        print(f"[ws-server] 启动失败（端口可能被占用）：{exc}，主服务继续运行", flush=True)
 
     yield
 
-    await ws_server.stop()
     if ws_serve_task:
+        await ws_server.stop()
         await ws_serve_task
     user_db.close()
     user_info_db.close()
@@ -1062,6 +1163,7 @@ from api.avatar import router as avatar_router
 from api.exam import router as exam_router
 from api.feedback import router as feedback_router
 from api.message import router as message_router
+from api.mfa import router as mfa_router
 from api.search import router as search_router
 from api.server import router as server_router
 from api.site import router as site_router
@@ -1070,6 +1172,7 @@ from api.wiki import router as wiki_router
 
 app.include_router(site_router)
 app.include_router(auth_router)
+app.include_router(mfa_router)
 app.include_router(user_router)
 app.include_router(avatar_router)
 app.include_router(message_router)
