@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from data import read_whs_config
+from mfa import ms_configured
 
 router = APIRouter()
 
@@ -19,4 +20,6 @@ def title():
         "hcaptcha_site_key": cfg.get("hcaptcha", {}).get("site_key", ""),
         # 非法链接统一跳转目标（站内路由路径或 http(s):// 外部链接）
         "301": cfg.get("301", ""),
+        # 是否已配置微软账号批准（MFA 的第二种方式）
+        "mfa_ms_available": ms_configured(),
     }

@@ -42,6 +42,14 @@ USER_TABLE_COLUMNS: dict[str, str] = {
     "permission": "INTEGER NOT NULL DEFAULT 1",     # 0=guest 1=user 2=player 3=admin 4=owner
     "locked": "INTEGER NOT NULL DEFAULT 0",         # 0/1，连续输错 5 次后锁定
     "banned": "INTEGER NOT NULL DEFAULT 0",         # 0/1，管理员封禁
+    # ---- 双重验证（MFA）----
+    "mfa_totp_secret": "TEXT",                       # TOTP 共享密钥（base32，未启用时为 NULL）
+    "mfa_totp_confirmed": "INTEGER NOT NULL DEFAULT 0",  # 0=仅生成待确认 1=TOTP 已启用
+    "mfa_ms_oid": "TEXT",                            # 已绑定的微软账号对象 ID（Entra ID oid）
+    "mfa_ms_email": "TEXT",                          # 已绑定微软账号的展示名（邮箱 / UPN）
+    "mfa_ms_confirmed": "INTEGER NOT NULL DEFAULT 0",    # 0/1，微软账号批准是否已启用
+    "mfa_recovery": "TEXT",                          # JSON 数组：恢复码的 "<salt>$<hash>" 列表
+    "mfa_last_step": "INTEGER NOT NULL DEFAULT 0",   # 上次通过的 TOTP 时间步（防同码重放）
 }
 
 
@@ -436,6 +444,100 @@ class UserDatabase(BasicDatabase):
             (1 if banned else 0, uid),
         )
         self._conn.commit()
+
+    # ------------------------------------------------------------------
+    # 双重验证（MFA）：TOTP / 微软账号批准 / 恢复码
+    # ------------------------------------------------------------------
+
+    _MFA_FIELDS = (
+        "mfa_totp_secret",
+        "mfa_totp_confirmed",
+        "mfa_ms_oid",
+        "mfa_ms_email",
+        "mfa_ms_confirmed",
+        "mfa_recovery",
+        "mfa_last_step",
+    )
+
+    def get_mfa(self, uid: int) -> dict[str, Any]:
+        """读取指定用户的 MFA 字段；用户不存在返回空字典。"""
+        user = self.get_user(uid=uid)
+        if user is None:
+            return {}
+        return {k: user.get(k) for k in self._MFA_FIELDS}
+
+    def _set_mfa_fields(self, uid: int, **fields: Any) -> None:
+        """按列更新 MFA 字段（仅允许 ``_MFA_FIELDS`` 中的列）。"""
+        assignments = []
+        values: list[Any] = []
+        for key, value in fields.items():
+            if key not in self._MFA_FIELDS:
+                raise ValueError(f"非法的 MFA 字段: {key!r}")
+            assignments.append(f"{key} = ?")
+            values.append(value)
+        if not assignments:
+            return
+        if self.get_user(uid=uid) is None:
+            raise UserNotFoundError(f"uid={uid} 的用户不存在")
+        values.append(uid)
+        self._conn.execute(
+            f"UPDATE {self.TABLE_NAME} SET {', '.join(assignments)} WHERE uid = ?",
+            values,
+        )
+        self._conn.commit()
+
+    def set_totp_secret(self, uid: int, secret: str, *, confirmed: bool = False) -> None:
+        """保存 TOTP 密钥（``confirmed=False`` 表示尚未完成首次验证）。"""
+        self._set_mfa_fields(
+            uid,
+            mfa_totp_secret=secret,
+            mfa_totp_confirmed=1 if confirmed else 0,
+            mfa_last_step=0,
+        )
+
+    def confirm_totp(self, uid: int) -> None:
+        """把已保存的 TOTP 密钥标记为启用。"""
+        self._set_mfa_fields(uid, mfa_totp_confirmed=1)
+
+    def clear_totp(self, uid: int) -> None:
+        """清除 TOTP 密钥与启用状态。"""
+        self._set_mfa_fields(uid, mfa_totp_secret=None, mfa_totp_confirmed=0, mfa_last_step=0)
+
+    def set_ms_account(self, uid: int, oid: str, email: str, *, confirmed: bool = False) -> None:
+        """保存绑定的微软账号（``oid`` 为 Entra ID 对象 ID，唯一标识账号）。"""
+        self._set_mfa_fields(
+            uid,
+            mfa_ms_oid=oid,
+            mfa_ms_email=email,
+            mfa_ms_confirmed=1 if confirmed else 0,
+        )
+
+    def confirm_ms(self, uid: int) -> None:
+        """把已绑定的微软账号标记为启用。"""
+        self._set_mfa_fields(uid, mfa_ms_confirmed=1)
+
+    def clear_ms(self, uid: int) -> None:
+        """解除微软账号绑定。"""
+        self._set_mfa_fields(uid, mfa_ms_oid=None, mfa_ms_email=None, mfa_ms_confirmed=0)
+
+    def set_recovery(self, uid: int, hashes: list[str]) -> None:
+        """保存恢复码哈希列表（JSON 数组文本）。"""
+        self._set_mfa_fields(uid, mfa_recovery=json.dumps(hashes, ensure_ascii=False))
+
+    def get_recovery(self, uid: int) -> list[str]:
+        """读取恢复码哈希列表；无记录返回空列表。"""
+        raw = self.get_mfa(uid).get("mfa_recovery")
+        if not raw:
+            return []
+        try:
+            data = json.loads(raw)
+        except (TypeError, ValueError):
+            return []
+        return [str(x) for x in data] if isinstance(data, list) else []
+
+    def set_mfa_last_step(self, uid: int, step: int) -> None:
+        """记录最近一次通过的 TOTP 时间步，用于阻止同一验证码重放。"""
+        self._set_mfa_fields(uid, mfa_last_step=int(step))
 
     def delete_user(self, uid: int) -> bool:
         """按 ``uid`` 删除用户，返回是否真的删除了。"""

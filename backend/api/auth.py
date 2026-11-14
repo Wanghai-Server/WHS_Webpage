@@ -25,11 +25,13 @@ from main import (
     _verify_hcaptcha,
     _verify_password,
     check_user_active,
+    create_mfa_token,
     create_token,
     get_current_user,
     user_db,
     user_info_db,
 )
+from mfa import ms_configured
 
 router = APIRouter()
 
@@ -174,6 +176,21 @@ async def login(payload: dict = Body(...)):
         return _error_response("invalid_credentials", 401)
 
     _clear_failures(user["uid"])
+
+    # 已启用双重验证：先返回到二次验证步骤（短期令牌不能直接访问接口）
+    mfa = user_db.get_mfa(user["uid"])
+    methods = {}
+    if mfa.get("mfa_totp_confirmed"):
+        methods["totp"] = True
+    if mfa.get("mfa_ms_confirmed") and ms_configured():
+        methods["microsoft"] = True
+    if methods:
+        return {
+            "mfa_required": True,
+            "mfa_token": create_mfa_token(user["uid"]),
+            "methods": methods,
+        }
+
     return {"token": create_token(user["uid"]), "user": _public_user(user)}
 
 

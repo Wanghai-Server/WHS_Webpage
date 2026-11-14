@@ -25,6 +25,10 @@ def _secret_default_config() -> dict:
         "server": {"host": "h1.getmc.cn", "port": 31410, "timeout": 5},
         # MCDR 插件通信的 WS 服务端口（仅监听环回地址 127.0.0.1）
         "ws_port": 8765,
+        # 微软账号批准（Microsoft Entra ID 设备码流程）。
+        # client_id 需在 Entra 管理中心注册应用后填写；tenant_id 保持 common
+        # 可同时支持个人微软账号与工作/学校账号。
+        "microsoft": {"tenant_id": "common", "client_id": ""},
     }
 
 

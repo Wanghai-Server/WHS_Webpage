@@ -7,6 +7,7 @@ import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import ChangePassword from './change_password.vue'
 import CancelAccount from './cancel_account.vue'
 import ManageAccounts from './manage_accounts.vue'
+import MfaSettings from './mfa_settings.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
@@ -446,6 +447,9 @@ onUnmounted(() => {
 
     <!-- 管理游戏账户（主账号 + 小号 + 正版标签） -->
     <ManageAccounts :user="user" />
+
+    <!-- 双重验证（仅本人：验证器 App / 微软账号批准） -->
+    <MfaSettings v-if="user.is_self" />
 
     <!-- 行式修改模块：头像 / 邮箱 / 密码 -->
     <div class="settings-card load-in" style="--load-delay: 160ms">
