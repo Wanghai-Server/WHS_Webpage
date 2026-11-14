@@ -90,6 +90,7 @@ onMounted(fetchStatus)
 // 验证器 App（TOTP）
 // ---------------------------------------------------------------------------
 async function openTotpSetup() {
+  if (submitting.value) return
   submitting.value = true
   try {
     setupData.value = await request('/api/user/mfa/totp/setup', {})
@@ -151,7 +152,7 @@ function stopMsTimers() {
 }
 
 async function startMsBind() {
-  if (msWaiting.value) return
+  if (submitting.value || msWaiting.value) return
   submitting.value = true
   try {
     const data = await request('/api/user/mfa/ms/bind/start', {})
