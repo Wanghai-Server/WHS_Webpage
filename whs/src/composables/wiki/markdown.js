@@ -9,6 +9,7 @@
  * - 外链自动 target="_blank" rel="noopener"。
  */
 import MarkdownIt from 'markdown-it'
+import { colorCodesPlugin } from '../markdown/colorCodes'
 
 // 标题文本 -> 稳定的 slug 化 id（保留中文/字母/数字，其余折叠为 '-'）
 function slugifyHeading(text) {
@@ -65,6 +66,8 @@ function headingIdsPlugin(md) {
 
 function createMarkdownRenderer() {
   const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+  // MC 风格 § 颜色 / 格式代码（全站 Markdown 通用；html:false 下输出受控 span）
+  colorCodesPlugin(md)
   headingIdsPlugin(md)
 
   // 外链新标签打开

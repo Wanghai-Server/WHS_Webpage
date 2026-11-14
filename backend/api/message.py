@@ -53,6 +53,15 @@ def mark_message_read(message_id: int, user: dict | None = Depends(get_current_u
     return {"success": True, "is_read": True}
 
 
+@router.post("/api/message/read_all")
+def mark_all_messages_read(user: dict | None = Depends(get_current_user)):
+    """把当前用户可见的全部消息（系统 + 定向）标记为已读（幂等）→「全部已读」。"""
+    if user is None:
+        return _error_response("unauthorized", 401)
+    marked = message_db.mark_all_read(user["uid"])
+    return {"success": True, "marked": marked, "unread_count": 0}
+
+
 @router.post("/api/admin/messages")
 def publish_message(payload: dict = Body(...), user: dict | None = Depends(get_current_user)):
     """管理员发布系统消息（标题 + Markdown 内容）。"""

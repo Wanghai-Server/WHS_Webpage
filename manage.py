@@ -2,7 +2,7 @@
 """WHS Webpage 前后端统一启动管理器。
 
 启动后同时托管两个子进程：
-- 后端：backend/venv 的解释器运行 uvicorn（127.0.0.1:8000，dev 模式带 --reload）；
+- 后端：backend/venv 的解释器运行 uvicorn（127.0.0.1:7777，dev 模式带 --reload）；
 - 前端：whs/ 目录下运行 Vite
     dev  模式 -> npm run dev（开发服务器，5173）
     prod 模式 -> 先 npm run build，再 npm run preview（dist 产物 + /api 代理，5173）
@@ -34,7 +34,7 @@ import threading
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
-# 项目路径与端口约定（后端 8000 见 vite.config.js 的代理配置，前端 5173 见 whs/package.json）
+# 项目路径与端口约定（后端 7777 见 vite.config.js 的代理配置，前端 5173 见 whs/package.json）
 # ---------------------------------------------------------------------------
 ROOT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT_DIR / "backend"
@@ -42,7 +42,7 @@ FRONTEND_DIR = ROOT_DIR / "whs"
 LOG_DIR = ROOT_DIR / "logs"
 
 BACKEND_HOST = "127.0.0.1"
-BACKEND_PORT = 8000
+BACKEND_PORT = 7777
 FRONTEND_PORT = 5173
 BACKEND_URL = f"http://{BACKEND_HOST}:{BACKEND_PORT}"
 FRONTEND_URL = f"http://localhost:{FRONTEND_PORT}"

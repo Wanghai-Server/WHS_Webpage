@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Trash2, X, Check, Pencil } from 'lucide-vue-next'
+import { Plus, Trash2, X, Check, Pencil, BrushCleaning } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 
@@ -105,6 +105,35 @@ async function markRead(m) {
     }
   } finally {
     busyMessageId.value = null
+  }
+}
+
+// 「全部已读」：一次清除当前用户的全部未读（系统 + 定向消息）
+const markingAllRead = ref(false)
+const hasUnread = computed(() => isLoggedIn.value && messages.value.some((m) => !m.is_read))
+
+async function markAllRead() {
+  if (!hasUnread.value || markingAllRead.value) return
+  markingAllRead.value = true
+  try {
+    const res = await fetch('/api/message/read_all', {
+      method: 'POST',
+      headers: authHeaders(),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok) {
+      messages.value = messages.value.map((m) => ({ ...m, is_read: true }))
+      messages.value.sort((a, b) => Number(b.id) - Number(a.id))
+      emit('read-changed')
+      showTip('info', t('message.allReadDone'))
+    } else {
+      showTip('error', localMessage(data))
+    }
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
+  } finally {
+    markingAllRead.value = false
   }
 }
 
@@ -274,15 +303,29 @@ defineExpose({ close })
       :appear="!props.skipOpenAnimation"
       @after-leave="emit('close')"
     >
-      <div v-if="visible" class="message-overlay" @click.self="close">
+      <div v-if="visible" class="message-overlay">
         <div class="message-box">
         <header class="message-head">
           <h2>{{ t('message.title') }}</h2>
           <div class="head-actions">
+            <!-- 全部已读：一次性清除未读（透明背景、无边框；手机端仅图标） -->
+            <button
+              v-if="isLoggedIn"
+              type="button"
+              class="read-all-btn"
+              :disabled="!hasUnread || markingAllRead"
+              :aria-label="t('message.markAllRead')"
+              :title="t('message.markAllRead')"
+              @click="markAllRead"
+            >
+              <span v-if="markingAllRead" class="spinner"></span>
+              <BrushCleaning v-else :size="16" class="read-all-icon" />
+              <span class="read-all-text">{{ t('message.markAllRead') }}</span>
+            </button>
             <!-- 管理员：发布消息 -->
             <button v-if="isAdmin" type="button" class="publish-btn" @click="showPublish = true">
               <Plus :size="16" />
-              <span>{{ t('message.publish') }}</span>
+              <span class="publish-text">{{ t('message.publish') }}</span>
             </button>
             <button type="button" class="head-close" :aria-label="t('message.close')" @click="close">
               <X :size="18" />
@@ -356,7 +399,6 @@ defineExpose({ close })
       <div
         v-if="showPublish || editingMessage"
         class="publish-overlay"
-        @click.self="closeDialog"
       >
         <div class="publish-dialog">
           <h3 class="publish-title">
@@ -397,8 +439,8 @@ defineExpose({ close })
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .message-box {
@@ -409,8 +451,8 @@ defineExpose({ close })
   flex-direction: column;
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   color: var(--text-color);
   border-radius: 16px;
@@ -454,6 +496,44 @@ defineExpose({ close })
 
 .publish-btn:hover {
   background: #d99a1f;
+}
+
+/* 全部已读：透明背景 + 无边框，图标与文字垂直居中对齐 */
+.read-all-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--links-color);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.read-all-btn:hover:not(:disabled) {
+  background: var(--float-bg);
+  color: var(--text-color);
+}
+
+.read-all-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.read-all-icon {
+  display: block;
+  flex-shrink: 0;
+}
+
+.read-all-text {
+  white-space: nowrap;
 }
 
 .head-close {
@@ -636,8 +716,8 @@ defineExpose({ close })
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .publish-dialog {
@@ -647,8 +727,8 @@ defineExpose({ close })
   /* 与消息盒一致的毛玻璃半透明背景 */
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
 }
@@ -734,5 +814,26 @@ defineExpose({ close })
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 手机端：发布消息 / 全部已读 只显示图标，可点热区 44×44 */
+@media (max-width: 768px) {
+  .head-actions {
+    gap: 6px;
+  }
+
+  .publish-btn,
+  .read-all-btn {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    gap: 0;
+    justify-content: center;
+  }
+
+  .publish-btn .publish-text,
+  .read-all-btn .read-all-text {
+    display: none;
+  }
 }
 </style>

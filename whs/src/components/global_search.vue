@@ -240,8 +240,8 @@ watch(lang, () => {
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 16px;
   background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14);
 }
 

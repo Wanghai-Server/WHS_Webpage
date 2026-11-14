@@ -70,7 +70,7 @@ async function submit() {
   try {
     let body
     if (mode.value === 'account') {
-      if (!identifier.value.trim()) { showTip('warning', t('auth.email_required')); return }
+      if (!identifier.value.trim()) { showTip('warning', t('auth.identifier_required')); return }
       if (!password.value) { showTip('warning', t('auth.password_required')); return }
       if (!PASSWORD_ASCII_RE.test(password.value)) { showTip('warning', t('auth.password_ascii')); return }
       const passwordHash = await sha256(password.value)

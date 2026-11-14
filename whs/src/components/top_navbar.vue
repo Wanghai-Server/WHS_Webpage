@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { animate, stagger } from 'animejs'
 import { User, Mail, X, Search } from 'lucide-vue-next'
@@ -16,7 +16,11 @@ const props = defineProps({
 
 const { t } = useI18n()
 const router = useRouter()
+const route = useRoute()
 const { state: authState } = useAuth()
+
+// 首页首屏（路由为 / 且导航栏未滚动）时导航栏透明：浅色主题下需要额外对比保护（见样式）
+const isHome = computed(() => route.path === '/')
 
 // 移动端搜索按钮：直接跳转到全量搜索页（桌面端仍使用 GlobalSearch 的小面板）
 function goSearch() {
@@ -321,7 +325,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <header class="navbar" :class="{ scrolled }" ref="navbarRef">
+  <header class="navbar" :class="{ scrolled, 'home-hero': isHome && !scrolled }" ref="navbarRef">
     <!-- 移动端左侧：折叠按钮（桌面端隐藏） -->
     <button class="menu-toggle" :aria-label="t('nav.menu')" @click="toggleMenu">
       <span>{{ menuOpen ? '✕' : '☰' }}</span>
@@ -458,9 +462,9 @@ onUnmounted(() => {
   transform: translateX(-50%);
   z-index: 1000;
 
-  /* 细长尺寸：高度 48px，长度（宽度）较大 */
+  /* 细长尺寸：高度 48px，铺开时宽度占屏幕 90% */
   height: 48px;
-  width: min(1080px, 90%);
+  width: 90%;
   border-radius: 999px;
   box-sizing: border-box;
 
@@ -473,8 +477,8 @@ onUnmounted(() => {
   background-color: transparent;
   border: 1px solid transparent;
   box-shadow: none;
-  backdrop-filter: blur(0px);
   -webkit-backdrop-filter: blur(0px);
+  backdrop-filter: blur(0px);
 
   transition:
     width 0.4s ease,
@@ -485,14 +489,14 @@ onUnmounted(() => {
     -webkit-backdrop-filter 0.4s ease;
 }
 
-/* 脱离状态：半透明 + 毛玻璃，长度变短 */
+/* 脱离状态：半透明 + 毛玻璃，长度变短（收缩为屏幕 70%） */
 .navbar.scrolled {
-  width: min(720px, 72%);
+  width: 70%;
   background-color: var(--navbar-bg);
   border-color: rgba(148, 163, 184, 0.15);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
 }
 
 .logo {
@@ -629,8 +633,8 @@ onUnmounted(() => {
 
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   color: var(--text-color);
 
@@ -658,8 +662,8 @@ onUnmounted(() => {
 
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   color: var(--text-color);
   cursor: pointer;
@@ -696,7 +700,8 @@ onUnmounted(() => {
 /* 桌面端滚动后：吸附到导航栏左侧（镜像右侧用户圆，12px 间距） */
 .message-fab.attached {
   top: 16px;
-  left: calc(50% - min(360px, 36%) - 60px);
+  /* 收缩后导航为屏幕 70%：胶囊左缘在 15% 处，消息圆贴其左侧 12px（48px 圆 + 12px 间隔） */
+  left: calc(15% - 60px);
 }
 
 /* 头像图 */
@@ -749,6 +754,53 @@ onUnmounted(() => {
   color: var(--text-color);
 }
 
+/* P2 对比保护：浅色主题 + 首页首屏（导航栏未滚动、透明状态）。
+   首页 hero 背景 = 随机截图 × 55% 黑色遮罩，实测 44 张随机素材在该状态的等效背景
+   亮度恒为深色（相对亮度 ≤0.09），此时再把文字「加深」反而会不可读；因此将导航前景
+   改为近白色并加轻微深色投影，保证压在任意随机背景图上清晰可读。深色主题 / 其他页面 /
+   滚动后均不命中这些规则，保持原样；只改颜色与阴影，不影响布局与尺寸。 */
+.navbar.home-hero .links a,
+.navbar.home-hero .login-btn,
+.navbar.home-hero .menu-toggle,
+.navbar.home-hero .search-mobile,
+.navbar.home-hero .login-mobile {
+  color: var(--hero-fg, var(--links-color));
+  text-shadow: var(--hero-shadow, none);
+}
+
+.navbar.home-hero .links a:hover,
+.navbar.home-hero .login-btn:hover,
+.navbar.home-hero .menu-toggle:hover,
+.navbar.home-hero .search-mobile:hover,
+.navbar.home-hero .login-mobile:hover {
+  color: var(--hero-fg-hover, var(--text-color));
+}
+
+/* LOGO 文字与顶部搜索图标同属导航前景，一并做对比保护（图标视觉尺寸不变） */
+.navbar.home-hero .logo,
+.navbar.home-hero :deep(.gs-toggle) {
+  color: var(--hero-fg-nav, var(--text-color));
+  text-shadow: var(--hero-shadow, none);
+}
+
+/* 显式选择「浅色」主题（html.light） */
+:global(html.light .navbar.home-hero) {
+  --hero-fg: #f8fafc;
+  --hero-fg-hover: #ffffff;
+  --hero-fg-nav: #f8fafc;
+  --hero-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 3px rgba(0, 0, 0, 0.4);
+}
+
+/* 「跟随系统」且系统为亮色时（html 上没有 light/dark 类）同样需要对比保护 */
+@media (prefers-color-scheme: light) {
+  :global(html:not(.light):not(.dark) .navbar.home-hero) {
+    --hero-fg: #f8fafc;
+    --hero-fg-hover: #ffffff;
+    --hero-fg-nav: #f8fafc;
+    --hero-shadow: 0 1px 2px rgba(0, 0, 0, 0.6), 0 0 3px rgba(0, 0, 0, 0.4);
+  }
+}
+
 /* 移动端右侧操作区：搜索按钮 + 登录/头像（桌面端隐藏） */
 .mobile-actions {
   display: none;
@@ -797,8 +849,8 @@ onUnmounted(() => {
 
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
 }
@@ -864,6 +916,11 @@ onUnmounted(() => {
     padding: 0 16px;
   }
 
+  /* 手机端保持原有收缩宽度（桌面端收缩为屏幕 70%） */
+  .navbar.scrolled {
+    width: min(720px, 72%);
+  }
+
   .menu-toggle {
     display: flex;
     justify-self: start;
@@ -893,6 +950,24 @@ onUnmounted(() => {
 
   .login-mobile {
     display: inline-flex;
+  }
+
+  /* P2：搜索按钮与登录/注册（含已登录头像）可点热区 ≥44×44px。
+     只扩展命中区域（min-size + padding + 居中），图标与文字视觉大小不变；
+     桌面端位于媒体查询外，保持原热区。 */
+  .search-mobile {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .login-mobile {
+    justify-content: center;
+    box-sizing: border-box;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 2px;
   }
 
   /* 移动端消息图标始终固定在左下角，不吸附 */

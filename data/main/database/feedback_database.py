@@ -17,6 +17,7 @@ import re
 from typing import Any
 
 from .user_database import UserDatabase
+from .text_utils import strip_mc_color_codes
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -73,6 +74,7 @@ def _escape_like(text: str) -> str:
 
 def _strip_markdown(text: str) -> str:
     """粗略剥离 Markdown 标记，用于列表摘要展示。"""
+    text = strip_mc_color_codes(text)
     text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"`([^`]*)`", r"\1", text)
@@ -207,8 +209,10 @@ class FeedbackDatabase(UserDatabase):
         返回 ``{"total", "page", "page_size", "items"}``；每项附带 ``excerpt``
         与 ``comment_count``。
         """
-        page = max(1, int(page or 1))
-        page_size = min(max(1, int(page_size or DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
+        page = max(1, int(page)) if page is not None else 1
+        if page_size is None:
+            page_size = DEFAULT_PAGE_SIZE
+        page_size = min(max(1, int(page_size)), MAX_PAGE_SIZE)
         where: list[str] = []
         params: list[Any] = []
         if status:
@@ -231,10 +235,15 @@ class FeedbackDatabase(UserDatabase):
                 f"SELECT COUNT(*) AS n FROM {self.TABLE_NAME} {where_sql}", tuple(params)
             ).fetchone()["n"]
         )
-        rows = self._conn.execute(
-            f"SELECT * FROM {self.TABLE_NAME} {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
-            tuple(params) + (page_size, (page - 1) * page_size),
-        ).fetchall()
+        try:
+            rows = self._conn.execute(
+                f"SELECT * FROM {self.TABLE_NAME} {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
+                tuple(params) + (page_size, (page - 1) * page_size),
+            ).fetchall()
+        except OverflowError:
+            # page 过大时 (page-1)*page_size 超出 SQLite OFFSET 的 64 位整数范围，
+            # 统一转为 400 结构化错误（feedback_page_invalid），不让其冒泡成 500。
+            raise FeedbackDatabaseError("feedback_page_invalid") from None
         items = []
         for row in rows:
             item = self._row_to_dict(row)

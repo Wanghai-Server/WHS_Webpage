@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
+import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 import { ArrowLeft, X } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -13,6 +14,7 @@ const { t } = useI18n()
 
 // Markdown 渲染（html: false 防 XSS）
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+colorCodesPlugin(md)
 
 const visible = ref(true) // 控制进入/离开动画
 const CLOSE_MS = 260
@@ -61,8 +63,8 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="dialog-fade">
-      <div v-if="visible" class="detail-overlay" @click.self="close">
+    <Transition name="dialog-fade" appear>
+      <div v-if="visible" class="detail-overlay">
         <div class="detail-box">
           <header class="detail-head">
             <h2 class="detail-title">{{ title }}</h2>
@@ -108,8 +110,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .detail-box {
@@ -120,8 +122,8 @@ onUnmounted(() => {
   flex-direction: column;
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   color: var(--text-color);
   border-radius: 16px;

@@ -9,6 +9,7 @@ import CancelAccount from './cancel_account.vue'
 import ManageAccounts from './manage_accounts.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
+import { useDialogBox } from '../composables/useDialogBox'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 
 const props = defineProps({
@@ -21,10 +22,17 @@ const { t, locale } = useI18n()
 const router = useRouter()
 const { state: authState, fetchMe, clearAuth } = useAuth()
 const { showTip } = useTips()
+const dialogBox = useDialogBox()
 const hcaptchaSiteKey = useHcaptchaSiteKey()
 
-// 退出登录：清空本地登录态并回到首页（与顶部用户菜单的退出逻辑一致）
-function logout() {
+// 退出登录：先弹全局确认框，确认后才清空本地登录态并回首页（与顶部用户菜单退出逻辑一致）
+async function logout() {
+  const ok = await dialogBox.confirm({
+    title: t('settings.logoutConfirmTitle'),
+    message: t('settings.logoutConfirmMessage'),
+    danger: true,
+  })
+  if (!ok) return
   clearAuth()
   router.push('/')
 }
@@ -504,7 +512,7 @@ onUnmounted(() => {
     <!-- 头像对话框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showAvatarDialog" class="dialog-overlay" @click.self="showAvatarDialog = false">
+        <div v-if="showAvatarDialog" class="dialog-overlay">
         <div class="dialog">
           <h3 class="dialog-title">{{ t('settings.avatar') }}</h3>
           <!-- 大圆形可点击头像框：与 full_user_info.vue 一致 -->
@@ -534,7 +542,7 @@ onUnmounted(() => {
     <!-- 邮箱对话框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showEmailDialog" class="dialog-overlay" @click.self="showEmailDialog = false">
+        <div v-if="showEmailDialog" class="dialog-overlay">
         <div class="dialog">
           <h3 class="dialog-title">{{ t('settings.changeEmail') }}</h3>
           <div class="field">
@@ -829,8 +837,8 @@ onUnmounted(() => {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .dialog {
@@ -843,8 +851,8 @@ onUnmounted(() => {
   border-radius: 16px;
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
 }

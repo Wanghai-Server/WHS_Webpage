@@ -4,7 +4,7 @@
  *
  * - 状态由 useDialogBox 单例持有，本组件在 App.vue 全局挂载一次；
  * - confirm 型：取消 / 确定；alert 型：仅确定；
- * - 支持 danger 危险样式、点击遮罩或按 ESC 取消（均以 false 关闭）。
+ * - 支持 danger 危险样式；点击遮罩不关闭，按 ESC / 取消按钮以 false 关闭。
  */
 import { onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -33,7 +33,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 <template>
   <Teleport to="body">
     <Transition name="dialog-fade">
-      <div v-if="dialog.state.visible" class="dialog-overlay" @click.self="cancel">
+      <div v-if="dialog.state.visible" class="dialog-overlay">
         <div class="dialog-box" role="alertdialog" aria-modal="true">
           <AlertTriangle v-if="dialog.state.danger" :size="26" class="dialog-icon is-danger" />
           <Info v-else :size="26" class="dialog-icon" />
@@ -75,8 +75,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .dialog-box {
@@ -87,8 +87,8 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
   /* 透明背景 + 毛玻璃（与全站导航栏 / 消息弹窗同款） */
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   text-align: center;
 }

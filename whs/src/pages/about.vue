@@ -50,8 +50,13 @@ function roleLabel(role) {
 
 // 团队成员：卡片展示 mc-heads 全身模型图，点击打开 player_info 悬浮窗
 const modelFailed = ref([])
+// 已加载完成的模型图下标：加载完成前显示全站统一 .spinner 占位，避免空白 / 布局跳变
+const modelLoaded = ref([])
 function mcBodyUrl(playerName) {
   return `https://mc-heads.net/body/${encodeURIComponent(String(playerName))}/front/256`
+}
+function onModelLoad(index) {
+  modelLoaded.value[index] = true
 }
 function onModelError(index) {
   modelFailed.value[index] = true
@@ -108,6 +113,8 @@ const membersLoading = ref(false)
 const membersFailed = ref(false)
 // 头像加载失败的玩家名（mc-heads 对离线/未知玩家可能返回 404）→ 显示占位图标
 const avatarFailedNames = ref(new Set())
+// 已加载完成的头像玩家名：加载完成前显示全站统一 .spinner 占位（加载失败仍走上面占位逻辑）
+const avatarLoadedNames = ref(new Set())
 
 function memberAvatar(name) {
   return `https://mc-heads.net/avatar/${encodeURIComponent(String(name))}/96`
@@ -115,6 +122,14 @@ function memberAvatar(name) {
 
 function avatarFailed(name) {
   return avatarFailedNames.value.has(name)
+}
+
+function avatarLoaded(name) {
+  return avatarLoadedNames.value.has(name)
+}
+
+function onAvatarLoad(name) {
+  avatarLoadedNames.value.add(name)
 }
 
 function onAvatarError(name) {
@@ -574,10 +589,19 @@ onUnmounted(() => {
               v-if="!modelFailed[i]"
               :src="mcBodyUrl(m.playerName)"
               :alt="m.name"
+              width="180"
+              height="432"
               loading="lazy"
+              @load="onModelLoad(i)"
               @error="onModelError(i)"
             />
             <span v-else class="team-model-fallback"><User :size="44" /></span>
+            <!-- mc-heads 外链加载完成前：统一 spinner 占位（图片按 180:432 预留尺寸，不布局跳变） -->
+            <span
+              v-if="!modelFailed[i] && !modelLoaded[i]"
+              class="spinner team-model-spinner"
+              aria-hidden="true"
+            ></span>
           </div>
           <div class="team-info">
             <h3>{{ m.name }}</h3>
@@ -627,9 +651,16 @@ onUnmounted(() => {
                 :src="memberAvatar(name)"
                 :alt="name"
                 loading="lazy"
+                @load="onAvatarLoad(name)"
                 @error="onAvatarError(name)"
               />
               <span v-else class="member-avatar-fallback"><User :size="16" /></span>
+              <!-- mc-heads 头像加载完成前：统一 spinner 占位 -->
+              <span
+                v-if="!avatarFailed(name) && !avatarLoaded(name)"
+                class="spinner member-avatar-spinner"
+                aria-hidden="true"
+              ></span>
             </button>
           </div>
         </div>
@@ -1162,6 +1193,17 @@ onUnmounted(() => {
   object-fit: cover;
 }
 
+/* 头像加载中的统一 spinner 占位（绝对居中，不参与布局） */
+.member-avatar-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  margin: -7px 0 0 -7px;
+  color: var(--links-color);
+}
+
 .member-avatar-fallback {
   display: flex;
   align-items: center;
@@ -1422,6 +1464,7 @@ onUnmounted(() => {
 }
 
 .team-model {
+  position: relative;
   flex-shrink: 0;
 }
 
@@ -1429,6 +1472,19 @@ onUnmounted(() => {
   display: block;
   height: 200px;
   width: auto;
+  /* mc-heads 全身图固定 180:432 比例：加载完成前先按该比例占位，避免尺寸从 0 跳变 */
+  aspect-ratio: auto 180 / 432;
+}
+
+/* 模型图加载中的统一 spinner 占位（绝对居中，不参与布局） */
+.team-model-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 22px;
+  height: 22px;
+  margin: -11px 0 0 -11px;
+  color: var(--links-color);
 }
 
 .team-model-fallback {

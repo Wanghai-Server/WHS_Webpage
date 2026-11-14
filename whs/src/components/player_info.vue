@@ -97,7 +97,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="player-modal-overlay" @click.self="emit('close')">
+  <div class="player-modal-overlay">
     <div class="player-modal dialog">
       <div class="player-modal-head">
         <h3>{{ displayName || playerName }}</h3>
@@ -139,8 +139,8 @@ onUnmounted(() => {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 /* .dialog 类复用 style.css 的 dialog-fade 弹出动画 */
@@ -151,8 +151,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 20px;
   overflow: hidden;

@@ -176,7 +176,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
     <!-- 答题卡审阅悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showSheet" class="sheet-overlay" @click.self="showSheet = false">
+        <div v-if="showSheet" class="sheet-overlay">
           <div class="sheet-modal dialog">
             <header class="sheet-head">
               <h3>{{ t('admin.examSheetTitle') }}</h3>
@@ -267,8 +267,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .sheet-modal {
@@ -277,8 +277,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown))
   display: flex;
   flex-direction: column;
   background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 20px;
   overflow: hidden;

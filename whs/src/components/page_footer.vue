@@ -143,8 +143,8 @@ onMounted(() => {
 .footer {
   border-top: 2px solid var(--text-color);
   background: var(--navbar-bg);
-  backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
   padding: 40px 60px 24px;
 }
 

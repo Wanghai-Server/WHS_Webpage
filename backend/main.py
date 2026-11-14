@@ -18,7 +18,9 @@ from email.message import EmailMessage
 from pathlib import Path
 
 from fastapi import FastAPI, Header, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 # 将项目根目录加入 sys.path，以便导入与 backend/ 同级的 data 包。
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -391,6 +393,26 @@ ERROR_MESSAGES = {
         "zh": "未登录或登录已过期",
         "en": "Unauthorized",
     },
+    "invalid_parameter": {
+        "zh": "请求参数不合法",
+        "en": "Invalid request parameters",
+    },
+    "not_found": {
+        "zh": "资源不存在",
+        "en": "Resource not found",
+    },
+    "method_not_allowed": {
+        "zh": "请求方法不允许",
+        "en": "Method not allowed",
+    },
+    "http_error": {
+        "zh": "请求处理失败",
+        "en": "Request failed",
+    },
+    "internal_error": {
+        "zh": "服务器内部错误",
+        "en": "Internal server error",
+    },
     "send_code_too_frequent": {
         "zh": "验证码发送过于频繁，请稍后再试",
         "en": "Verification code sent too frequently, please try again later",
@@ -587,6 +609,14 @@ ERROR_MESSAGES = {
         "zh": "反馈状态不合法",
         "en": "Invalid feedback status",
     },
+    "feedback_invalid_field": {
+        "zh": "反馈内容格式不正确",
+        "en": "Invalid feedback content",
+    },
+    "feedback_page_invalid": {
+        "zh": "分页参数超出范围",
+        "en": "Pagination parameter out of range",
+    },
     "feedback_comment_empty": {
         "zh": "评论内容不能为空",
         "en": "Comment content cannot be empty",
@@ -678,6 +708,8 @@ ERROR_STATUS: dict[str, int] = {
     "feedback_content_too_large": 413,
     "feedback_category_invalid": 400,
     "feedback_status_invalid": 400,
+    "feedback_invalid_field": 400,
+    "feedback_page_invalid": 400,
     "feedback_comment_empty": 400,
     "feedback_comment_too_large": 413,
 }
@@ -778,6 +810,48 @@ async def feedback_database_error_handler(request: Request, exc: FeedbackDatabas
             "message": ERROR_MESSAGES.get(exc.code, _DEFAULT_ERROR_MESSAGE),
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# 全局错误响应统一（README §6.1 约定 {code, message:{zh,en}}）：
+# 未被上面业务错误码覆盖的异常也返回统一结构；成功响应不受影响。
+# 说明：Starlette 按异常 MRO 查找处理器，已注册的业务异常处理器优先命中，
+# 因此下面三个处理器不会覆盖 UserDatabaseError / UserNotActiveError /
+# WikiDatabaseError / FeedbackDatabaseError 等既有行为。
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_error_handler(request: Request, exc: RequestValidationError):
+    """请求参数 / 请求体类型校验失败 → 422 + 结构化双语错误码。"""
+    return _error_response("invalid_parameter", 422)
+
+
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    """框架层 HTTP 异常 → 保留原状态码 + 结构化双语错误码（404 / 405 单独映射）。"""
+    if exc.status_code == 404:
+        code = "not_found"
+    elif exc.status_code == 405:
+        code = "method_not_allowed"
+    else:
+        code = "http_error"
+    response = _error_response(code, exc.status_code)
+    # 保留框架附带响应头（如 405 的 Allow、401 的 WWW-Authenticate）
+    if getattr(exc, "headers", None):
+        response.headers.update(exc.headers)
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """兜底：未预期异常 → 500 + 结构化双语错误码。
+
+    先把完整 traceback 打印到 stdout 便于排查；响应体不泄露内部信息。
+    """
+    traceback.print_exc(file=sys.stdout)
+    return _error_response("internal_error", 500)
+
 
 def _attach_message_author(msg: dict) -> None:
     """把消息的 author_uid 解析为发布者名称（author_name），写入消息字典。"""

@@ -118,6 +118,13 @@ body {
   }
 }
 
+/* 全局确认框（dialog_box.vue）：长标题 + 多行消息兜底，超高时面板内部滚动，保证操作按钮始终可见 */
+.dialog-box {
+  max-height: 80vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* 按钮加载圆环：请求后端并阻塞等待期间显示（颜色跟随 currentColor，适配亮/暗主题） */
 .spinner {
   display: inline-block;
@@ -277,7 +284,7 @@ button.gs-toggle > svg {
 }
 
 /* ==========================================================================
-   手机端（≤768px）弹层标准：从屏幕底部滑出、贴底、最高 80vh、内容超高内部滚动
+   手机端（≤768px）弹层标准：从屏幕底部滑出、贴底、高度 20vh ~ 80vh、内容超高内部滚动
    桌面端（>768px）完全保持原有居中弹窗与动画
    ========================================================================== */
 @keyframes whs-sheet-rise {
@@ -307,7 +314,7 @@ button.gs-toggle > svg {
     padding: 0 !important;
   }
 
-  /* 2) 面板：贴底、全宽、顶部圆角、最高占屏高 80% */
+  /* 2) 面板：贴底、全宽、顶部圆角、高度限制在屏高 20% ~ 80% */
   .overlay > .dialog,
   .dialog-overlay > .dialog,
   .dialog-overlay > .dialog-box,
@@ -324,6 +331,7 @@ button.gs-toggle > svg {
   .modal-overlay > .modal {
     width: 100% !important;
     max-width: 100% !important;
+    min-height: 20vh !important;
     max-height: 80vh !important;
     margin: 0 !important;
     border-radius: 20px 20px 0 0 !important;
@@ -334,6 +342,7 @@ button.gs-toggle > svg {
   /* 3) 内容可能超高的简单弹窗：面板自身滚动 */
   .overlay > .dialog,
   .dialog-overlay > .dialog,
+  .dialog-overlay > .dialog-box,
   .dialog-overlay > .dialog-panel,
   .publish-overlay > .publish-dialog,
   .panel-overlay > .panel,
@@ -424,5 +433,36 @@ button.gs-toggle > svg {
   .modal-overlay > .modal {
     animation: whs-sheet-rise 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
+}
+
+/* ==========================================================================
+   弹层滚动隔离：弹层内部滚动到顶 / 底后，不再把滚动链传给后面的主页面
+   （桌面滚轮与手机触摸均生效；非滚动元素上声明该属性无副作用）
+   ========================================================================== */
+.overlay,
+.dialog-overlay,
+.panel-overlay,
+.sheet-overlay,
+.publish-overlay,
+.message-overlay,
+.detail-overlay,
+.fl-overlay,
+.doc-overlay,
+.player-modal-overlay,
+.modal-overlay,
+.lightbox-overlay,
+.overlay *,
+.dialog-overlay *,
+.panel-overlay *,
+.sheet-overlay *,
+.publish-overlay *,
+.message-overlay *,
+.detail-overlay *,
+.fl-overlay *,
+.doc-overlay *,
+.player-modal-overlay *,
+.modal-overlay *,
+.lightbox-overlay * {
+  overscroll-behavior: contain;
 }
 

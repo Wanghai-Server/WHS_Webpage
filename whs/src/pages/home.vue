@@ -251,8 +251,8 @@ onUnmounted(() => {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .modal {

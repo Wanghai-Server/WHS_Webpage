@@ -42,6 +42,23 @@ def _attach_feedback_meta(item: dict) -> dict:
     return item
 
 
+def _validate_string_fields(payload: dict, *fields: str):
+    """校验写接口 payload 中给定字段（存在且非 null 时）必须是字符串。
+
+    原先非字符串字段（如 ``{"title": 123}``）会在数据层 ``.strip()`` 处抛
+    ``AttributeError`` → 500；这里统一在入口拦截为 400 结构化错误
+    （feedback_invalid_field）。字段缺失 / null 维持原语义，交给数据层给出
+    feedback_title_empty / feedback_content_empty 等既有错误码。
+
+    :return: 不通过返回错误响应；通过返回 None。
+    """
+    for field in fields:
+        value = payload.get(field)
+        if value is not None and not isinstance(value, str):
+            return _error_response("feedback_invalid_field", 400)
+    return None
+
+
 @router.get("/api/feedback")
 def feedback_list(
     page: int = 1,
@@ -94,6 +111,9 @@ def feedback_create(payload: dict = Body(...), user: dict | None = Depends(get_c
     """提交反馈（需登录）：{title, content, category}。"""
     if user is None:
         return _error_response("unauthorized", 401)
+    err = _validate_string_fields(payload, "title", "content", "category")
+    if err is not None:
+        return err
     feedback_id = feedback_db.create_feedback(
         title=payload.get("title") or "",
         content=payload.get("content") or "",
@@ -117,6 +137,9 @@ def feedback_update(
         return _error_response("feedback_not_found", 404)
     if feedback["author_uid"] != user["uid"]:
         return _error_response("permission_denied", 403)
+    err = _validate_string_fields(payload, "title", "content", "category")
+    if err is not None:
+        return err
     feedback_db.update_feedback(
         feedback_id,
         title=payload.get("title") or "",
@@ -149,6 +172,9 @@ def feedback_add_comment(
     """发表评论（需登录）：{content}。"""
     if user is None:
         return _error_response("unauthorized", 401)
+    err = _validate_string_fields(payload, "content")
+    if err is not None:
+        return err
     comment_id = feedback_db.add_comment(
         feedback_id, user["uid"], payload.get("content") or ""
     )
@@ -168,6 +194,9 @@ def feedback_set_status(
         return _error_response("unauthorized", 401)
     if not _is_admin(user):
         return _error_response("permission_denied", 403)
+    err = _validate_string_fields(payload, "status")
+    if err is not None:
+        return err
     status = (payload.get("status") or "").strip()
     feedback_db.set_status(feedback_id, status)
     return {"success": True, "status": status}

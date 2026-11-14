@@ -173,7 +173,27 @@
                 "upload": "Upload image / video / audio",
                 "uploading": "Uploading…",
                 "disambig": "Disambiguation page",
-                "renameWarning": "The path changed: saving will create the page at the new path and delete the old one."
+                "renameWarning": "The path changed: saving will create the page at the new path and delete the old one.",
+                "color": "Color",
+                "colorReset": "Clear color / format",
+                "colors": {
+                    "black": "Black",
+                    "dark_blue": "Dark Blue",
+                    "dark_green": "Dark Green",
+                    "dark_aqua": "Dark Aqua",
+                    "dark_red": "Dark Red",
+                    "dark_purple": "Dark Purple",
+                    "gold": "Gold",
+                    "gray": "Gray",
+                    "dark_gray": "Dark Gray",
+                    "blue": "Blue",
+                    "green": "Green",
+                    "aqua": "Aqua",
+                    "red": "Red",
+                    "light_purple": "Light Purple",
+                    "yellow": "Yellow",
+                    "white": "White"
+                }
             },
             "history": {
                 "title": "Revision history",
@@ -324,6 +344,7 @@
         "account_mode": "Password Login",
         "email_mode": "Email Login",
         "identifier": "Email / UID / Username",
+        "identifier_required": "Please enter your email, UID or username",
         "email": "Email",
         "password": "Password",
         "code": "Verification Code",
@@ -384,7 +405,9 @@
         "lastModified": "Last modified",
         "markRead": "Mark as read",
         "read": "Read",
-        "markedRead": "Marked as read"
+        "markedRead": "Marked as read",
+        "markAllRead": "Mark all as read",
+        "allReadDone": "All marked as read"
     },
     "userMenu": {
         "profile": "Profile",
@@ -473,6 +496,8 @@
         "undo": "Undo",
         "undone": "Changes reverted",
         "session": "Session",
+        "logoutConfirmTitle": "Sign Out",
+        "logoutConfirmMessage": "Are you sure you want to sign out?",
         "cancelAccount": "Delete Account",
         "cancelHint": "Your account and all data will be permanently deleted and cannot be recovered. Please proceed with caution.",
         "cancel": "Delete",
@@ -526,6 +551,7 @@
         "next": "Next",
         "userEntry": "User Management",
         "userEntryDesc": "Browse and maintain users",
+        "searchUser": "Search username / UID / email",
         "feedbackEntry": "Feedback Management",
         "feedbackEntryDesc": "Review and handle user feedback",
         "feedbackEmpty": "No feedback",
@@ -538,6 +564,7 @@
         "feedbackView": "View",
         "examEntry": "Exam Management",
         "examEntryDesc": "Review candidate answer sheets",
+        "searchCandidate": "Search username / player / UID",
         "examNoCandidates": "No answer sheets yet",
         "examAttempts": "{n} attempt(s)",
         "examPassed": "Passed",

@@ -248,7 +248,7 @@ async function saveMainPremium() {
     <!-- 添加小号弹窗 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showAddAlt" class="dialog-overlay" @click.self="showAddAlt = false">
+        <div v-if="showAddAlt" class="dialog-overlay">
           <div class="dialog-panel dialog">
             <header class="dialog-head">
               <h3>{{ t('settings.addAlt') }}</h3>
@@ -289,7 +289,7 @@ async function saveMainPremium() {
     <!-- 修改主账号正版状态弹窗 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showPremiumDialog" class="dialog-overlay" @click.self="showPremiumDialog = false">
+        <div v-if="showPremiumDialog" class="dialog-overlay">
           <div class="dialog-panel dialog">
             <header class="dialog-head">
               <h3>{{ t('settings.changePremium') }}</h3>
@@ -481,8 +481,8 @@ async function saveMainPremium() {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .dialog-panel {
@@ -492,8 +492,8 @@ async function saveMainPremium() {
   display: flex;
   flex-direction: column;
   background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 20px;
   box-shadow: 0 24px 64px rgba(0, 0, 0, 0.3);

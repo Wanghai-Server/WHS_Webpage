@@ -13,12 +13,13 @@ import { useI18n } from 'vue-i18n'
 import {
   ArrowLeft, Save, Undo2, Bold, Italic, Code, SquareCode, Link as LinkIcon,
   Image, Quote, List, ListOrdered, ListTodo, Table, Minus, Upload,
-  AlertTriangle, GripVertical, GripHorizontal, ChevronDown, Strikethrough,
+  AlertTriangle, GripVertical, GripHorizontal, ChevronDown, Strikethrough, Palette,
 } from 'lucide-vue-next'
 import { useAuth } from '../../composables/useAuth'
 import { useDialogBox } from '../../composables/useDialogBox'
 import { wikiApi, WikiApiError } from '../../composables/wiki/api.js'
 import { useWikiLocale } from '../../composables/wiki/locale.js'
+import { MC_COLORS } from '../../composables/markdown/colorCodes'
 import WikiMarkdown from '../../components/wiki/wiki_markdown.vue'
 
 const { t } = useI18n()
@@ -286,16 +287,49 @@ function insertTable() {
 // H 下拉：H1-H6 标题
 const headingsOpen = ref(false)
 function toggleHeadings() {
+  colorsOpen.value = false
   headingsOpen.value = !headingsOpen.value
 }
 function insertHeading(n) {
   headingsOpen.value = false
   insertLine('#'.repeat(n) + ' ')
 }
-// 点击工具条外部时关闭 H 下拉
+
+// § 颜色 / 格式代码下拉（MC 官方 16 色 + §r 复位）
+const colorsOpen = ref(false)
+const mcColors = MC_COLORS
+function toggleColors() {
+  headingsOpen.value = false
+  colorsOpen.value = !colorsOpen.value
+}
+function insertColorCode(code) {
+  colorsOpen.value = false
+  const ta = taRef.value
+  if (!ta) return
+  pushUndo()
+  const scrollTop = ta.scrollTop
+  const s = ta.selectionStart
+  const e = ta.selectionEnd
+  const selected = text.value.slice(s, e)
+  const prefix = `§${code}`
+  // 有选中：§code + 选中文字 + §r（只作用于选中部分）；无选中：仅插入代码，后续输入按 MC 规则继续生效
+  const insert = selected ? `${prefix}${selected}§r` : prefix
+  text.value = text.value.slice(0, s) + insert + text.value.slice(e)
+  markEditorStable()
+  requestAnimationFrame(() => {
+    ta.focus()
+    ta.setSelectionRange(s + prefix.length, s + prefix.length + selected.length)
+    // 程序化改值会重置滚动位置：DOM 更新后恢复，避免跳回顶部
+    ta.scrollTop = scrollTop
+  })
+}
+
+// 点击工具条外部时关闭 H / 颜色下拉
 function onToolbarDocClick(e) {
-  if (headingsOpen.value && !(e.target.closest && e.target.closest('.tool-dd'))) {
+  const insideDropdown = !!(e.target.closest && e.target.closest('.tool-dd'))
+  if (!insideDropdown) {
     headingsOpen.value = false
+    colorsOpen.value = false
   }
 }
 
@@ -709,6 +743,37 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
       <button type="button" class="tool-btn" title="```" @click="wrapSelection('```\n', '\n```', '代码')">
         <SquareCode :size="15" />
       </button>
+
+      <!-- § 颜色 / 格式代码下拉 -->
+      <div class="tool-dd">
+        <button
+          type="button"
+          class="tool-btn dd-trigger"
+          :class="{ active: colorsOpen }"
+          :title="t('pages.wiki.editor.color')"
+          @click="toggleColors"
+        >
+          <Palette :size="15" />
+          <ChevronDown :size="12" />
+        </button>
+        <Transition name="dd">
+          <div v-if="colorsOpen" class="dd-menu dd-colors">
+            <button
+              v-for="c in mcColors"
+              :key="c.code"
+              type="button"
+              class="color-swatch"
+              :style="{ backgroundColor: c.hex }"
+              :title="`§${c.code} ${t('pages.wiki.editor.colors.' + c.name)}`"
+              :aria-label="`§${c.code} ${t('pages.wiki.editor.colors.' + c.name)}`"
+              @click="insertColorCode(c.code)"
+            ></button>
+            <button type="button" class="color-reset" @click="insertColorCode('r')">
+              §r {{ t('pages.wiki.editor.colorReset') }}
+            </button>
+          </div>
+        </Transition>
+      </div>
 
       <span class="tool-sep"></span>
 
@@ -1128,6 +1193,49 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
 .dd-h.is-h5 { font-size: 13px; }
 .dd-h.is-h6 { font-size: 12px; }
 
+/* § 颜色下拉：4×4 色块 + 复位 */
+.dd-colors {
+  display: grid;
+  grid-template-columns: repeat(4, 22px);
+  gap: 6px;
+  padding: 8px;
+  min-width: 0;
+}
+
+.color-swatch {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.color-swatch:hover {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px var(--notice-color);
+}
+
+.color-reset {
+  grid-column: 1 / -1;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 8px;
+  background: var(--float-bg);
+  color: var(--text-color);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 0.12s ease;
+}
+
+.color-reset:hover {
+  background: var(--notice-color);
+}
+
 .dd-enter-active,
 .dd-leave-active {
   transition: opacity 0.15s ease, transform 0.15s ease;
@@ -1272,8 +1380,8 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .conflict-box {

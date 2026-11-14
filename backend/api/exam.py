@@ -451,14 +451,37 @@ def exam_get_ip(user: dict | None = Depends(get_current_user)):
 def admin_exam_candidates(
     page: int = 1,
     page_size: int = 10,
+    q: str = "",
     user: dict | None = Depends(get_current_user),
 ):
-    """考试管理：有答卷的考生列表（分页）。"""
+    """考试管理：有答卷的考生列表（分页 + 关键词搜索）。
+
+    q 为空 / 空白不过滤；否则按 username / player_name 大小写不敏感子串匹配，
+    q 为纯数字时额外按 uid 精确匹配。分页在过滤后的集合上做，total 为过滤后总数。
+    """
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
         return _error_response("permission_denied", 403)
     uids = exam_db.list_answered_uids()
+    q = (q or "").strip()
+    if q:
+        q_lower = q.lower()
+        q_uid = int(q) if (q.isascii() and q.isdigit()) else None
+        matched: list[int] = []
+        for uid in uids:
+            u = user_db.get_user(uid=uid)
+            if u is None:
+                continue
+            prof = exam_db.get_profile(uid) or {}
+            player_name = prof.get("player_name") or ""
+            if (
+                q_lower in (u.get("username") or "").lower()
+                or q_lower in player_name.lower()
+                or (q_uid is not None and uid == q_uid)
+            ):
+                matched.append(uid)
+        uids = matched
     total = len(uids)
     page = max(1, page)
     page_size = min(max(1, page_size), 100)

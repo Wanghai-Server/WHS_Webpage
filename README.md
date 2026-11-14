@@ -16,7 +16,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 90 条）
+6. HTTP API（共 91 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -33,7 +33,7 @@
 ```
 浏览器（Vue 3 SPA）
    │  静态资源：Vite dev/preview 或生产环境 nginx/Caddy 托管 whs/dist
-   │  HTTP /api/* ──(dev/preview 代理 或 反向代理)──▶ FastAPI（uvicorn 127.0.0.1:8000）
+   │  HTTP /api/* ──(dev/preview 代理 或 反向代理)──▶ FastAPI（uvicorn 127.0.0.1:7777）
    │                                                  ├─ 6 个数据库单例 → data/database/*.db（sqlite3，无 ORM）
    │                                                  ├─ 上传目录 data/{avatar,exam_image,exam_upload,wiki_upload}
    │                                                  ├─ WsCommandServer（127.0.0.1:<ws_port>，默认 8765）
@@ -59,7 +59,7 @@
 - 响应式布局，桌面 / 移动端适配。
 - 顶部导航（自定义导航、全局搜索、消息盒子、头像菜单；手机端以「搜索按钮 + 用户头像」替代桌面导航）、底部页脚（语言 / 主题切换）。
 - 手机端导航搜索按钮直接跳转 `/search` 全量搜索页（桌面端仍为滑入式搜索小面板）；导航栏各元素带依次淡入下滑入场动效。
-- 手机端（≤768px）所有对话框统一为底部弹层：贴底、全宽、顶部 20px 圆角、最高占屏高 80%、内部滚动，并从底部滑入 / 滑出；桌面端保持居中弹窗不变。
+- 手机端（≤768px）所有对话框统一为底部弹层：贴底、全宽、顶部 20px 圆角、高度不小于 20% 且不超过 80% 占屏高、内部滚动，并从底部滑入 / 滑出；桌面端保持居中弹窗不变。
 - 非法路由（不存在的站内路径）按 `whs_config.json` 的 `301` 配置统一跳转（站内路径或外链）。
 
 ### 用户系统
@@ -79,6 +79,7 @@
 
 - 系统消息（管理员发布，Markdown）与定向消息（玩家通知）。
 - 已读状态按用户记录（`read_uids`），未读数量徽标；管理员编辑消息后全员重新未读。
+- 「全部已读」按钮一键清除未读（透明无边框、扫把图标；手机端仅图标）。
 - 管理员可发布 / 编辑 / 删除自己发布的系统消息；用户可查看消息详情。
 
 ### 入服考试
@@ -100,6 +101,7 @@
 - 重定向：页面改名后旧路径自动跳转（支持重定向链，最多 8 步，拒绝循环）；管理员可增删查。
 - 消歧义页：编辑器可标记「消歧义页」；系统也会在启动与页面写操作时自动构建/清理自动消歧义页（被人工编辑过的自动页不再接管）。
 - 媒体上传：图片（≤5MB）/ 视频（≤50MB）/ 音频（≤20MB），插入 Markdown 后渲染为图片、`<video>`、`<audio>` 播放器。
+- 颜色 / 格式代码：支持 MC 风格的 `§` 代码（全站 Markdown 通用，包括维基、反馈、消息、考试提示与用户简介）——`§0`–`§f` 为 MC 官方 16 色，`§#RRGGBB` 支持任意 HEX；`§l` 粗体、`§o` 斜体、`§n` 下划线、`§m` 删除线、`§r` 复位。代码块与行内代码内不解析；编辑器工具栏提供颜色下拉（选中文字上色并自动加 `§r`，光标处插入则按 MC 规则持续生效）；页面标题 / 搜索与列表摘要会自动剥离 `§` 代码。注意：颜色代码会重置格式，需要「颜色 + 粗体」时先写颜色再写格式（如 `§e§l文字`）。
 - 编辑器：双栏实时预览、语言切换、附件上传、拖拽分栏、未保存离开确认。
 
 ### 全站搜索
@@ -130,7 +132,7 @@
 | 层级 | 技术 |
 |------|------|
 | 前端框架 | Vue 3（Composition API + `<script setup>`） |
-| 构建 / 开发服务器 | Vite 8（`/api` 在 dev 与 preview 下均代理到 `127.0.0.1:8000`） |
+| 构建 / 开发服务器 | Vite 8（`/api` 在 dev 与 preview 下均代理到 `127.0.0.1:7777`） |
 | 路由 | Vue Router 5（history 模式，页面全部懒加载） |
 | 国际化 | vue-i18n 9 |
 | 图标 / 动画 / 3D | lucide-vue-next / animejs / skinview3d |
@@ -164,7 +166,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 90 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 91 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -206,7 +208,7 @@ WHS_Webpage/
 ├── whs/                             # 前端（Vue 3 + Vite）
 │   ├── index.html
 │   ├── package.json
-│   ├── vite.config.js               # dev / preview 均代理 /api → 127.0.0.1:8000
+│   ├── vite.config.js               # dev / preview 均代理 /api → 127.0.0.1:7777
 │   ├── public/                      # 静态资源（icons 等）
 │   ├── dist/                        # 生产构建产物（不入库）
 │   └── src/
@@ -303,7 +305,7 @@ python manage.py --prod     # 生产：先 npm run build，成功后 npm run pre
 
 启动后：
 
-- 后端：<http://127.0.0.1:8000>（API；`GET /` 返回 JSON 服务状态）
+- 后端：<http://127.0.0.1:7777>（API；`GET /` 返回 JSON 服务状态）
 - 前端：<http://localhost:5173>（开发服务器 / dist 预览服务，`/api` 自动代理到后端）
 - MCDR WS：`127.0.0.1:8765`（仅本机，插件用）
 
@@ -334,7 +336,7 @@ python -m venv venv            # 仅首次
 # Windows: venv\Scripts\activate
 # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000 --reload
+uvicorn main:app --host 127.0.0.1 --port 7777 --reload
 ```
 
 **前端**
@@ -365,7 +367,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 90 条）
+## 6. HTTP API（共 91 条）
 
 ### 6.1 约定
 
@@ -382,7 +384,8 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
   ```
 
   常见 HTTP 状态：400 参数错误 / 401 未登录 / 403 权限不足（含 `account_banned`、`account_locked`）/ 404 不存在 / 409 冲突 / 413 文件过大 / 429 频率限制 / 502 邮件发送失败。
-- 分页接口参数：`page`、`page_size`（≤100）。
+- 全局兜底同样使用上述结构：参数校验失败（422）→ `invalid_parameter`；框架层 404 / 405 → `not_found` / `method_not_allowed`（其他 HTTP 异常 → `http_error`）；未捕获异常（500）→ `internal_error`。
+- 分页接口参数：`page`、`page_size`（≤100）；缺省为 1 / 10，0 或负数按 1 处理；`GET /api/feedback` 的 `page_size` 上限为 50。
 
 ### 6.2 站点（2 条）
 
@@ -422,7 +425,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | POST | `/api/user/{uid}/cancel` | 仅本人 | 注销账号（验证码 + 旧密码；删除头像与账号数据） |
 | POST | `/api/user/{uid}/ban` | ≥3 且权限严格高于目标 | 封禁 / 解封；封禁时移出全部游戏白名单 |
 | POST | `/api/user/{uid}/permission` | ≥3 且不低于目标、新值≤自己 | 修改用户权限（0–4） |
-| GET | `/api/admin/users` | ≥3 | 用户列表（分页） |
+| GET | `/api/admin/users` | ≥3 | 用户列表（分页；`q` 搜索用户名 / 昵称 / 邮箱 / UID） |
 | GET | `/api/user/{uid}/followers` | 公开 | 粉丝列表 |
 | GET | `/api/user/{uid}/followings` | 公开 | 关注列表 |
 | GET | `/api/user/{uid}/accounts` | 本人/≥3 | 游戏账户（主账号 / 小号 / 正版标记） |
@@ -437,13 +440,14 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | POST | `/api/user/{uid}/avatar` | 本人/≥3 | 上传头像（multipart，jpg/png/webp/ico，≤2MB） |
 | GET | `/api/user/{uid}/avatar` | 公开 | 读取头像文件 |
 
-### 6.6 消息（7 条）
+### 6.6 消息（8 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
 | GET | `/api/message/system` | 可选 | 系统消息列表（未登录时 `is_read` 为 null） |
 | GET | `/api/message/unread_count` | 登录 | 未读消息数量（系统 + 定向） |
 | POST | `/api/message/{message_id}/read` | 登录 | 标记消息已读（幂等） |
+| POST | `/api/message/read_all` | 登录 | 把本人全部消息（系统 + 定向）标为已读（幂等，用于「全部已读」） |
 | POST | `/api/admin/messages` | ≥3 | 发布系统消息 `{title, content}` |
 | PUT | `/api/admin/messages/{message_id}` | ≥3 且作者本人 | 编辑系统消息（全员重新未读） |
 | DELETE | `/api/admin/messages/{message_id}` | ≥3 且作者本人 | 删除系统消息 |
@@ -482,7 +486,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| GET | `/api/admin/exam/candidates` | ≥3 | 考生列表（分页，含次数 / 是否通过 / 已答题数） |
+| GET | `/api/admin/exam/candidates` | ≥3 | 考生列表（分页，含次数 / 是否通过 / 已答题数；`q` 搜索用户名 / 玩家名 / UID） |
 | GET | `/api/admin/exam/config` | ≥3 | 读取完整试卷配置（含标准答案） |
 | PUT | `/api/admin/exam/config` | ≥3 | 保存试卷（校验后覆盖写入 `data/exam.yml`，即时生效） |
 | GET | `/api/admin/exam/answers/{uid}` | ≥3 | 查看某考生答题卡（含题目、答案、得分） |
@@ -514,6 +518,8 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | DELETE | `/api/feedback/{feedback_id}` | 作者或 ≥3 | 删除反馈（应用层级联删除评论） |
 | POST | `/api/feedback/{feedback_id}/comments` | 登录 | 发表评论 `{content}`（Markdown） |
 | PUT | `/api/admin/feedback/{feedback_id}/status` | ≥3 | 修改状态 `{status}`；`status` ∈ `pending / resolved / closed` |
+
+错误码：写接口字段类型不合法 → 400 `feedback_invalid_field`；`page` 超出范围 → 400 `feedback_page_invalid`；非法分类 / 状态 → 400 `feedback_category_invalid` / `feedback_status_invalid`。
 
 ### 6.11 维基（16 条）
 
@@ -766,12 +772,12 @@ python -m venv venv
 # Windows: venv\Scripts\activate
 # macOS/Linux: source venv/bin/activate
 pip install -r requirements.txt
-uvicorn main:app --host 127.0.0.1 --port 8000
+uvicorn main:app --host 127.0.0.1 --port 7777
 ```
 
 - 以**单 worker** 运行（验证码、登录失败计数、服务器状态缓存等均为进程内状态，多 worker 会互相不可见）。
 - 需要长期运行时可交给 systemd / supervisor / Windows 服务等进程管理器；本地一键启动可直接用 `python manage.py --prod`。
-- 首次启动会自动创建数据表、播种维基欢迎页；`data/` 下缺少的配置文件会以默认值生成，需要手工补全密钥（见 5.2）。
+- 首次启动会自动创建数据表、播种维基欢迎页；欢迎页内容随版本升级自动刷新（仅当未被用户编辑过时，以「系统」身份追加修订并保留旧版历史）；`data/` 下缺少的配置文件会以默认值生成，需要手工补全密钥（见 5.2）。
 
 ### 11.2 前端
 
@@ -791,7 +797,7 @@ server {
     server_name example.com;
 
     location /api/ {
-        proxy_pass http://127.0.0.1:8000;
+        proxy_pass http://127.0.0.1:7777;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
     }
@@ -811,7 +817,7 @@ server {
 
 | 端口 | 服务 | 监听地址 |
 |------|------|----------|
-| 8000 | 后端 HTTP API | `127.0.0.1`（经反代对外） |
+| 7777 | 后端 HTTP API | `127.0.0.1`（经反代对外） |
 | 5173 | 前端开发 / 预览服务器 | dev 默认 localhost；preview 为 `0.0.0.0` |
 | 8765 | 后端 ↔ MCDR 的 WS | `127.0.0.1`（由 `ws_port` 配置） |
 
@@ -842,7 +848,7 @@ python pseudo_mcdr/pseudo_mcdr.py --selftest     # 连接 WS 并调用 HTTP 接�
 python pseudo_mcdr/pseudo_mcdr.py                # 交互模式
 ```
 
-参数：`--host`（默认 127.0.0.1）、`--port`（默认 8765，需与 `ws_port` 一致）、`--tps-interval`（默认 60，0 关闭）、`--selftest`、`--http-base`（默认 `http://127.0.0.1:8000`）。交互命令：`ping / players / wl / online / add / remove / report / status / quit`。
+参数：`--host`（默认 127.0.0.1）、`--port`（默认 8765，需与 `ws_port` 一致）、`--tps-interval`（默认 60，0 关闭）、`--selftest`、`--http-base`（需与后端端口一致，当前为 `http://127.0.0.1:7777`）。交互命令：`ping / players / wl / online / add / remove / report / status / quit`。
 
 ### `SMTP/`（未入库，本地收信调试服务）
 

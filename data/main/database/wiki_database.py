@@ -25,6 +25,7 @@ from collections import defaultdict
 from typing import Any
 
 from .user_database import UserDatabase
+from .text_utils import strip_mc_color_codes
 
 # ---------------------------------------------------------------------------
 # 常量
@@ -98,6 +99,21 @@ WELCOME_CONTENT_ZH = r"""# 欢迎来到望海服务器维基
 
 > 提示：编辑器上方提供完整的语法工具条（H 下拉可选 H1-H6），选中文本后点击即可快速插入。
 
+## 颜色 / 格式代码
+
+页面支持 MC 风格的 `§` 颜色 / 格式代码（全站 Markdown 通用，反馈、消息等同样生效）：
+
+| 写法 | 效果 |
+| --- | --- |
+| `§0`–`§f` | MC 官方 16 色（如 `§c` 红色、`§a` 绿色、`§e` 黄色） |
+| `§#RRGGBB` | 任意 HEX 颜色，如 `§#e5484d` |
+| `§l` / `§o` / `§n` / `§m` | 粗体 / 斜体 / 下划线 / 删除线 |
+| `§r` | 复位颜色与格式 |
+
+示例：§c红色文字§r、§a绿色文字§r、§#e5484d自定义 HEX§r、§e§l金色粗体§r。
+
+> 提示：编辑器工具栏的调色板按钮可直接插入颜色代码；代码块与行内代码中的 `§` 不会被解析。颜色代码会重置格式——需要「颜色 + 粗体」时请先写颜色再写格式（如 `§e§l文字`）。
+
 *—— 望海服务器维基*
 """
 
@@ -146,6 +162,21 @@ The **first H1 (`#`) becomes the page title**; `##` and below go into the outlin
 | `---` | Horizontal rule |
 
 > Tip: the editor toolbar covers all of the above (the "H" dropdown offers H1-H6) — select text and click to insert.
+
+## Colors & format codes
+
+Pages support MC-style `§` color / format codes (shared by all Markdown across the site, including feedback and messages):
+
+| Syntax | Effect |
+| --- | --- |
+| `§0`–`§f` | The 16 official MC colors (e.g. `§c` red, `§a` green, `§e` yellow) |
+| `§#RRGGBB` | Any HEX color, e.g. `§#e5484d` |
+| `§l` / `§o` / `§n` / `§m` | Bold / italic / underline / strikethrough |
+| `§r` | Reset color and formats |
+
+Examples: §cRed text§r, §aGreen text§r, §#e5484dCustom HEX§r, §e§lGold bold§r.
+
+> Tip: the palette button in the editor toolbar inserts color codes directly; `§` is kept literal inside code blocks and inline code. Color codes reset formatting — for color + bold, write the color first (e.g. `§e§ltext`).
 
 *— WangHai Server Wiki*
 """
@@ -232,7 +263,7 @@ def validate_min_permission(value) -> int:
 def extract_wiki_title(markdown: str) -> str:
     """从 Markdown 中提取页面标题：第一个 ATX 一级标题（``# ``）的文本。
 
-    剥离标题行内的链接 / 图片 / 行内代码 / 加粗 / 斜体标记，
+    剥离标题行内的 MC 颜色 / 格式代码、链接 / 图片 / 行内代码 / 加粗 / 斜体标记，
     无一级标题或提取为空时返回空字符串（由调用方回退为 slug）。
     """
     if not isinstance(markdown, str):
@@ -241,7 +272,7 @@ def extract_wiki_title(markdown: str) -> str:
         m = re.match(r"^\s*#(?!#)\s+(.*?)\s*$", line)
         if not m:
             continue
-        text = m.group(1).strip()
+        text = strip_mc_color_codes(m.group(1).strip())
         # 图片 ![alt](url) -> alt
         text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
         # 链接 [text](url) -> text
@@ -418,6 +449,7 @@ def _escape_like(text: str) -> str:
 
 def _strip_markdown(text: str) -> str:
     """粗略剥离 Markdown 标记，用于搜索片段展示。"""
+    text = strip_mc_color_codes(text)
     text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", text)
     text = re.sub(r"`([^`]*)`", r"\1", text)
@@ -544,8 +576,9 @@ class WikiDatabase(UserDatabase):
         """把旧版欢迎页种子内容升级为新版（幂等，可重复执行）。
 
         仅当欢迎页仍为**纯系统播种**（不存在 author_uid != 0 的修订，即未被
-        真实用户编辑过）且内容与最新种子不一致时，就地更新 pages 行与两种
-        语言的最新修订快照——不新增修订记录，也不覆盖用户的任何改动。
+        真实用户编辑过）且内容与最新种子不一致时更新：为两种语言各**追加一条
+        系统修订**（author_uid=0，更新者显示为「系统」），并同步更新 pages 行；
+        旧版修订保留在历史中，可查看 / 回滚。
         """
         page = self.get_page(WELCOME_SLUG)
         if page is None:
@@ -562,28 +595,13 @@ class WikiDatabase(UserDatabase):
         ).fetchone()
         if row and row["n"]:
             return  # 已被真实用户编辑过，保留其内容
-        title_zh = extract_wiki_title(WELCOME_CONTENT_ZH) or WELCOME_SLUG
-        title_en = extract_wiki_title(WELCOME_CONTENT_EN) or WELCOME_SLUG
-        self._conn.execute(
-            f"UPDATE {self.TABLE_NAME} SET title_zh = ?, content_zh = ?, "
-            f"title_en = ?, content_en = ?, updated_at = ? WHERE id = ?",
-            (title_zh, WELCOME_CONTENT_ZH, title_en, WELCOME_CONTENT_EN, _now(), page["id"]),
+        summary_zh = "系统更新：新增「颜色 / 格式代码」说明"
+        summary_en = "System update: add colors & format codes docs"
+        page = self._apply_update(
+            page, WELCOME_CONTENT_ZH, "zh", summary_zh, author_uid=0
         )
-        for lang, content, title in (
-            ("zh", WELCOME_CONTENT_ZH, title_zh),
-            ("en", WELCOME_CONTENT_EN, title_en),
-        ):
-            latest = self._conn.execute(
-                f"SELECT id FROM {self.REVISION_TABLE_NAME} "
-                f"WHERE page_id = ? AND lang = ? ORDER BY rev_no DESC LIMIT 1",
-                (page["id"], lang),
-            ).fetchone()
-            if latest is not None:
-                self._conn.execute(
-                    f"UPDATE {self.REVISION_TABLE_NAME} SET title = ?, content = ? WHERE id = ?",
-                    (title, content, latest["id"]),
-                )
-        self._conn.commit()
+        self._apply_update(page, WELCOME_CONTENT_EN, "en", summary_en, author_uid=0)
+        self._sync_fts()
 
     # ------------------------------------------------------------------
     # 内部工具

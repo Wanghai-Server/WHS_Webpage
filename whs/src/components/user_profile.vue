@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
+import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 
 const props = defineProps({
   user: { type: Object, required: true },
@@ -11,6 +12,7 @@ const { t } = useI18n()
 
 // html: false —— 源文本中的 HTML 会被转义，防止 XSS；linkify/breaks 提升阅读体验
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+colorCodesPlugin(md)
 
 const renderedProfile = computed(() => md.render(props.user.profile || ''))
 

@@ -172,7 +172,27 @@
                 "upload": "上传图片 / 视频 / 音频",
                 "uploading": "上传中…",
                 "disambig": "消歧义页",
-                "renameWarning": "路径已变更：保存后将新建新路径页面并删除原路径页面。"
+                "renameWarning": "路径已变更：保存后将新建新路径页面并删除原路径页面。",
+                "color": "颜色",
+                "colorReset": "清除颜色 / 格式",
+                "colors": {
+                    "black": "黑色",
+                    "dark_blue": "深蓝色",
+                    "dark_green": "深绿色",
+                    "dark_aqua": "深青色",
+                    "dark_red": "深红色",
+                    "dark_purple": "暗紫色",
+                    "gold": "金色",
+                    "gray": "灰色",
+                    "dark_gray": "深灰色",
+                    "blue": "蓝色",
+                    "green": "绿色",
+                    "aqua": "青色",
+                    "red": "红色",
+                    "light_purple": "粉紫色",
+                    "yellow": "黄色",
+                    "white": "白色"
+                }
             },
             "history": {
                 "title": "修订历史",
@@ -323,6 +343,7 @@
         "account_mode": "账密登录",
         "email_mode": "邮箱登录",
         "identifier": "邮箱 / UID / 用户名",
+        "identifier_required": "请输入邮箱 / UID / 用户名",
         "email": "邮箱",
         "password": "密码",
         "code": "验证码",
@@ -383,7 +404,9 @@
         "lastModified": "最后修改",
         "markRead": "标为已读",
         "read": "已读",
-        "markedRead": "已标记为已读"
+        "markedRead": "已标记为已读",
+        "markAllRead": "全部已读",
+        "allReadDone": "已全部标为已读"
     },
     "userMenu": {
         "profile": "个人资料",
@@ -472,6 +495,8 @@
         "undo": "撤销",
         "undone": "已撤销修改",
         "session": "登录状态",
+        "logoutConfirmTitle": "退出登录",
+        "logoutConfirmMessage": "确定要退出登录吗？",
         "cancelAccount": "注销账号",
         "cancelHint": "注销后账号与所有数据将被永久删除，且无法恢复，请谨慎操作",
         "cancel": "注销",
@@ -525,6 +550,7 @@
         "next": "下一页",
         "userEntry": "用户管理",
         "userEntryDesc": "浏览与维护用户",
+        "searchUser": "搜索用户名 / UID / 邮箱",
         "feedbackEntry": "反馈管理",
         "feedbackEntryDesc": "查看与处理用户反馈",
         "feedbackEmpty": "暂无反馈",
@@ -537,6 +563,7 @@
         "feedbackView": "查看",
         "examEntry": "考试管理",
         "examEntryDesc": "查看与审核考生答卷",
+        "searchCandidate": "搜索用户名 / 玩家名 / UID",
         "examNoCandidates": "暂无考生答卷",
         "examAttempts": "作答 {n} 次",
         "examPassed": "已通过",

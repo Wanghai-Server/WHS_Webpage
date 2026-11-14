@@ -37,7 +37,7 @@ onMounted(loadDoc)
 </script>
 
 <template>
-  <div class="doc-overlay" @click.self="emit('close')">
+  <div class="doc-overlay">
     <div class="doc-panel">
       <header class="doc-head">
         <h3 class="doc-title">
@@ -73,8 +73,8 @@ onMounted(loadDoc)
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
 }
 
 .doc-panel {

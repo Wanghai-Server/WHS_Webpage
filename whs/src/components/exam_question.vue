@@ -450,7 +450,7 @@ defineExpose({ saveNow })
   <!-- 大图预览悬浮窗：点击附件缩略图展开完整图片 -->
   <Teleport to="body">
     <Transition name="dialog-fade">
-      <div v-if="lightboxUrl" class="lightbox-overlay" @click.self="closeLightbox">
+      <div v-if="lightboxUrl" class="lightbox-overlay">
         <img :src="lightboxUrl" class="lightbox-img" alt="attachment" />
         <button type="button" class="lightbox-close" :aria-label="t('message.close')" @click="closeLightbox">
           <X :size="22" />
@@ -712,8 +712,8 @@ defineExpose({ saveNow })
   padding: 32px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.75);
-  backdrop-filter: blur(4px);
   -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
   cursor: zoom-out;
 }
 

@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
   UserRound,
+  Search,
   MessageSquare,
   X,
 } from 'lucide-vue-next'
@@ -74,10 +75,38 @@ function authHeaders(extra = {}) {
   }
 }
 
+// 搜索（Item11）：输入 debounce 300ms；关键词变化后重置到第 1 页重新请求；空/空白 q 等同于不传
+const userQuery = ref('')
+const userQueryApplied = ref('')
+let userSearchTimer = null
+
+function applyUserSearch() {
+  const next = userQuery.value.trim()
+  if (next === userQueryApplied.value) return
+  userQueryApplied.value = next
+  page.value = 1
+  fetchUsers()
+}
+
+function onUserSearchInput() {
+  clearTimeout(userSearchTimer)
+  userSearchTimer = setTimeout(applyUserSearch, 300)
+}
+
+function submitUserSearch() {
+  clearTimeout(userSearchTimer)
+  applyUserSearch()
+}
+
 async function fetchUsers() {
   loading.value = true
   try {
-    const res = await fetch(`/api/admin/users?page=${page.value}&page_size=${pageSize}`, {
+    const params = new URLSearchParams({
+      page: String(page.value),
+      page_size: String(pageSize),
+    })
+    if (userQueryApplied.value) params.set('q', userQueryApplied.value)
+    const res = await fetch(`/api/admin/users?${params.toString()}`, {
       headers: authHeaders(),
     })
     const data = await res.json().catch(() => ({}))
@@ -258,11 +287,39 @@ const cPageSize = 10
 const cLoading = ref(false)
 const cTotalPages = computed(() => Math.max(1, Math.ceil(cTotal.value / cPageSize)))
 
+// 搜索（Item11）：同上，debounce 300ms + 重置第 1 页；q 走 /api/admin/exam/candidates
+const cQuery = ref('')
+const cQueryApplied = ref('')
+let candidateSearchTimer = null
+
+function applyCandidateSearch() {
+  const next = cQuery.value.trim()
+  if (next === cQueryApplied.value) return
+  cQueryApplied.value = next
+  cPage.value = 1
+  fetchCandidates()
+}
+
+function onCandidateSearchInput() {
+  clearTimeout(candidateSearchTimer)
+  candidateSearchTimer = setTimeout(applyCandidateSearch, 300)
+}
+
+function submitCandidateSearch() {
+  clearTimeout(candidateSearchTimer)
+  applyCandidateSearch()
+}
+
 async function fetchCandidates() {
   cLoading.value = true
   try {
+    const params = new URLSearchParams({
+      page: String(cPage.value),
+      page_size: String(cPageSize),
+    })
+    if (cQueryApplied.value) params.set('q', cQueryApplied.value)
     const res = await fetch(
-      `/api/admin/exam/candidates?page=${cPage.value}&page_size=${cPageSize}`,
+      `/api/admin/exam/candidates?${params.toString()}`,
       { headers: authHeaders() }
     )
     const data = await res.json().catch(() => ({}))
@@ -392,6 +449,29 @@ function formatTime(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// 搜索（Item11）：复用公开反馈列表已支持的 q 参数（标题/内容关键词），debounce 300ms + 重置第 1 页
+const feedbackQuery = ref('')
+const feedbackQueryApplied = ref('')
+let feedbackSearchTimer = null
+
+function applyFeedbackSearch() {
+  const next = feedbackQuery.value.trim()
+  if (next === feedbackQueryApplied.value) return
+  feedbackQueryApplied.value = next
+  feedbackPage.value = 1
+  fetchFeedbacks()
+}
+
+function onFeedbackSearchInput() {
+  clearTimeout(feedbackSearchTimer)
+  feedbackSearchTimer = setTimeout(applyFeedbackSearch, 300)
+}
+
+function submitFeedbackSearch() {
+  clearTimeout(feedbackSearchTimer)
+  applyFeedbackSearch()
+}
+
 async function fetchFeedbacks() {
   feedbackLoading.value = true
   try {
@@ -400,6 +480,7 @@ async function fetchFeedbacks() {
       page_size: String(feedbackPageSize),
       status: feedbackStatusFilter.value,
     })
+    if (feedbackQueryApplied.value) params.set('q', feedbackQueryApplied.value)
     const res = await fetch(`/api/feedback?${params.toString()}`)
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
@@ -523,6 +604,9 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
+  clearTimeout(userSearchTimer)
+  clearTimeout(candidateSearchTimer)
+  clearTimeout(feedbackSearchTimer)
 })
 </script>
 
@@ -555,13 +639,27 @@ onUnmounted(() => {
     <!-- 用户管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showUserPanel" class="panel-overlay" @click.self="showUserPanel = false">
+        <div v-if="showUserPanel" class="panel-overlay">
           <div class="panel">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.userEntry') }}</h2>
-              <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showUserPanel = false">
-                <X :size="18" />
-              </button>
+              <div class="panel-head-tools">
+                <div class="panel-search">
+                  <Search :size="15" class="panel-search-icon" />
+                  <input
+                    v-model="userQuery"
+                    type="text"
+                    class="panel-search-input"
+                    :placeholder="t('admin.searchUser')"
+                    :aria-label="t('admin.searchUser')"
+                    @input="onUserSearchInput"
+                    @keydown.enter="submitUserSearch"
+                  />
+                </div>
+                <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showUserPanel = false">
+                  <X :size="18" />
+                </button>
+              </div>
             </header>
 
             <div class="panel-body">
@@ -652,13 +750,27 @@ onUnmounted(() => {
     <!-- 考试管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showExamPanel" class="panel-overlay" @click.self="showExamPanel = false">
+        <div v-if="showExamPanel" class="panel-overlay">
           <div class="panel">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examEntry') }}</h2>
-              <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showExamPanel = false">
-                <X :size="18" />
-              </button>
+              <div class="panel-head-tools">
+                <div class="panel-search">
+                  <Search :size="15" class="panel-search-icon" />
+                  <input
+                    v-model="cQuery"
+                    type="text"
+                    class="panel-search-input"
+                    :placeholder="t('admin.searchCandidate')"
+                    :aria-label="t('admin.searchCandidate')"
+                    @input="onCandidateSearchInput"
+                    @keydown.enter="submitCandidateSearch"
+                  />
+                </div>
+                <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showExamPanel = false">
+                  <X :size="18" />
+                </button>
+              </div>
             </header>
 
             <div class="panel-body">
@@ -719,7 +831,7 @@ onUnmounted(() => {
     <!-- 答题卡审阅悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showAnswerSheet" class="panel-overlay" @click.self="showAnswerSheet = false">
+        <div v-if="showAnswerSheet" class="panel-overlay">
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examSheetTitle') }}</h2>
@@ -763,7 +875,7 @@ onUnmounted(() => {
     <!-- 试卷管理悬浮框（在线编辑考试试卷） -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showExamConfigPanel" class="panel-overlay" @click.self="showExamConfigPanel = false">
+        <div v-if="showExamConfigPanel" class="panel-overlay">
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examConfigEntry') }}</h2>
@@ -782,30 +894,42 @@ onUnmounted(() => {
     <!-- 反馈管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showFeedbackPanel" class="panel-overlay" @click.self="showFeedbackPanel = false">
-          <div class="panel">
+        <div v-if="showFeedbackPanel" class="panel-overlay">
+          <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.feedbackEntry') }}</h2>
-              <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showFeedbackPanel = false">
-                <X :size="18" />
-              </button>
-            </header>
-
-            <div class="panel-body">
-              <div class="fb-filter-row">
+              <div class="panel-head-tools">
+                <div class="panel-search">
+                  <Search :size="15" class="panel-search-icon" />
+                  <input
+                    v-model="feedbackQuery"
+                    type="text"
+                    class="panel-search-input"
+                    :placeholder="t('admin.feedbackSearchPlaceholder')"
+                    :aria-label="t('admin.feedbackSearchPlaceholder')"
+                    @input="onFeedbackSearchInput"
+                    @keydown.enter="submitFeedbackSearch"
+                  />
+                </div>
                 <StatusDropdown
                   v-model="feedbackStatusFilter"
                   :options="feedbackStatusOptions"
+                  class="panel-filter"
                   :aria-label="t('feedback.filterStatus')"
                   @update:model-value="onFeedbackFilterChange"
                 />
+                <button type="button" class="panel-close" :aria-label="t('message.close')" @click="showFeedbackPanel = false">
+                  <X :size="18" />
+                </button>
               </div>
+            </header>
 
+            <div class="panel-body">
               <div v-if="feedbackLoading" class="table-empty"><span class="spinner"></span>{{ t('admin.loading') }}</div>
               <div v-else-if="!feedbackItems.length" class="table-empty">{{ t('admin.feedbackEmpty') }}</div>
               <template v-else>
                 <div class="table-scroll">
-                  <table class="user-table">
+                  <table class="user-table feedback-table">
                     <thead>
                       <tr>
                         <th>{{ t('feedback.titleLabel') }}</th>
@@ -870,7 +994,7 @@ onUnmounted(() => {
     <!-- 权限设置对话框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showDialog" class="panel-overlay" @click.self="closeDialog">
+        <div v-if="showDialog" class="panel-overlay">
           <div class="mini-dialog">
             <h3 class="dialog-title">{{ t('admin.setPermission') }}</h3>
             <p class="dialog-hint">{{ dialogUser ? dialogUser.username : '' }} · UID {{ dialogUser ? dialogUser.uid : '' }}</p>
@@ -953,8 +1077,8 @@ onUnmounted(() => {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .panel {
@@ -965,8 +1089,8 @@ onUnmounted(() => {
   border-radius: 16px;
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
   overflow: hidden;
@@ -980,14 +1104,81 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 标题 + 工具区（搜索 / 状态筛选 / 关闭）：窄屏换行，不溢出、不遮挡 */
+  flex-wrap: wrap;
+  gap: 10px 12px;
   padding: 16px 20px;
   border-bottom: 1px solid var(--links-color);
 }
 
 .panel-title {
   margin: 0;
+  flex-shrink: 0;
   font-size: 18px;
   font-weight: 700;
+}
+
+.panel-head-tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 面板头部搜索框（用户 / 考试 / 反馈管理共用，含 Search 图标） */
+.panel-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 160px;
+  max-width: 260px;
+  height: 36px;
+  min-width: 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 999px;
+  background: var(--card-color);
+  color: var(--links-color);
+  transition: border-color 0.15s ease;
+}
+
+.panel-search:focus-within {
+  border-color: var(--text-color);
+}
+
+.panel-search-icon {
+  flex-shrink: 0;
+}
+
+.panel-search-input {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-color);
+  font: inherit;
+  font-size: 13.5px;
+}
+
+.panel-search-input::placeholder {
+  color: var(--links-color);
+}
+
+/* 头部内的状态筛选：高度与搜索框对齐（行内 chip 样式不变） */
+.panel-head-tools .panel-filter {
+  flex-shrink: 0;
+}
+
+.panel-head .panel-head-tools :deep(.sd-pill .sd-btn) {
+  height: 36px;
+  padding: 0 14px;
+  font-size: 13px;
 }
 
 .panel-close {
@@ -1247,8 +1438,8 @@ onUnmounted(() => {
   border-radius: 16px;
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
 }
@@ -1312,11 +1503,37 @@ onUnmounted(() => {
   opacity: 0.6;
   cursor: not-allowed;
 }
-/* 反馈管理 */
-.fb-filter-row {
-  display: flex;
-  justify-content: flex-end;
-  margin-bottom: 12px;
+/* 反馈管理：表格布局优化（标题最多两行、分类 chip 不换行、行距更宽松） */
+.feedback-table {
+  min-width: 620px;
+}
+
+.feedback-table th,
+.feedback-table td {
+  padding: 12px;
+}
+
+/* 表头不折行（如「作者」列较窄时不会竖排），列宽由内容自动布局 */
+.feedback-table th {
+  white-space: nowrap;
+}
+
+.feedback-table .fb-title-cell {
+  min-width: 200px;
+}
+
+.feedback-table .fb-feedback-title {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  max-width: 100%;
+  white-space: normal;
+  overflow: hidden;
+  line-height: 1.45;
+}
+
+.feedback-table .fb-cat-chip {
+  white-space: nowrap;
 }
 
 .fb-title-cell {
@@ -1360,5 +1577,25 @@ onUnmounted(() => {
   color: var(--links-color);
   font-size: 12.5px;
   white-space: nowrap;
+}
+
+/* 手机端：面板头部换行排列（标题一行，搜索框 / 状态筛选 / 关闭按钮一行），
+   搜索框可收缩，不溢出、不遮挡内容 */
+@media (max-width: 768px) {
+  .panel-head-tools {
+    flex: 1 1 100%;
+    flex-wrap: wrap;
+  }
+
+  .panel-search {
+    flex: 1 1 130px;
+    max-width: none;
+  }
+
+  /* 覆盖 status_dropdown 在手机端「整行宽度」的默认样式，保持与搜索框同一行 */
+  .panel-head .panel-head-tools :deep(.sd-pill),
+  .panel-head .panel-head-tools :deep(.sd-pill .sd-btn) {
+    width: auto;
+  }
 }
 </style>

@@ -84,8 +84,8 @@ onMounted(updateOffsets)
   border-radius: 12px;
   border: 1px solid rgba(148, 163, 184, 0.2);
   background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
   color: var(--text-color);
 

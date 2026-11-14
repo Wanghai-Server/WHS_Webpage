@@ -201,8 +201,8 @@ onUnmounted(() => {
 
 <template>
   <Teleport to="body">
-    <Transition name="dialog-fade">
-      <div v-if="visible" class="overlay" @click.self="cancel">
+    <Transition name="dialog-fade" appear>
+      <div v-if="visible" class="overlay">
         <div class="dialog">
         <!-- 第一页：验证身份 -->
         <template v-if="step === 'verify'">
@@ -329,8 +329,8 @@ onUnmounted(() => {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .dialog {
@@ -343,8 +343,8 @@ onUnmounted(() => {
   border-radius: 16px;
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
 }

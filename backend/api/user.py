@@ -332,13 +332,34 @@ def set_user_permission(uid: int, payload: dict = Body(...), user: dict | None =
 
 
 @router.get("/api/admin/users")
-def admin_list_users(page: int = 1, page_size: int = 10, user: dict | None = Depends(get_current_user)):
-    """管理员用户列表（分页）。"""
+def admin_list_users(
+    page: int = 1,
+    page_size: int = 10,
+    q: str = "",
+    user: dict | None = Depends(get_current_user),
+):
+    """管理员用户列表（分页 + 关键词搜索）。
+
+    q 为空 / 空白不过滤；否则按 username / fullname / email 大小写不敏感子串匹配，
+    q 为纯数字时额外按 uid 精确匹配。分页在过滤后的集合上做，total 为过滤后总数。
+    """
     if user is None:
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 3:
         return _error_response("permission_denied", 403)
     all_users = user_db.list_users()
+    q = (q or "").strip()
+    if q:
+        q_lower = q.lower()
+        q_uid = int(q) if (q.isascii() and q.isdigit()) else None
+        all_users = [
+            u
+            for u in all_users
+            if q_lower in (u.get("username") or "").lower()
+            or q_lower in (u.get("fullname") or "").lower()
+            or q_lower in (u.get("email") or "").lower()
+            or (q_uid is not None and u.get("uid") == q_uid)
+        ]
     total = len(all_users)
     page = max(1, page)
     page_size = min(max(1, page_size), 100)

@@ -191,8 +191,8 @@ async function submit() {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .dialog {
@@ -205,8 +205,8 @@ async function submit() {
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 16px;
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
   overflow: hidden;

@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
+import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 import { Plus, Trash2, Save, Upload, Eye } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
@@ -20,6 +21,7 @@ const QUESTION_TYPES = ['single_choice', 'multiple_choice', 'fill_blank', 'subje
 
 // Markdown 渲染（试卷说明 tips 预览；html: false 防 XSS）
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+colorCodesPlugin(md)
 function renderTips(content) {
   return md.render(content || '')
 }

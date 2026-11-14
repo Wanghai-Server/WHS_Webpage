@@ -4,10 +4,12 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { User, Settings, LogOut, Users } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
+import { useDialogBox } from '../composables/useDialogBox'
 
 const { t } = useI18n()
 const router = useRouter()
 const { state, clearAuth } = useAuth()
+const dialogBox = useDialogBox()
 
 const user = computed(() => state.user)
 
@@ -36,7 +38,14 @@ function goAdminSettings() {
   router.push({ path: `/user/${user.value?.uid}`, query: { tab: 'admin' } })
 }
 
-function signOut() {
+// 退出登录：先弹全局确认框，确认后才清空本地登录态并回首页（与设置页一致）
+async function signOut() {
+  const ok = await dialogBox.confirm({
+    title: t('settings.logoutConfirmTitle'),
+    message: t('settings.logoutConfirmMessage'),
+    danger: true,
+  })
+  if (!ok) return
   clearAuth()
   router.push('/')
 }
@@ -102,8 +111,8 @@ function signOut() {
   /* 背景、透明度、毛玻璃均参考导航栏（.navbar.scrolled） */
   background: var(--navbar-bg);
   border: 1px solid rgba(148, 163, 184, 0.15);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border-radius: 14px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
   color: var(--text-color);

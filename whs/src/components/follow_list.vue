@@ -104,7 +104,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="fl-overlay" @click.self="emit('close')">
+  <div class="fl-overlay">
     <div class="fl-modal dialog">
       <header class="fl-head">
         <h3>{{ activeTab === 'followers' ? t('user.followers') : t('user.followings') }}</h3>
@@ -157,8 +157,8 @@ onUnmounted(() => {
   padding: 24px;
   box-sizing: border-box;
   background: rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(2px);
   -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 /* .dialog 类复用 style.css 的 dialog-fade 弹出动画；面板为半透明毛玻璃 */
@@ -168,8 +168,8 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   background: var(--navbar-bg);
-  backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 20px;
   overflow: hidden;

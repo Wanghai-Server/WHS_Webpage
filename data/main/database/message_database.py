@@ -166,6 +166,14 @@ class MessageDatabase(UserDatabase):
         self._conn.commit()
         return True
 
+    def mark_all_read(self, uid: int) -> int:
+        """把 uid 可见的全部消息（系统 + 定向）标记为已读，返回本次新增已读的消息数。"""
+        changed = 0
+        for message in self.list_system_messages() + self.list_user_messages(uid):
+            if self.add_read_user(message["id"], uid):
+                changed += 1
+        return changed
+
     # ------------------------------------------------------------------
     # 键值接口：以消息 id（字符串形式）为 key
     # ------------------------------------------------------------------

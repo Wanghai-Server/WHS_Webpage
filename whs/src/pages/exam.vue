@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
+import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 import { FileText } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
@@ -21,6 +22,7 @@ const { showTip } = useTips()
 
 // Markdown 渲染（试卷说明 tips；html: false 防 XSS）
 const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
+colorCodesPlugin(md)
 function renderTips(content) {
   return md.render(content || '')
 }
