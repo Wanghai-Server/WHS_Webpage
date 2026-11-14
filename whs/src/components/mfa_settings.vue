@@ -368,7 +368,7 @@ onUnmounted(stopMsTimers)
 
     <!-- 管理员配置提示：置于卡片底部，普通用户可忽略 -->
     <p v-if="!status.ms_available" class="mfa-config">
-      {{ t('settings.mfa.config_hint') }} <code>data/config.json</code>
+      {{ t('settings.mfa.config_hint') }}
     </p>
 
     <Teleport to="body">
