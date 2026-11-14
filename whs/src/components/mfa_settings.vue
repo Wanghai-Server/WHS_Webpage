@@ -24,8 +24,6 @@ const loading = ref(false)
 
 // 验证器 App 设置
 const setupData = ref({ secret: '', otpauth_uri: '', qr_svg: '' })
-// 密钥按 4 位分组展示，便于与验证器里手动录入的内容逐组核对
-const secretGroups = computed(() => (setupData.value.secret || '').replace(/(.{4})/g, '$1 ').trim())
 const code = ref('')
 const submitting = ref(false)
 
@@ -381,7 +379,7 @@ onUnmounted(stopMsTimers)
               <p class="mfa-desc">{{ t('settings.mfa.scan_hint') }}</p>
               <div v-if="setupData.qr_svg" class="qr-box" v-html="setupData.qr_svg"></div>
               <div class="secret-row">
-                <code>{{ secretGroups }}</code>
+                <code>{{ setupData.secret }}</code>
                 <button class="link-btn" @click="copySecret">{{ t('settings.mfa.copy') }}</button>
               </div>
               <p class="mfa-desc">
