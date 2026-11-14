@@ -164,10 +164,17 @@ def totp_enable(payload: dict = Body(...), user: dict | None = Depends(get_curre
     uid = user["uid"]
     data = user_db.get_mfa(uid)
     secret = data.get("mfa_totp_secret")
-    if data.get("mfa_totp_confirmed") or not secret:
+    code = payload.get("code") or ""
+    if data.get("mfa_totp_confirmed"):
+        # 已启用后重复提交（例如连点两次）：验证码仍有效时按成功处理，
+        # 避免用户第一次已成功、第二次却看到“错误或已过期”。
+        if secret and mfa.verify_totp(secret, code) is not None:
+            return {"success": True, "recovery_codes": [], "already_enabled": True}
+        return _err("mfa_not_enabled")
+    if not secret:
         return _err("mfa_not_enabled")
 
-    step = mfa.verify_totp(secret, payload.get("code") or "")
+    step = mfa.verify_totp(secret, code)
     if step is None:
         # 启用阶段输错只影响本次确认，不锁定账号
         return _err("mfa_code_invalid")

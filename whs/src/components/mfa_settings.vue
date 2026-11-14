@@ -111,7 +111,8 @@ async function confirmTotp() {
   try {
     const data = await request('/api/user/mfa/totp/enable', { code: code.value.trim() })
     recoveryCodes.value = data.recovery_codes || []
-    dialog.value = 'recovery'
+    // 重复提交时后端返回成功但不再重复发放恢复码：直接关闭弹窗即可
+    dialog.value = recoveryCodes.value.length ? 'recovery' : ''
     await fetchStatus()
     showTip('info', t('settings.mfa.enabled_tip'))
   } catch (e) {
