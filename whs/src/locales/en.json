@@ -508,6 +508,7 @@
             "setup_title": "Enable authenticator app",
             "scan_hint": "Scan the QR code with your authenticator app. In Microsoft Authenticator choose \"Other account\".",
             "manual_hint": "If you cannot scan, enter the key above manually (SHA1 / 6 digits / 30 seconds).",
+            "open_app": "Open directly in authenticator app",
             "code": "6-digit code",
             "code_hint": "Enter the 6-digit number shown in your authenticator",
             "code_required": "Please enter a verification code",

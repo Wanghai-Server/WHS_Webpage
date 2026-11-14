@@ -507,6 +507,7 @@
             "setup_title": "启用验证器 App",
             "scan_hint": "用验证器 App 扫描二维码；若在 Microsoft Authenticator 中，请选择「其他账户」。",
             "manual_hint": "无法扫码时，可手动输入上方密钥（算法 SHA1 / 6 位 / 30 秒）。",
+            "open_app": "在验证器 App 中直接打开",
             "code": "6 位验证码",
             "code_hint": "请输入验证器上显示的 6 位数字",
             "code_required": "请输入验证码",
