@@ -29,6 +29,8 @@ const submitting = ref(false)
 
 // 恢复码
 const recoveryCodes = ref([])
+// 恢复码弹窗是否来自「刚启用成功」，用于展示绑定成功提示
+const recoveryFromEnable = ref(false)
 
 // 关闭 / 重新生成时的凭证
 const proofKind = ref('totp') // 'totp' | 'microsoft'
@@ -113,6 +115,7 @@ async function confirmTotp() {
     const data = await request('/api/user/mfa/totp/enable', { code: code.value.trim() })
     recoveryCodes.value = data.recovery_codes || []
     // 重复提交时后端返回成功但不再重复发放恢复码：直接关闭弹窗即可
+    recoveryFromEnable.value = recoveryCodes.value.length > 0
     dialog.value = recoveryCodes.value.length ? 'recovery' : ''
     await fetchStatus()
     showTip('info', t('settings.mfa.enabled_tip'))
@@ -278,6 +281,7 @@ async function submitRegen() {
       mode: proofMode.value,
     })
     recoveryCodes.value = data.recovery_codes || []
+    recoveryFromEnable.value = false
     dialog.value = 'recovery'
     await fetchStatus()
   } catch (e) {
@@ -408,6 +412,7 @@ onUnmounted(stopMsTimers)
 
             <!-- 2. 恢复码展示 -->
             <template v-else-if="dialog === 'recovery'">
+              <p v-if="recoveryFromEnable" class="mfa-success">{{ t('settings.mfa.bind_success') }}</p>
               <h3 class="dialog-title">{{ t('settings.mfa.codes_title') }}</h3>
               <p class="mfa-desc">{{ t('settings.mfa.codes_hint') }}</p>
               <div class="recovery-grid">
@@ -566,6 +571,13 @@ onUnmounted(stopMsTimers)
   line-height: 1.6;
   color: var(--links-color);
   word-break: break-word;
+}
+
+.mfa-success {
+  margin: 0 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #1a7f37;
 }
 
 .mfa-side {

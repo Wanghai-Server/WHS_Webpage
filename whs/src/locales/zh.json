@@ -515,6 +515,7 @@
             "enabled_tip": "双重验证已启用",
             "disabled_tip": "双重验证已关闭",
             "codes_title": "恢复码",
+            "bind_success": "绑定成功，双重验证已启用",
             "codes_hint": "以下恢复码仅显示一次，请抄写或下载保存。忘记验证器时可用其中一枚登录。",
             "copy_all": "复制全部",
             "copy": "复制",

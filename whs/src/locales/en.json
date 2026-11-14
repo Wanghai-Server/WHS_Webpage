@@ -516,6 +516,7 @@
             "enabled_tip": "Two-step verification enabled",
             "disabled_tip": "Two-step verification disabled",
             "codes_title": "Recovery codes",
+            "bind_success": "Added successfully — two-step verification is now enabled",
             "codes_hint": "These recovery codes are shown only once. Write them down or save them. Each can be used to sign in if you lose your authenticator.",
             "copy_all": "Copy all",
             "copy": "Copy",
