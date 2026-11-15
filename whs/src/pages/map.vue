@@ -48,7 +48,10 @@ function buildLayer(tileSize, lodForZoom) {
         img.style.visibility = 'hidden'
         return img
       }
-      img.src = `${tileBase}/${lod}/${coords.x}/${coords.y}`
+      img.src = tileBase
+        .replace('{lod}', lod)
+        .replace('{x}', coords.x)
+        .replace('{y}', coords.y)
       img.onerror = () => { img.style.visibility = 'hidden' }
       return img
     },

@@ -53,11 +53,33 @@ def _error(code: str, status: int, zh: str, en: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"code": code, "message": {"zh": zh, "en": en}})
 
 
-def _sign(uid: int, map_id: str, exp: int) -> str:
-    """瓦片地址签名：HMAC-SHA256(token_secret, uid:map:exp)。"""
-    msg = f"{uid}:{map_id}:{exp}".encode()
-    digest = hmac.new(_token_secret().encode(), msg, hashlib.sha256).digest()
-    return base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+def _b64(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _unb64(text: str) -> bytes:
+    return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
+
+
+def _tile_token(uid: int, map_id: str, exp: int) -> str:
+    """签发瓦片访问令牌：base64(uid:exp).base64(HMAC)，有效期由 exp 控制。"""
+    mac = hmac.new(_token_secret().encode(), f"{uid}:{map_id}:{exp}".encode(), hashlib.sha256).digest()
+    return f"{_b64(f'{uid}:{exp}'.encode())}.{_b64(mac)}"
+
+
+def _verify_tile_token(token: str, map_id: str) -> bool:
+    """校验瓦片访问令牌：格式、有效期、签名（签名绑定了 map_id，防止换图重放）。"""
+    try:
+        payload, mac = token.split(".")
+        uid, exp = _unb64(payload).decode().split(":")
+        uid, exp = int(uid), int(exp)
+        given = _unb64(mac)
+    except Exception:
+        return False
+    if exp < int(time.time()):
+        return False
+    expect = hmac.new(_token_secret().encode(), f"{uid}:{map_id}:{exp}".encode(), hashlib.sha256).digest()
+    return hmac.compare_digest(given, expect)
 
 
 def _member(authorization: str):
@@ -126,7 +148,7 @@ def map_config(authorization: str = Header(None)):
     for mid in cfg["maps"]:
         maps.append({
             "id": mid,
-            "tile": f"/api/map/t/{uid}/{exp}/{_sign(uid, mid, exp)}/{mid}",
+            "tile": f"/api/map/tiles/{mid}/{{lod}}/{{x}}/{{y}}.png?t={_tile_token(uid, mid, exp)}",
             "settings": _map_settings(cfg, mid),
         })
     return {
@@ -139,24 +161,21 @@ def map_config(authorization: str = Header(None)):
     }
 
 
-@router.get("/api/map/t/{uid}/{exp}/{sig}/{map_id}/{lod}/{x}/{y}")
-def map_tile(uid: int, exp: int, sig: str, map_id: str, lod: str, x: str, y: str):
-    """瓦片代理：校验签名后透传 BlueMap 的 tiles/<lod>/<x>/<y>.png。
+@router.get("/api/map/tiles/{map_id}/{lod}/{x}/{y}.png")
+def map_tile(map_id: str, lod: str, x: str, y: str, t: str = ""):
+    """瓦片代理：校验访问令牌后透传 BlueMap 的 tiles/<lod>/<x>/<y>.png。
 
     BlueMap 磁盘上的瓦片是 gzip 压缩的 PNG，这里原样透传并补 Content-Encoding，
     避免后端解压后再被网关二次压缩。
     """
-    if exp < int(time.time()):
-        return _error("map_url_expired", 401, "地图地址已过期", "Map URL expired")
-    if not hmac.compare_digest(sig, _sign(uid, map_id, exp)):
-        return _error("map_url_invalid", 403, "地图地址无效", "Invalid map URL")
+    if not _verify_tile_token(t, map_id):
+        return _error("map_url_invalid", 403, "地图地址无效或已过期", "Invalid or expired map URL")
 
     cfg = _map_cfg()
     if map_id not in cfg["maps"]:
         return _error("map_not_found", 404, "地图不存在", "Map not found")
-    for part in (lod, x, y):
-        if not part.lstrip("-").isdigit():
-            return _error("invalid_parameter", 400, "请求参数不合法", "Invalid request parameters")
+    if not all(part.lstrip("-").isdigit() for part in (lod, x, y)):
+        return _error("invalid_parameter", 400, "请求参数不合法", "Invalid request parameters")
 
     body = _fetch(f"{cfg['base']}/maps/{map_id}/tiles/{lod}/{x}/{y}.png", cfg["timeout"])
     if body is None:
