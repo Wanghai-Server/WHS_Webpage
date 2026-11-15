@@ -873,6 +873,13 @@ python SMTP/mail_server.py
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
 - **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内也没有自动化测试 / CI 配置。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
+- **在线地图（`/map`）**：官网本身不带地图数据，2D 和 3D 都由服务器上额外部署的 BlueMap 提供。没部署时页面会显示「服务器尚未开启」的提示，不影响其他功能。要做的事都在服务器那边：
+  1. 把 BlueMap 插件放进服务端 `plugins/` 目录。重启后会生成 `plugins/BlueMap/` 配置目录。`core.conf` 里要把 `accept-download` 改成 `true`，它需要联网下载原版材质；`maps/<地图名>.conf` 里把 `display-type` 设成 `FLAT`，这样 2D 视图才有图；`webserver.conf` 里打开 `enabled`，端口设为 8100，监听地址一定改成 `127.0.0.1`。8100 不要对外，公网只走网站的反向代理。
+  2. 第一次启动会全量渲染整张地图，很吃 CPU 和磁盘，尽量挑没人玩的时候跑，渲染线程数可以调低。地图越大，瓦片占的空间越多，一块地皮几百 MB 是常事。
+  3. nginx 加一段 `/map3d/` 转发到 `127.0.0.1:8100`，并且要沿用网站现有的登录校验。这里漏了的话，没登录的人也能直接打开 3D 视图，等于绕过「仅正式成员可见」的限制。
+  4. `data/config.json` 的 `map` 段填三项：`bluemap_base` 写 `http://127.0.0.1:8100`，给后端拉瓦片用；`bluemap_viewer` 写 `/map3d/`，必须写成同源路径，不能写成 IP 加端口；`maps` 填 BlueMap 里真实的地图 id，默认叫 `world`。
+  5. 访问权限代码里已经卡在 permission ≥ 2，不用另外配。修改配置后要重启后端，地图才生效。
+
 
 ---
 
