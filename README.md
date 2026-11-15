@@ -928,6 +928,14 @@ location = /api/map/auth {
     proxy_cache_valid 204 401 10s;
     # 同一凭据的并发请求只放一个回源，其余等结果，避免瞬间打满后端
     proxy_cache_lock on;
+    # 等 3 秒还没回来就不再等，直接并发回源，防止一个慢请求拖住整批瓦片
+    proxy_cache_lock_timeout 3s;
+    # 后端异常时沿用上一次的鉴权结果，避免整页资源一起 5xx
+    proxy_cache_use_stale error timeout updating;
+
+    # 子请求必须快进快出，默认 60 秒会让整个页面卡住
+    proxy_connect_timeout 1s;
+    proxy_read_timeout 5s;
 }
 
 location /map3d/ {
