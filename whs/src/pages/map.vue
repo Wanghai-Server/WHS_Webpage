@@ -198,6 +198,9 @@ async function loadConfig() {
     loadPlayers()
   } catch {
     if (!available.value) showGate('network')
+    // 首次加载失败时自动重试，避免网络抖动后页面永远停在错误态
+    if (configTimer) clearTimeout(configTimer)
+    configTimer = setTimeout(loadConfig, 30000)
   } finally {
     loading.value = false
   }
