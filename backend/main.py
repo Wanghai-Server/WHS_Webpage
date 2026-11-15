@@ -433,9 +433,9 @@ ERROR_MESSAGES = {
         "zh": "在线地图仅对正式成员开放",
         "en": "The live map is available to members only",
     },
-    "map_url_invalid": {
-        "zh": "地图地址无效或已过期",
-        "en": "Invalid or expired map URL",
+    "map_not_ready": {
+        "zh": "服务器尚未部署在线地图",
+        "en": "The live map has not been deployed yet",
     },
     "map_not_found": {
         "zh": "地图不存在",

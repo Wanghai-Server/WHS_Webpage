@@ -16,7 +16,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 91 条）
+6. HTTP API（共 94 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -167,7 +167,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 91 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 94 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -368,7 +368,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 91 条）
+## 6. HTTP API（共 94 条）
 
 ### 6.1 约定
 
@@ -542,6 +542,16 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | POST | `/api/wiki/disambig/rebuild` | ≥3 | 手动触发系统消歧义页重建 |
 | POST | `/api/wiki/upload` | 登录且 permission≥2 | 上传媒体（图片≤5MB / 视频≤50MB / 音频≤20MB） |
 | GET | `/api/wiki/upload/{filename}` | 公开 | 读取已上传媒体文件 |
+
+### 6.12 在线地图（3 条）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/map/config` | 登录且 permission≥2 | 下发地图入口、地图列表与出生点，同时写入短期 HttpOnly Cookie（默认 600 秒） |
+| GET | `/api/map/auth` | Cookie | 供 nginx `auth_request` 调用，凭据有效返回 204，否则 401 |
+| GET | `/api/map/players?map_id=` | 登录且 permission≥2 | 当前世界在线玩家数量（已排除其他维度的 `foreign` 玩家） |
+
+2D 与 3D 共用同一个 BlueMap 网页端，后端不再代理瓦片，只负责鉴权与下发配置。
 
 ---
 
@@ -873,12 +883,33 @@ python SMTP/mail_server.py
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
 - **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内也没有自动化测试 / CI 配置。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
-- **在线地图（`/map`）**：官网本身不带地图数据，2D 和 3D 都由服务器上额外部署的 BlueMap 提供。没部署时页面会显示「服务器尚未开启」的提示，不影响其他功能。要做的事都在服务器那边：
-  1. 把 BlueMap 插件放进服务端 `plugins/` 目录。重启后会生成 `plugins/BlueMap/` 配置目录。`core.conf` 里要把 `accept-download` 改成 `true`，它需要联网下载原版材质；`maps/<地图名>.conf` 里把 `display-type` 设成 `FLAT`，这样 2D 视图才有图；`webserver.conf` 里打开 `enabled`，端口设为 8100，监听地址一定改成 `127.0.0.1`。8100 不要对外，公网只走网站的反向代理。
-  2. 第一次启动会全量渲染整张地图，很吃 CPU 和磁盘，尽量挑没人玩的时候跑，渲染线程数可以调低。地图越大，瓦片占的空间越多，一块地皮几百 MB 是常事。
-  3. nginx 加一段 `/map3d/` 转发到 `127.0.0.1:8100`，并且要沿用网站现有的登录校验。这里漏了的话，没登录的人也能直接打开 3D 视图，等于绕过「仅正式成员可见」的限制。
-  4. `data/config.json` 的 `map` 段填三项：`bluemap_base` 写 `http://127.0.0.1:8100`，给后端拉瓦片用；`bluemap_viewer` 写 `/map3d/`，必须写成同源路径，不能写成 IP 加端口；`maps` 填 BlueMap 里真实的地图 id，默认叫 `world`。
-  5. 访问权限代码里已经卡在 permission ≥ 2，不用另外配。修改配置后要重启后端，地图才生效。
+- **在线地图（`/map`）**：页面本身不含地图数据，2D 和 3D 都由服务器上的 BlueMap 网页端提供。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
+  1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
+  2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-flat-view` 和 `enable-perspective-view`，BlueMap 5.x 没有 `display-type` 这个键，关掉透视就只剩平面视图；`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
+  3. 第一次启动会全量渲染整张地图，吃 CPU 和磁盘，挑没人玩的时候跑，渲染线程数可以调低。
+  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；实时玩家走 SSE，需要关掉缓冲。
+  5. 代理必须挂鉴权。网站的登录态存在浏览器里，iframe 发请求时不会自己带上，所以后端通过 `/api/map/config` 下发一个 600 秒的 HttpOnly Cookie，nginx 用 `auth_request` 校验：
+
+```nginx
+location = /api/map/auth {
+    internal;
+    proxy_pass http://127.0.0.1:7777;
+}
+
+location /map3d/ {
+    auth_request /api/map/auth;
+    proxy_pass http://127.0.0.1:8100/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Content-Security-Policy;
+}
+```
+
+  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是 3D 初始镜头高度，按地形高度调；上了 HTTPS 之后把 `cookie_secure` 设成 `true`。
+  7. 改完配置重启后端生效。访问权限卡在 permission ≥ 2，代码里已经处理。
 
 
 ---

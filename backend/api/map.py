@@ -1,54 +1,55 @@
-"""在线地图路由：代理 BlueMap 的瓦片 / 实时玩家数据。
+"""在线地图路由：下发 BlueMap 网页入口与短期访问凭据。
 
-设计要点：
-- 瓦片由 BlueMap 渲染（磁盘上为 gzip 压缩的 PNG），浏览器无法直接跨端口访问，
-  因此统一经后端代理，顺带做成员鉴权与缓存。
-- 前端加载瓦片用的是 <img>，带不了 Authorization 头，所以瓦片走**短期令牌**：
-  /api/map/config 下发带 HMAC 令牌的瓦片模板，令牌过期后前端重新取一次。
-- 仅限正式成员（permission >= 2，即通过入服问卷）访问。
+2D 与 3D 都由 BlueMap 自带网页端渲染，网站不参与瓦片拼装，只做三件事：
+- 校验成员身份后下发入口路径、地图列表与出生点
+- 签发短期 HttpOnly Cookie，供 nginx 的 auth_request 校验反向代理请求
+- 透传在线玩家数量
+
+瓦片路径、层级、投影与出生点全交给 BlueMap 自己处理，因此不会再出现
+路径语义、LOD 错位或坐标偏移的问题；2D / 3D 只是同一个网页端的不同视图。
 """
 import base64
 import hashlib
 import hmac
 import json
-import re
 import time
 import urllib.request
 
-from fastapi import APIRouter, Header
-from fastapi.responses import JSONResponse, Response
+from fastapi import APIRouter, Header, Request, Response
 
 from data import read_config
 from main import _error_response, _token_secret, get_current_user
 
 router = APIRouter()
 
-# 瓦片签名有效期（秒）；前端在过期前 60 秒自动续签
-SIGN_TTL = 600
-# 瓦片可被浏览器 / CDN 缓存的时间（秒）
-TILE_CACHE_TTL = 86400
-# BlueMap settings.json 的进程内缓存时间（秒）
-SETTINGS_TTL = 300
 # 正式成员门槛：permission >= 2 等价于已通过入服问卷
 _MEMBER_PERMISSION = 2
+# BlueMap settings.json 与入口探活的进程内缓存（秒）
+_SETTINGS_TTL = 300
+_PROBE_TTL = 30
+
+_SETTINGS_CACHE: dict[str, tuple[float, dict | None]] = {}
+_PROBE_CACHE: dict[str, tuple[float, bool]] = {}
 
 
 def _map_cfg() -> dict:
-    """读取 config.json 的 map 段；缺省时指向 BlueMap 公共演示服，便于本地先跑通链路。"""
     cfg = read_config().get("map", {}) or {}
-    maps = cfg.get("maps") or ["overworld_2d"]
+    maps = cfg.get("maps") or ["world"]
     if isinstance(maps, str):
         maps = [maps]
     maps = [str(m) for m in maps]
     return {
-        "base": str(cfg.get("bluemap_base") or "https://bluecolored.de/bluemap").rstrip("/"),
+        # 后端拉取 settings.json / 玩家数据用的上游地址，只在内网访问
+        "base": str(cfg.get("bluemap_base") or "http://127.0.0.1:8100").rstrip("/"),
+        # 浏览器访问的入口，必须是同源路径，由 nginx 反代到上面的 base
+        "viewer": str(cfg.get("bluemap_viewer") or "/map3d/"),
         "maps": maps,
         "default": str(cfg.get("default") or maps[0]),
         "timeout": float(cfg.get("timeout") or 10),
-        "center": cfg.get("center") or [0, 0],
-        "zoom": cfg.get("zoom", -2),
-        # 3D 视图入口：由 nginx 把该路径反代到 BlueMap webapp（同源，复用登录态）
-        "viewer": str(cfg.get("bluemap_viewer") or ""),
+        "cookie": str(cfg.get("cookie_name") or "whs_map"),
+        "ttl": int(cfg.get("viewer_ttl") or 600),
+        "cookie_secure": bool(cfg.get("cookie_secure", False)),
+        "start_y": float(cfg.get("start_y") or 80),
     }
 
 
@@ -60,24 +61,24 @@ def _unb64(text: str) -> bytes:
     return base64.urlsafe_b64decode(text + "=" * (-len(text) % 4))
 
 
-def _tile_token(uid: int, map_id: str, exp: int) -> str:
-    """签发瓦片访问令牌：base64(uid:exp).base64(HMAC)，有效期由 exp 控制。"""
-    mac = hmac.new(_token_secret().encode(), f"{uid}:{map_id}:{exp}".encode(), hashlib.sha256).digest()
+def _sign(uid: int, exp: int) -> str:
+    """签发地图通行凭据：base64(uid:exp).base64(HMAC)。"""
+    mac = hmac.new(_token_secret().encode(), f"map:{uid}:{exp}".encode(), hashlib.sha256).digest()
     return f"{_b64(f'{uid}:{exp}'.encode())}.{_b64(mac)}"
 
 
-def _verify_tile_token(token: str, map_id: str) -> bool:
-    """校验瓦片访问令牌：格式、有效期、签名（签名绑定了 map_id，防止换图重放）。"""
+def _verify(value: str) -> bool:
+    """校验凭据的格式、有效期与签名。"""
     try:
-        payload, mac = token.split(".")
+        payload, mac = value.split(".")
         uid, exp = _unb64(payload).decode().split(":")
-        uid, exp = int(uid), int(exp)
+        int(uid), int(exp)
         given = _unb64(mac)
     except Exception:
         return False
-    if exp < int(time.time()):
+    if int(exp) < int(time.time()):
         return False
-    expect = hmac.new(_token_secret().encode(), f"{uid}:{map_id}:{exp}".encode(), hashlib.sha256).digest()
+    expect = hmac.new(_token_secret().encode(), f"map:{uid}:{exp}".encode(), hashlib.sha256).digest()
     return hmac.compare_digest(given, expect)
 
 
@@ -92,7 +93,7 @@ def _member(authorization: str):
 
 
 def _fetch(url: str, timeout: float) -> bytes | None:
-    """拉取上游资源；404 / 连接失败返回 None。"""
+    """拉取上游资源；连接失败或非 200 返回 None。"""
     req = urllib.request.Request(url, headers={"User-Agent": "WHS-Map-Proxy/1.0"})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -101,104 +102,90 @@ def _fetch(url: str, timeout: float) -> bytes | None:
         return None
 
 
-_SETTINGS_CACHE: dict[tuple[str, str], tuple[float, dict | None]] = {}
-
-
-def _map_settings(cfg: dict, mid: str) -> dict | None:
-    """取 BlueMap 的 settings.json（带进程内缓存），抽出前端算瓦片坐标需要的参数。"""
-    key = (cfg["base"], mid)
-    cached = _SETTINGS_CACHE.get(key)
-    if cached and time.time() - cached[0] < SETTINGS_TTL:
+def _viewer_alive(cfg: dict) -> bool:
+    """探测 BlueMap 网页端是否已部署，避免前端 iframe 拿到 404 白屏。"""
+    key = cfg["base"]
+    cached = _PROBE_CACHE.get(key)
+    if cached and time.time() - cached[0] < _PROBE_TTL:
         return cached[1]
-    data = _load_settings(cfg, mid)
-    _SETTINGS_CACHE[key] = (time.time(), data)
-    return data
+    alive = _fetch(f"{key}/index.html", cfg["timeout"]) is not None
+    _PROBE_CACHE[key] = (time.time(), alive)
+    return alive
 
 
-def _load_settings(cfg: dict, mid: str) -> dict | None:
+def _map_meta(cfg: dict, mid: str) -> dict | None:
+    """取 BlueMap 的 settings.json（带进程内缓存），只需要名字与出生点。"""
+    key = f"{cfg['base']}|{mid}"
+    cached = _SETTINGS_CACHE.get(key)
+    if cached and time.time() - cached[0] < _SETTINGS_TTL:
+        return cached[1]
     body = _fetch(f"{cfg['base']}/maps/{mid}/settings.json", cfg["timeout"])
-    if body is None:
-        return None
-    try:
-        data = json.loads(body.decode("utf-8"))
-    except Exception:
-        return None
-    hires = data.get("hires") or {}
-    lowres = data.get("lowres") or {}
-    return {
-        "name": data.get("name") or mid,
-        "startPos": data.get("startPos") or [0, 0],
-        "hires": {
-            "tileSize": (hires.get("tileSize") or [32, 32])[0],
-            "scale": (hires.get("scale") or [1, 1])[0],
-            "translate": (hires.get("translate") or [0, 0])[0],
-        },
-        "lowres": {
-            "tileSize": (lowres.get("tileSize") or [500, 500])[0],
-            "lodFactor": lowres.get("lodFactor") or 5,
-            "lodCount": lowres.get("lodCount") or 0,
-        },
-    }
+    meta = None
+    if body:
+        try:
+            data = json.loads(body.decode("utf-8"))
+            start = data.get("startPos") or [0, 0]
+            meta = {
+                "name": data.get("name") or mid,
+                "start": [int(start[0]), int(start[1])],
+            }
+        except Exception:
+            meta = None
+    _SETTINGS_CACHE[key] = (time.time(), meta)
+    return meta
 
 
 @router.get("/api/map/config")
-def map_config(authorization: str = Header(None)):
-    """下发地图列表与带签名的瓦片地址前缀（仅正式成员）。"""
+def map_config(response: Response, authorization: str = Header(None)):
+    """下发入口配置，并写入短期 HttpOnly Cookie。"""
     user, err = _member(authorization)
     if err:
         return err
 
     cfg = _map_cfg()
-    uid = int(user["uid"])
-    exp = int(time.time()) + SIGN_TTL
-    maps = []
+    if not _viewer_alive(cfg):
+        return _error_response("map_not_ready", 503)
+
+    exp = int(time.time()) + cfg["ttl"]
+    response.set_cookie(
+        key=cfg["cookie"],
+        value=_sign(int(user["uid"]), exp),
+        max_age=cfg["ttl"],
+        path="/",
+        httponly=True,
+        samesite="lax",
+        secure=cfg["cookie_secure"],
+    )
+
+    items = []
     for mid in cfg["maps"]:
-        maps.append({
+        meta = _map_meta(cfg, mid) or {}
+        items.append({
             "id": mid,
-            "tile": f"/api/map/tiles/{mid}/{{lod}}/{{x}}/{{y}}.png?t={_tile_token(uid, mid, exp)}",
-            "settings": _map_settings(cfg, mid),
+            "name": meta.get("name") or mid,
+            "start": meta.get("start") or [0, 0],
         })
     return {
-        "maps": maps,
-        "default": cfg["default"],
-        "center": cfg["center"],
-        "zoom": cfg["zoom"],
         "viewer": cfg["viewer"],
-        "expires_at": exp,
-        "refetch_after": SIGN_TTL - 60,
+        "maps": items,
+        "default": cfg["default"],
+        "start_y": cfg["start_y"],
+        "ttl": cfg["ttl"],
     }
 
 
-@router.get("/api/map/tiles/{map_id}/{lod}/{x}/{y}.png")
-def map_tile(map_id: str, lod: str, x: str, y: str, t: str = ""):
-    """瓦片代理：校验访问令牌后透传 BlueMap 的 tiles/<lod>/<x>/<y>.png。
-
-    BlueMap 磁盘上的瓦片是 gzip 压缩的 PNG，这里原样透传并补 Content-Encoding，
-    避免后端解压后再被网关二次压缩。
-    """
-    if not _verify_tile_token(t, map_id):
-        return _error_response("map_url_invalid", 403)
-
-    cfg = _map_cfg()
-    if map_id not in cfg["maps"]:
-        return _error_response("map_not_found", 404)
-    if not all(re.fullmatch(r"-?\d+", part) for part in (lod, x, y)):
-        return _error_response("invalid_parameter", 400)
-
-    body = _fetch(f"{cfg['base']}/maps/{map_id}/tiles/{lod}/{x}/{y}.png", cfg["timeout"])
-    if body is None:
-        # 不存在或上游异常：返回 404 让 Leaflet 安静跳过该瓦片
-        return Response(status_code=404)
-
-    headers = {"Cache-Control": f"public, max-age={TILE_CACHE_TTL}"}
-    if body[:2] == b"\x1f\x8b":
-        headers["Content-Encoding"] = "gzip"
-    return Response(content=body, media_type="image/png", headers=headers)
+@router.get("/api/map/auth")
+def map_auth(request: Request):
+    """供 nginx 的 auth_request 调用：只校验 Cookie，不返回业务数据。"""
+    value = request.cookies.get(_map_cfg()["cookie"])
+    if value and _verify(value):
+        return Response(status_code=204)
+    return Response(status_code=401)
 
 
 @router.get("/api/map/players")
 def map_players(map_id: str = "", authorization: str = Header(None)):
-    """在线玩家位置（BlueMap live 接口透传；前端轮询，带 Authorization 头）。"""
+    """当前世界的在线玩家数量（页头展示用）。"""
     _, err = _member(authorization)
     if err:
         return err
@@ -212,6 +199,10 @@ def map_players(map_id: str = "", authorization: str = Header(None)):
     if body is None:
         return _error_response("map_upstream_error", 502)
     try:
-        return JSONResponse(json.loads(body.decode("utf-8")))
+        data = json.loads(body.decode("utf-8"))
     except Exception:
         return _error_response("map_upstream_error", 502)
+
+    players = data.get("players") or []
+    # foreign 表示玩家在其他维度（hide-different-world: false 时会出现），不计入当前世界
+    return {"count": sum(1 for p in players if not p.get("foreign"))}

@@ -1,8 +1,6 @@
 <script setup>
-import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import L from 'leaflet'
-import 'leaflet/dist/leaflet.css'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import { useAuth } from '../composables/useAuth'
@@ -10,169 +8,89 @@ import { useAuth } from '../composables/useAuth'
 const { t } = useI18n()
 const { state: authState } = useAuth()
 
-const mapEl = ref(null)
+const wrapEl = ref(null)
+const frameEl = ref(null)
 const maps = ref([])
 const activeMap = ref('')
-const players = ref([])
-// 2D / 3D 视图切换，记住上次选择
+const playerCount = ref(0)
+// 2D / 3D 只是同一个 BlueMap 网页端的两种视图，记住上次选择
 const viewMode = ref(localStorage.getItem('whs_map_view') === '3d' ? '3d' : '2d')
 const viewer = ref('')
-const viewerStarted = ref(false)
-const viewerReady = ref(false)
-const viewerFailed = ref(false)
+const startPos = ref([0, 0])
+const startY = ref(80)
+const available = ref(false)
+const loaded = ref(false)
+const failed = ref(false)
 const immersive = ref(false)
 const showControls = ref(false)
-// 3D 初始视角：贴近地表、略微俯视，接近游戏内旁观视角
-const startPos = ref({ x: 0, y: 80, z: 0, distance: 120, tilt: 25 })
-const gate = ref(null) // 非空时展示提示卡片（未登录 / 非正式成员 / 服务异常）
+const gate = ref(null)
 const loading = ref(true)
+// 换图或换视图时递增，强制重建 iframe，让 BlueMap 按新参数初始化
+const frameKey = ref(0)
 
-let leafletMap = null
-let tileLayer = null
-let playerLayer = null
 let configTimer = null
 let playersTimer = null
-let viewerTimer = null
+let loadTimer = null
 let controlsTimer = null
-// 当前地图的瓦片参数（来自 BlueMap settings.json）
-let geo = null
-let tileBase = ''
-let currentMapId = ''
 
-// BlueMap 的瓦片按 lod 分层：lod 0 是最高清的一层（hires），
-// lod 1..n 是逐级缩小的 lowres，每级相差 lodFactor 倍。
-// 这里让 Leaflet 的 zoom 直接用 lodFactor 进制，zoom 0 = lod 0，zoom -1 = lod 1……
-function buildCrs(lodFactor, translate) {
-  return L.Util.extend({}, L.CRS.Simple, {
-    scale: (zoom) => Math.pow(lodFactor, zoom),
-    zoom: (scale) => Math.log(scale) / Math.log(lodFactor),
-    transformation: new L.Transformation(1, translate, 1, translate),
-  })
-}
-
-function buildLayer(tileSize, lodForZoom) {
-  const Layer = L.GridLayer.extend({
-    createTile(coords) {
-      const img = document.createElement('img')
-      img.alt = ''
-      img.draggable = false
-      const lod = lodForZoom(coords.z)
-      if (lod === null) {
-        img.style.visibility = 'hidden'
-        return img
-      }
-      img.src = tileBase
-        .replace('{lod}', lod)
-        .replace('{x}', coords.x)
-        .replace('{y}', coords.y)
-      img.onerror = () => { img.style.visibility = 'hidden' }
-      return img
-    },
-  })
-  return new Layer({ tileSize, noWrap: true, updateWhenIdle: false })
-}
-
-// 根据 zoom 在 hires / lowres 两层之间切换
-function syncLayer() {
-  if (!leafletMap || !geo) return
-  const zoom = leafletMap.getZoom()
-  const wantLow = zoom < 0
-  const current = tileLayer
-  const next = wantLow ? geo.lowLayer : geo.hiresLayer
-  if (current === next) return
-  if (current) leafletMap.removeLayer(current)
-  next.addTo(leafletMap)
-  tileLayer = next
-}
-
-function setupMap(info) {
-  const s = info.settings || {}
-  const lodFactor = s.lowres?.lodFactor || 5
-  const hiresSize = s.hires?.tileSize || 32
-  const lowSize = s.lowres?.tileSize || 500
-  const translate = s.hires?.translate || 0
-  const lodCount = s.lowres?.lodCount || 0
-  const start = s.startPos || [0, 0]
-
-  geo = {
-    hiresLayer: buildLayer(hiresSize, () => 0),
-    lowLayer: buildLayer(lowSize, (z) => (z < 0 ? -z : null)),
-    lodFactor,
-  }
-
-  leafletMap = L.map(mapEl.value, {
-    crs: buildCrs(lodFactor, translate),
-    minZoom: -Math.max(lodCount, 0),
-    maxZoom: 0,
-    zoomSnap: 1,
-    zoomDelta: 1,
-    attributionControl: false,
-    zoomControl: true,
-    worldCopyJump: false,
-  })
-
-  playerLayer = L.layerGroup().addTo(leafletMap)
-
-  // Minecraft 的 z 轴向南为正，与 Leaflet 的纬度方向一致：latLng(z, x)
-  leafletMap.setView([info.center?.[1] ?? start[1] ?? 0, info.center?.[0] ?? start[0] ?? 0],
-    info.zoom ?? 0)
-
-  tileLayer = geo.hiresLayer.addTo(leafletMap)
-  syncLayer()
-  leafletMap.on('zoomend', syncLayer)
-}
-
-function renderPlayers(list) {
-  if (!playerLayer) return
-  playerLayer.clearLayers()
-  list.forEach((p) => {
-    const pos = p.position || p.pos
-    if (!pos || typeof pos.x !== 'number' || typeof pos.z !== 'number') return
-    const marker = L.circleMarker([pos.z, pos.x], {
-      radius: 6,
-      color: '#ffffff',
-      weight: 2,
-      fillColor: '#ebaa28',
-      fillOpacity: 1,
-    })
-    if (p.name) marker.bindTooltip(p.name, { direction: 'top', offset: [0, -6] })
-    marker.addTo(playerLayer)
-  })
-}
-
-// 3D 视图由 BlueMap webapp 自己渲染；带上初始坐标，打开就是贴近地表的视角
+// BlueMap 只认完整的 10 段 hash：
+// mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewHeight
+// 2D 用正交俯视（tilt 90），3D 用透视并压低俯仰角，接近游戏内旁观
 const viewerSrc = computed(() => {
-  const p = startPos.value
-  return `${viewer.value}#${activeMap.value}:${p.x}:${p.y}:${p.z}:${p.distance}:0:${p.tilt}`
+  if (!viewer.value || !activeMap.value) return ''
+  const flat = viewMode.value === '2d'
+  const tilt = flat ? 90 : 60
+  const height = flat ? startY.value : startY.value + 20
+  const [x, z] = startPos.value
+  return `${viewer.value}#${activeMap.value}:${x}:${height}:${z}:0:0:0:${tilt}:${flat}:1000`
 })
 
-function startViewer() {
-  if (viewerStarted.value) return
-  viewerStarted.value = true
-  viewerReady.value = false
-  viewerFailed.value = false
-  if (viewerTimer) clearTimeout(viewerTimer)
-  // 跨源 iframe 无法可靠捕获加载失败，用超时兜底
-  viewerTimer = setTimeout(() => {
-    if (!viewerReady.value) viewerFailed.value = true
-  }, 15000)
+function authHeaders() {
+  return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
 }
 
-function onViewerLoad() {
-  viewerReady.value = true
-  if (viewerTimer) clearTimeout(viewerTimer)
-  // 进入后短暂显示操作提示
-  showControls.value = true
-  if (controlsTimer) clearTimeout(controlsTimer)
-  controlsTimer = setTimeout(() => { showControls.value = false }, 6000)
+function showGate(code) {
+  if (code === 'map_not_ready') {
+    gate.value = { code, title: t('map.noViewer'), hint: t('map.noViewerHint'), action: '' }
+    return
+  }
+  const membersOnly = code === 'map_members_only'
+  gate.value = {
+    code,
+    title: membersOnly ? t('map.membersOnly') : t('map.error'),
+    hint: membersOnly ? t('map.membersOnlyHint') : '',
+    action: code === 'unauthorized' ? 'login' : membersOnly ? 'joinus' : '',
+  }
 }
 
-function enterImmersive() {
+// ---------- 沉浸模式：优先用浏览器全屏，Esc 由浏览器处理并回调 ----------
+async function enterImmersive() {
+  const el = wrapEl.value
+  if (el?.requestFullscreen) {
+    try {
+      await el.requestFullscreen()
+      immersive.value = true
+      return
+    } catch {
+      // 没有用户手势等情况下退化为铺满视口
+    }
+  }
   immersive.value = true
 }
 
-function exitImmersive() {
+async function exitImmersive() {
+  if (document.fullscreenElement) {
+    try {
+      await document.exitFullscreen()
+    } catch {
+      // 忽略：下面统一复位状态
+    }
+  }
   immersive.value = false
+}
+
+function onFullscreenChange() {
+  immersive.value = !!document.fullscreenElement
 }
 
 function onKeydown(e) {
@@ -183,28 +101,56 @@ function switchView(mode) {
   if (viewMode.value === mode) return
   viewMode.value = mode
   localStorage.setItem('whs_map_view', mode)
-  if (mode === '3d') {
-    immersive.value = true
-    if (viewer.value) startViewer()
-  } else {
-    immersive.value = false
-  }
+  if (mode === '3d') enterImmersive()
+  else exitImmersive()
 }
 
 watch(immersive, (on) => {
   document.body.style.overflow = on ? 'hidden' : ''
 })
 
-watch(viewMode, async (mode) => {
-  // 2D 容器在 3D 模式下是 display:none，切回来需要重新计算尺寸
-  if (mode === '2d' && leafletMap) {
-    await nextTick()
-    leafletMap.invalidateSize()
-  }
+watch(viewMode, () => {
+  loaded.value = false
+  failed.value = false
+  frameKey.value += 1
+  beginLoad()
 })
 
-function authHeaders() {
-  return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
+// ---------- 加载状态 ----------
+function beginLoad() {
+  if (loadTimer) clearTimeout(loadTimer)
+  loadTimer = setTimeout(() => {
+    if (!loaded.value) failed.value = true
+  }, 15000)
+}
+
+function onFrameLoad() {
+  loaded.value = true
+  failed.value = false
+  if (loadTimer) clearTimeout(loadTimer)
+  showControls.value = true
+  if (controlsTimer) clearTimeout(controlsTimer)
+  controlsTimer = setTimeout(() => { showControls.value = false }, 6000)
+}
+
+// ---------- 配置与玩家数 ----------
+function scheduleRefresh(ttl) {
+  if (configTimer) clearTimeout(configTimer)
+  const wait = Math.max(((ttl || 600) - 120) * 1000, 60000)
+  configTimer = setTimeout(refreshCookie, wait)
+}
+
+// 只刷新通行 Cookie，不重建 iframe，避免长时间挂机后画面反复重载
+async function refreshCookie() {
+  try {
+    const res = await fetch('/api/map/config', { headers: authHeaders() })
+    if (!res.ok) return
+    const data = await res.json()
+    scheduleRefresh(data.ttl)
+  } catch {
+    // 网络抖动时保留现有画面，下一轮再试
+    scheduleRefresh(300)
+  }
 }
 
 async function loadPlayers() {
@@ -215,36 +161,13 @@ async function loadPlayers() {
     })
     if (!res.ok) return
     const data = await res.json()
-    players.value = Array.isArray(data.players) ? data.players : []
-    renderPlayers(players.value)
+    playerCount.value = Number(data.count) || 0
   } catch {
-    // 轮询失败不打扰用户，下一轮再试
+    // 轮询失败不打扰用户
   }
 }
 
-function destroyMap() {
-  if (leafletMap) {
-    leafletMap.remove()
-    leafletMap = null
-    tileLayer = null
-    playerLayer = null
-  }
-}
-
-function showGate(code) {
-  const membersOnly = code === 'map_members_only'
-  gate.value = {
-    code,
-    title: membersOnly ? t('map.membersOnly') : t('map.error'),
-    hint: membersOnly ? t('map.membersOnlyHint') : '',
-    action: code === 'unauthorized' ? 'login' : membersOnly ? 'joinus' : '',
-  }
-  destroyMap()
-  currentMapId = ''
-}
-
-async function loadConfig({ rebuild = false } = {}) {
-  if (!leafletMap) loading.value = true
+async function loadConfig() {
   try {
     const res = await fetch('/api/map/config', { headers: authHeaders() })
     const data = await res.json().catch(() => ({}))
@@ -253,64 +176,53 @@ async function loadConfig({ rebuild = false } = {}) {
       return
     }
     gate.value = null
+    available.value = true
+    viewer.value = data.viewer || ''
+    startY.value = Number(data.start_y) || 80
     maps.value = data.maps || []
-    // 续签时保持当前选中的地图，只有首次进入或手动切换才回落到默认地图
+
     const target = data.maps?.find((m) => m.id === activeMap.value)
       || data.maps?.find((m) => m.id === data.default)
       || data.maps?.[0]
     if (!target) {
-      showGate('empty')
+      showGate('error')
       return
     }
     activeMap.value = target.id
-    tileBase = target.tile
-    viewer.value = data.viewer || ''
-    const sp = target.settings?.startPos
-    if (Array.isArray(sp) && sp.length >= 2) {
-      startPos.value = { ...startPos.value, x: sp[0], z: sp[1] }
-    }
-    if (viewMode.value === '3d' && viewer.value) startViewer()
-    if (rebuild || currentMapId !== target.id) {
-      currentMapId = target.id
-      destroyMap()
-      await nextTick()
-      setupMap(target)
-    } else if (tileLayer) {
-      // 令牌已换新，让已加载的瓦片用新地址重新请求
-      tileLayer.redraw()
-    }
-
-    if (configTimer) clearTimeout(configTimer)
-    const wait = Math.max((data.refetch_after || 300) * 1000, 60000)
-    configTimer = setTimeout(loadConfig, wait)
-
+    startPos.value = target.start || [0, 0]
+    loaded.value = false
+    failed.value = false
+    frameKey.value += 1
+    beginLoad()
+    scheduleRefresh(data.ttl)
     loadPlayers()
   } catch {
-    // 已有地图时遇到网络抖动不销毁画面，等下次续签重试
-    if (!leafletMap) showGate('network')
+    if (!available.value) showGate('network')
   } finally {
     loading.value = false
   }
 }
 
 async function onMapChange() {
-  await loadConfig({ rebuild: true })
+  await loadConfig()
 }
 
 onMounted(() => {
   loadConfig()
   playersTimer = setInterval(loadPlayers, 15000)
+  document.addEventListener('fullscreenchange', onFullscreenChange)
   window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   if (configTimer) clearTimeout(configTimer)
   if (playersTimer) clearInterval(playersTimer)
-  if (viewerTimer) clearTimeout(viewerTimer)
+  if (loadTimer) clearTimeout(loadTimer)
   if (controlsTimer) clearTimeout(controlsTimer)
+  document.removeEventListener('fullscreenchange', onFullscreenChange)
   window.removeEventListener('keydown', onKeydown)
   document.body.style.overflow = ''
-  destroyMap()
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
 })
 </script>
 
@@ -342,9 +254,9 @@ onBeforeUnmount(() => {
           >3D</button>
         </div>
         <select v-if="maps.length > 1" v-model="activeMap" class="map-select" @change="onMapChange">
-          <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.id }}</option>
+          <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.name }}</option>
         </select>
-        <span class="map-count">{{ t('map.players') }} {{ players.length }}</span>
+        <span class="map-count">{{ t('map.players') }} {{ playerCount }}</span>
       </div>
     </header>
 
@@ -357,44 +269,48 @@ onBeforeUnmount(() => {
 
     <div
       v-show="!gate"
+      ref="wrapEl"
       class="map-canvas-wrap"
-      :class="{ 'is-immersive': immersive && viewMode === '3d' }"
+      :class="{ 'is-immersive': immersive }"
     >
-      <div v-show="viewMode === '2d'" ref="mapEl" class="map-canvas"></div>
+      <iframe
+        v-if="available && viewer"
+        :key="frameKey"
+        ref="frameEl"
+        :src="viewerSrc"
+        class="map-frame"
+        :title="t('map.title')"
+        allow="fullscreen"
+        allowfullscreen
+        @load="onFrameLoad"
+      ></iframe>
 
-      <div v-show="viewMode === '3d'" class="map-3d">
-        <iframe
-          v-if="viewerStarted && viewer"
-          :src="viewerSrc"
-          class="map-3d-frame"
-          title="3D map"
-          allowfullscreen
-          @load="onViewerLoad"
-        ></iframe>
-        <div v-else class="map-3d-tip">
-          <p class="tip-title">{{ t('map.no3d') }}</p>
-          <p class="tip-hint">{{ t('map.no3dHint') }}</p>
-        </div>
-        <div v-if="viewerStarted && viewer && !viewerReady && !viewerFailed" class="map-loading">
-          {{ t('map.loading3d') }}
-        </div>
-        <div v-if="viewerFailed" class="map-3d-tip">
-          <p class="tip-title">{{ t('map.error3d') }}</p>
-        </div>
-        <div v-if="immersive" class="immersive-bar">
-          <button type="button" class="immersive-btn" @click="exitImmersive">
-            {{ t('map.immersiveExit') }}
-          </button>
-        </div>
-        <div v-else-if="viewerStarted && viewerReady" class="immersive-bar">
-          <button type="button" class="immersive-btn" @click="enterImmersive">
-            {{ t('map.immersiveEnter') }}
-          </button>
-        </div>
-        <div v-if="showControls && viewerReady" class="map-hint">{{ t('map.controls') }}</div>
+      <div v-else-if="loading" class="map-loading">{{ t('map.loading') }}</div>
+
+      <div v-else class="map-tip">
+        <p class="tip-title">{{ t('map.noViewer') }}</p>
+        <p class="tip-hint">{{ t('map.noViewerHint') }}</p>
       </div>
 
-      <div v-if="viewMode === '2d' && loading" class="map-loading">{{ t('map.loading') }}</div>
+      <div v-if="available && !loaded && !failed" class="map-loading">{{ t('map.loading') }}</div>
+      <div v-if="failed" class="map-tip">
+        <p class="tip-title">{{ t('map.errorViewer') }}</p>
+      </div>
+
+      <div v-if="immersive" class="immersive-bar">
+        <button type="button" class="immersive-btn" @click="exitImmersive">
+          {{ t('map.immersiveExit') }}
+        </button>
+      </div>
+      <div v-else-if="available && loaded" class="immersive-bar">
+        <button type="button" class="immersive-btn" @click="enterImmersive">
+          {{ t('map.immersiveEnter') }}
+        </button>
+      </div>
+
+      <div v-if="showControls && loaded" class="map-hint">
+        {{ viewMode === '3d' ? t('map.controls3d') : t('map.controls2d') }}
+      </div>
     </div>
   </main>
 
@@ -456,13 +372,16 @@ onBeforeUnmount(() => {
   border: 1px solid var(--float-bg);
   border-radius: 12px;
   overflow: hidden;
-}
-
-.map-canvas {
   height: calc(100vh - 240px);
   min-height: 420px;
-  width: 100%;
   background: #0f172a;
+}
+
+.map-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
 }
 
 .map-loading {
@@ -475,6 +394,31 @@ onBeforeUnmount(() => {
   color: #fff;
   font-size: 15px;
   pointer-events: none;
+}
+
+.map-tip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.tip-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.tip-hint {
+  margin: 0;
+  font-size: 13px;
+  color: #cbd5e1;
 }
 
 .map-gate {
@@ -557,58 +501,15 @@ onBeforeUnmount(() => {
   transform: translateX(100%);
 }
 
-.map-3d {
-  position: relative;
-  height: calc(100vh - 240px);
-  min-height: 420px;
-  background: #0f172a;
-}
-
-.map-3d-frame {
-  display: block;
-  width: 100%;
-  height: 100%;
-  border: 0;
-}
-
-.map-3d-tip {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 24px;
-  text-align: center;
-}
-
-.tip-title {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
-}
-
-.tip-hint {
-  margin: 0;
-  font-size: 13px;
-  color: #cbd5e1;
-}
-
-/* 3D 沉浸模式：铺满视口，观感接近游戏内旁观视角 */
+/* 浏览器全屏不可用时的退路：铺满视口 */
 .map-canvas-wrap.is-immersive {
   position: fixed;
   inset: 0;
   z-index: 2000;
-  border: none;
-  border-radius: 0;
-  background: #0f172a;
-}
-
-.map-canvas-wrap.is-immersive .map-3d {
   height: 100%;
   min-height: 0;
+  border: none;
+  border-radius: 0;
 }
 
 .immersive-bar {
@@ -672,9 +573,7 @@ onBeforeUnmount(() => {
     animation: none;
     transform: translateX(-50%);
   }
-}
 
-@media (prefers-reduced-motion: reduce) {
   .view-thumb {
     transition: none;
   }
@@ -689,11 +588,7 @@ onBeforeUnmount(() => {
     font-size: 22px;
   }
 
-  .map-canvas {
-    height: calc(100vh - 280px);
-  }
-
-  .map-3d {
+  .map-canvas-wrap {
     height: calc(100vh - 280px);
   }
 

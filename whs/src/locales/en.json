@@ -36,13 +36,13 @@
         "goLogin": "Log in first",
         "error": "Failed to load the map, please try again later",
         "view": "View mode",
-        "loading3d": "Loading 3D view…",
-        "no3d": "3D view is not enabled yet",
-        "no3dHint": "It will be available once the BlueMap web app is deployed.",
-        "error3d": "Failed to load the 3D view, please try again later",
+        "noViewer": "The live map is not enabled yet",
+        "noViewerHint": "It will be available once the BlueMap web app is deployed.",
+        "errorViewer": "Failed to load the live map, please try again later",
         "immersiveExit": "Exit full screen",
         "immersiveEnter": "Full screen",
-        "controls": "Drag to rotate · Right-drag to pan · Scroll to zoom · Click a block for details"
+        "controls2d": "Drag to pan · Scroll to zoom · Click a block for details",
+        "controls3d": "Drag to rotate · Right-drag to pan · Scroll to zoom · Click a block for details"
     },
     "search": {
         "title": "Full Search",
