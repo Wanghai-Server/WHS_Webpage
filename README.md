@@ -909,7 +909,7 @@ python SMTP/mail_server.py
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
   2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-flat-view` 和 `enable-perspective-view`，BlueMap 5.x 没有 `display-type` 这个键，关掉透视就只剩平面视图；`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
   3. 第一次启动会全量渲染整张地图，吃 CPU 和磁盘，挑没人玩的时候跑，渲染线程数可以调低。
-  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；实时玩家走 SSE，需要关掉缓冲。这段放进现有的 `server { listen 31480 ssl; ... }` 里即可。
+  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；BlueMap 5.x 的在线玩家是轮询 `players.json`，关掉缓冲可以减少到达延迟。这段放进现有的 `server { listen 31480 ssl; ... }` 里即可。
   5. 代理必须挂鉴权。网站的登录态存在浏览器里，iframe 发请求时不会自己带上，所以后端通过 `/api/map/config` 下发一个 600 秒的 HttpOnly Cookie，nginx 用 `auth_request` 校验。注意 `auth_request` 是**每个子请求**都会触发的，3D 场景一次加载就有几百上千个瓦片和模型请求，不加缓存会把这些全部打到后端，必须按下面的配置给鉴权结果做缓存（通过的结果 60 秒，失败的结果 10 秒）：
 
 ```nginx
@@ -956,7 +956,7 @@ location /map3d/ {
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
 
-    # 在线玩家走 SSE，不能缓冲
+    # 在线玩家是轮询 players.json，关掉缓冲减少到达延迟
     proxy_buffering off;
     proxy_read_timeout 3600s;
 
@@ -968,9 +968,20 @@ location /map3d/ {
     # 否则 BlueMap 的 502 会被替换成维护页，前端拿不到真实状态
     proxy_intercept_errors off;
 }
+
+# 地图接口同样要绕开全局的 proxy_intercept_errors，
+# 否则 BlueMap 没部署时前端拿到的是维护页，而不是 map_not_ready
+location /api/map/ {
+    proxy_pass http://127.0.0.1:7777;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_intercept_errors off;
+}
 ```
 
-  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是 3D 初始镜头高度，按地形高度调；站点是 HTTPS，`cookie_secure` 直接设 `true`。
+  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是地图出生点的地表高度，2D 直接用它，3D 在此基础上抬 20 格；站点是 HTTPS，`cookie_secure` 直接设 `true`。
   7. 改完配置重启后端生效。访问权限卡在 permission ≥ 2，代码里已经处理。
 
 

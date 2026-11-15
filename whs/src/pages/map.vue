@@ -46,7 +46,8 @@ const viewerSrc = computed(() => {
   const tilt = 0
   const ortho = flat ? 1 : 0
   const view = flat ? 'flat' : 'perspective'
-  return `${viewer.value}#${activeMap.value}:${x}:${startY.value}:${z}:${distance}:0:${angle}:${tilt}:${ortho}:${view}`
+  const y = startY.value + (flat ? 0 : 20)
+  return `${viewer.value}#${activeMap.value}:${x}:${y}:${z}:${distance}:0:${angle}:${tilt}:${ortho}:${view}`
 })
 
 function authHeaders() {
