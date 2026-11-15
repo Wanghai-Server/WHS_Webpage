@@ -12,7 +12,8 @@
         "user": "用户中心",
         "joinus": "加入我们",
         "search": "全量搜索",
-        "feedback": "反馈"
+        "feedback": "反馈",
+        "map": "在线地图"
     },
     "nav": {
         "title": "望海服务器",
@@ -20,8 +21,28 @@
         "wiki": "维基",
         "about": "关于",
         "feedback": "反馈",
+        "map": "地图",
         "login": "登录/注册",
         "menu": "菜单"
+    },
+    "map": {
+        "title": "服务器在线地图",
+        "subtitle": "实时查看世界地形与在线玩家位置",
+        "loading": "地图加载中…",
+        "players": "在线玩家",
+        "membersOnly": "在线地图仅对正式成员开放",
+        "membersOnlyHint": "通过入服问卷并加入白名单后即可查看。",
+        "goExam": "去参加入服问卷",
+        "goLogin": "先去登录",
+        "error": "地图加载失败，请稍后重试",
+        "view": "视图模式",
+        "noViewer": "服务器尚未开启在线地图",
+        "noViewerHint": "管理员部署 BlueMap 网页端后即可查看。",
+        "errorViewer": "在线地图加载失败，请稍后重试",
+        "immersiveExit": "退出全屏",
+        "immersiveEnter": "全屏浏览",
+        "controls2d": "拖动平移 · 滚轮缩放 · 点击方块查看信息",
+        "controls3d": "左键拖动旋转 · 右键拖动平移 · 滚轮缩放 · 点击方块查看信息"
     },
     "search": {
         "title": "全量搜索",

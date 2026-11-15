@@ -15,6 +15,12 @@ const routes = [
     meta: { titleKey: 'pageTitle.about'}
   },
   {
+    path: '/map',
+    name: 'Map',
+    component: () => import("../pages/map.vue"),
+    meta: { titleKey: 'pageTitle.map'}
+  },
+  {
     path: '/forum',
     name: 'Forum',
     component: () => import("../pages/forum/index.vue"),

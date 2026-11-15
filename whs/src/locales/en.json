@@ -12,7 +12,8 @@
         "user": "User Center",
         "joinus": "Join Us",
         "search": "Full Search",
-        "feedback": "Feedback"
+        "feedback": "Feedback",
+        "map": "Live Map"
     },
     "nav": {
         "title": "WHS",
@@ -20,8 +21,28 @@
         "wiki": "Wiki",
         "about": "About",
         "feedback": "Feedback",
+        "map": "Map",
         "login": "Login / Register",
         "menu": "Menu"
+    },
+    "map": {
+        "title": "Server Live Map",
+        "subtitle": "Explore the world terrain and online player positions in real time",
+        "loading": "Loading map…",
+        "players": "Online",
+        "membersOnly": "The live map is available to members only",
+        "membersOnlyHint": "Pass the join exam and get whitelisted to view it.",
+        "goExam": "Take the join exam",
+        "goLogin": "Log in first",
+        "error": "Failed to load the map, please try again later",
+        "view": "View mode",
+        "noViewer": "The live map is not enabled yet",
+        "noViewerHint": "It will be available once the BlueMap web app is deployed.",
+        "errorViewer": "Failed to load the live map, please try again later",
+        "immersiveExit": "Exit full screen",
+        "immersiveEnter": "Full screen",
+        "controls2d": "Drag to pan · Scroll to zoom · Click a block for details",
+        "controls3d": "Drag to rotate · Right-drag to pan · Scroll to zoom · Click a block for details"
     },
     "search": {
         "title": "Full Search",

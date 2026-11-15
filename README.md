@@ -18,7 +18,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 92 条）
+6. HTTP API（共 95 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -185,7 +185,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 92 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 95 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -388,7 +388,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 92 条）
+## 6. HTTP API（共 95 条）
 
 ### 6.1 约定
 
@@ -563,6 +563,16 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | POST | `/api/wiki/disambig/rebuild` | ≥3 | 手动触发系统消歧义页重建 |
 | POST | `/api/wiki/upload` | 登录且 permission≥2 | 上传媒体（图片≤5MB / 视频≤50MB / 音频≤20MB） |
 | GET | `/api/wiki/upload/{filename}` | 公开 | 读取已上传媒体文件 |
+
+### 6.12 在线地图（3 条）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/map/config` | 登录且 permission≥2 | 下发地图入口、地图列表与出生点，同时写入短期 HttpOnly Cookie（默认 600 秒） |
+| GET | `/api/map/auth` | Cookie | 供 nginx `auth_request` 调用，凭据有效返回 204，否则 401 |
+| GET | `/api/map/players?map_id=` | 登录且 permission≥2 | 当前世界在线玩家数量（已排除其他维度的 `foreign` 玩家） |
+
+2D 与 3D 共用同一个 BlueMap 网页端，后端不再代理瓦片，只负责鉴权与下发配置。
 
 ---
 
@@ -895,6 +905,85 @@ python SMTP/mail_server.py
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
 - **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
+- **在线地图（`/map`）**：页面本身不含地图数据，2D 和 3D 都由服务器上的 BlueMap 网页端提供。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
+  1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
+  2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-flat-view` 和 `enable-perspective-view`，BlueMap 5.x 没有 `display-type` 这个键，关掉透视就只剩平面视图；`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
+  3. 第一次启动会全量渲染整张地图，吃 CPU 和磁盘，挑没人玩的时候跑，渲染线程数可以调低。
+  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；BlueMap 5.x 的在线玩家是轮询 `players.json`，关掉缓冲可以减少到达延迟。这段放进现有的 `server { listen 31480 ssl; ... }` 里即可。
+  5. 代理必须挂鉴权。网站的登录态存在浏览器里，iframe 发请求时不会自己带上，所以后端通过 `/api/map/config` 下发一个 600 秒的 HttpOnly Cookie，nginx 用 `auth_request` 校验。注意 `auth_request` 是**每个子请求**都会触发的，3D 场景一次加载就有几百上千个瓦片和模型请求，不加缓存会把这些全部打到后端，必须按下面的配置给鉴权结果做缓存（通过的结果 60 秒，失败的结果 10 秒）：
+
+```nginx
+# 放在 http { } 块：鉴权结果缓存，否则 3D 场景里每个瓦片 / 模型请求
+# 都会回源到后端一次，一个页面就是几百上千次
+# cache/mapauth 目录要事先建好，路径相对于 nginx 的 prefix 目录
+proxy_cache_path cache/mapauth levels=1:2 keys_zone=mapauth:1m max_size=10m inactive=60s;
+
+# 内部鉴权端点，直接打后端，不经过前端 dev server
+location = /api/map/auth {
+    internal;
+    proxy_pass http://127.0.0.1:7777;
+    proxy_set_header X-Real-IP $remote_addr;
+
+    # 后端本身异常时不能被全局的 proxy_intercept_errors 换成维护页，
+    # 否则 auth_request 收到的是一段 HTML，前端拿不到真实的 5xx
+    proxy_intercept_errors off;
+
+    proxy_cache mapauth;
+    proxy_cache_key "$cookie_whs_map";
+    # 通过的结果缓存 60 秒，一个用户再怎么拖地图，一分钟最多回源一次；
+    # 失败的只缓存 10 秒，免得刚登录的人被挡太久
+    proxy_cache_valid 204 60s;
+    proxy_cache_valid 401 10s;
+    # 同一凭据的并发请求只放一个回源，其余等结果，避免瞬间打满后端
+    proxy_cache_lock on;
+    # 等 3 秒还没回来就不再等，直接并发回源，防止一个慢请求拖住整批瓦片
+    proxy_cache_lock_timeout 3s;
+    # 后端异常时沿用上一次的鉴权结果，避免整页资源一起 5xx
+    proxy_cache_use_stale error timeout updating;
+
+    # 子请求必须快进快出，默认 60 秒会让整个页面卡住
+    proxy_connect_timeout 1s;
+    proxy_read_timeout 5s;
+}
+
+location /map3d/ {
+    auth_request /api/map/auth;
+    proxy_pass http://127.0.0.1:8100/;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # 在线玩家是轮询 players.json，关掉缓冲减少到达延迟
+    proxy_buffering off;
+    proxy_read_timeout 3600s;
+
+    # BlueMap 自带禁止被 iframe 引用的响应头，不去掉会白屏
+    proxy_hide_header X-Frame-Options;
+    proxy_hide_header Content-Security-Policy;
+
+    # 全局开了 proxy_intercept_errors，这里要关掉，
+    # 否则 BlueMap 的 502 会被替换成维护页，前端拿不到真实状态
+    proxy_intercept_errors off;
+}
+
+# 地图接口同样要绕开全局的 proxy_intercept_errors，
+# 否则 BlueMap 没部署时前端拿到的是维护页，而不是 map_not_ready
+location /api/map/ {
+    proxy_pass http://127.0.0.1:7777;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_intercept_errors off;
+}
+```
+
+  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是地图出生点的地表高度，2D 直接用它，3D 在此基础上抬 20 格；站点是 HTTPS，`cookie_secure` 直接设 `true`。
+  7. 改完配置重启后端生效。访问权限卡在 permission ≥ 2，代码里已经处理。
+
 
 ---
 
