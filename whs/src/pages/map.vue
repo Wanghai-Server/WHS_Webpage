@@ -20,6 +20,10 @@ const viewer = ref('')
 const viewerStarted = ref(false)
 const viewerReady = ref(false)
 const viewerFailed = ref(false)
+const immersive = ref(false)
+const showControls = ref(false)
+// 3D 初始视角：贴近地表、略微俯视，接近游戏内旁观视角
+const startPos = ref({ x: 0, y: 80, z: 0, distance: 120, tilt: 25 })
 const gate = ref(null) // 非空时展示提示卡片（未登录 / 非正式成员 / 服务异常）
 const loading = ref(true)
 
@@ -29,6 +33,7 @@ let playerLayer = null
 let configTimer = null
 let playersTimer = null
 let viewerTimer = null
+let controlsTimer = null
 // 当前地图的瓦片参数（来自 BlueMap settings.json）
 let geo = null
 let tileBase = ''
@@ -135,8 +140,11 @@ function renderPlayers(list) {
   })
 }
 
-// 3D 视图由 BlueMap webapp 自己渲染，这里只传地图 id，视角交给它自己的 startPos
-const viewerSrc = computed(() => `${viewer.value}#${activeMap.value}`)
+// 3D 视图由 BlueMap webapp 自己渲染；带上初始坐标，打开就是贴近地表的视角
+const viewerSrc = computed(() => {
+  const p = startPos.value
+  return `${viewer.value}#${activeMap.value}:${p.x}:${p.y}:${p.z}:${p.distance}:0:${p.tilt}`
+})
 
 function startViewer() {
   if (viewerStarted.value) return
@@ -153,14 +161,39 @@ function startViewer() {
 function onViewerLoad() {
   viewerReady.value = true
   if (viewerTimer) clearTimeout(viewerTimer)
+  // 进入后短暂显示操作提示
+  showControls.value = true
+  if (controlsTimer) clearTimeout(controlsTimer)
+  controlsTimer = setTimeout(() => { showControls.value = false }, 6000)
+}
+
+function enterImmersive() {
+  immersive.value = true
+}
+
+function exitImmersive() {
+  immersive.value = false
+}
+
+function onKeydown(e) {
+  if (e.key === 'Escape' && immersive.value) exitImmersive()
 }
 
 function switchView(mode) {
   if (viewMode.value === mode) return
   viewMode.value = mode
   localStorage.setItem('whs_map_view', mode)
-  if (mode === '3d' && viewer.value) startViewer()
+  if (mode === '3d') {
+    immersive.value = true
+    if (viewer.value) startViewer()
+  } else {
+    immersive.value = false
+  }
 }
+
+watch(immersive, (on) => {
+  document.body.style.overflow = on ? 'hidden' : ''
+})
 
 watch(viewMode, async (mode) => {
   // 2D 容器在 3D 模式下是 display:none，切回来需要重新计算尺寸
@@ -232,6 +265,10 @@ async function loadConfig({ rebuild = false } = {}) {
     activeMap.value = target.id
     tileBase = target.tile
     viewer.value = data.viewer || ''
+    const sp = target.settings?.startPos
+    if (Array.isArray(sp) && sp.length >= 2) {
+      startPos.value = { ...startPos.value, x: sp[0], z: sp[1] }
+    }
     if (viewMode.value === '3d' && viewer.value) startViewer()
     if (rebuild || currentMapId !== target.id) {
       currentMapId = target.id
@@ -263,12 +300,16 @@ async function onMapChange() {
 onMounted(() => {
   loadConfig()
   playersTimer = setInterval(loadPlayers, 15000)
+  window.addEventListener('keydown', onKeydown)
 })
 
 onBeforeUnmount(() => {
   if (configTimer) clearTimeout(configTimer)
   if (playersTimer) clearInterval(playersTimer)
   if (viewerTimer) clearTimeout(viewerTimer)
+  if (controlsTimer) clearTimeout(controlsTimer)
+  window.removeEventListener('keydown', onKeydown)
+  document.body.style.overflow = ''
   destroyMap()
 })
 </script>
@@ -314,7 +355,11 @@ onBeforeUnmount(() => {
       <router-link v-else-if="gate.action === 'joinus'" class="gate-link" to="/joinus">{{ t('map.goExam') }}</router-link>
     </div>
 
-    <div v-show="!gate" class="map-canvas-wrap">
+    <div
+      v-show="!gate"
+      class="map-canvas-wrap"
+      :class="{ 'is-immersive': immersive && viewMode === '3d' }"
+    >
       <div v-show="viewMode === '2d'" ref="mapEl" class="map-canvas"></div>
 
       <div v-show="viewMode === '3d'" class="map-3d">
@@ -336,6 +381,17 @@ onBeforeUnmount(() => {
         <div v-if="viewerFailed" class="map-3d-tip">
           <p class="tip-title">{{ t('map.error3d') }}</p>
         </div>
+        <div v-if="immersive" class="immersive-bar">
+          <button type="button" class="immersive-btn" @click="exitImmersive">
+            {{ t('map.immersiveExit') }}
+          </button>
+        </div>
+        <div v-else-if="viewerStarted && viewerReady" class="immersive-bar">
+          <button type="button" class="immersive-btn" @click="enterImmersive">
+            {{ t('map.immersiveEnter') }}
+          </button>
+        </div>
+        <div v-if="showControls && viewerReady" class="map-hint">{{ t('map.controls') }}</div>
       </div>
 
       <div v-if="viewMode === '2d' && loading" class="map-loading">{{ t('map.loading') }}</div>
@@ -540,6 +596,84 @@ onBeforeUnmount(() => {
   color: #cbd5e1;
 }
 
+/* 3D 沉浸模式：铺满视口，观感接近游戏内旁观视角 */
+.map-canvas-wrap.is-immersive {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  border: none;
+  border-radius: 0;
+  background: #0f172a;
+}
+
+.map-canvas-wrap.is-immersive .map-3d {
+  height: 100%;
+  min-height: 0;
+}
+
+.immersive-bar {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  z-index: 3;
+}
+
+.immersive-btn {
+  padding: 9px 18px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  backdrop-filter: blur(10px);
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.immersive-btn:hover {
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.immersive-btn:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+.map-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  z-index: 3;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.72);
+  color: #e2e8f0;
+  font-size: 13px;
+  white-space: nowrap;
+  backdrop-filter: blur(10px);
+  animation: hint-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-hint {
+    animation: none;
+    transform: translateX(-50%);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .view-thumb {
     transition: none;
@@ -561,6 +695,18 @@ onBeforeUnmount(() => {
 
   .map-3d {
     height: calc(100vh - 280px);
+  }
+
+  .map-hint {
+    width: calc(100% - 32px);
+    box-sizing: border-box;
+    text-align: center;
+    white-space: normal;
+  }
+
+  .immersive-bar {
+    top: 12px;
+    right: 12px;
   }
 }
 </style>

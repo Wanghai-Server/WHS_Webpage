@@ -39,7 +39,10 @@
         "loading3d": "3D 视图加载中…",
         "no3d": "服务器尚未开启 3D 视图",
         "no3dHint": "管理员部署 BlueMap 网页端后即可切换。",
-        "error3d": "3D 视图加载失败，请稍后重试"
+        "error3d": "3D 视图加载失败，请稍后重试",
+        "immersiveExit": "退出全屏",
+        "immersiveEnter": "全屏浏览",
+        "controls": "左键拖动旋转 · 右键拖动平移 · 滚轮缩放 · 点击方块查看信息"
     },
     "search": {
         "title": "全量搜索",

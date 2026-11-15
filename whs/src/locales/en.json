@@ -39,7 +39,10 @@
         "loading3d": "Loading 3D view…",
         "no3d": "3D view is not enabled yet",
         "no3dHint": "It will be available once the BlueMap web app is deployed.",
-        "error3d": "Failed to load the 3D view, please try again later"
+        "error3d": "Failed to load the 3D view, please try again later",
+        "immersiveExit": "Exit full screen",
+        "immersiveEnter": "Full screen",
+        "controls": "Drag to rotate · Right-drag to pan · Scroll to zoom · Click a block for details"
     },
     "search": {
         "title": "Full Search",
