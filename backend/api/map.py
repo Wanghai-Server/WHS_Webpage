@@ -42,7 +42,8 @@ def _map_cfg() -> dict:
         # 后端拉取 settings.json / 玩家数据用的上游地址，只在内网访问
         "base": str(cfg.get("bluemap_base") or "http://127.0.0.1:8100").rstrip("/"),
         # 浏览器访问的入口，必须是同源路径，由 nginx 反代到上面的 base
-        "viewer": str(cfg.get("bluemap_viewer") or "/map3d/"),
+        # 统一补尾斜杠：nginx 的 location /map3d/ 带斜杠，少一个斜杠会落到前端路由
+        "viewer": str(cfg.get("bluemap_viewer") or "/map3d/").rstrip("/") + "/",
         "maps": maps,
         "default": str(cfg.get("default") or maps[0]),
         "timeout": float(cfg.get("timeout") or 10),

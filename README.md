@@ -909,28 +909,42 @@ python SMTP/mail_server.py
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
   2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-flat-view` 和 `enable-perspective-view`，BlueMap 5.x 没有 `display-type` 这个键，关掉透视就只剩平面视图；`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
   3. 第一次启动会全量渲染整张地图，吃 CPU 和磁盘，挑没人玩的时候跑，渲染线程数可以调低。
-  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；实时玩家走 SSE，需要关掉缓冲。
+  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；实时玩家走 SSE，需要关掉缓冲。这段放在现有 `server { listen 31480 ssl; ... }` 里面，公网入口就是 31480，不需要额外开端口，也不要动 80 / 443。
   5. 代理必须挂鉴权。网站的登录态存在浏览器里，iframe 发请求时不会自己带上，所以后端通过 `/api/map/config` 下发一个 600 秒的 HttpOnly Cookie，nginx 用 `auth_request` 校验：
 
 ```nginx
+# 内部鉴权端点，直接打后端，不经过前端 dev server
 location = /api/map/auth {
     internal;
     proxy_pass http://127.0.0.1:7777;
+    proxy_set_header X-Real-IP $remote_addr;
 }
 
 location /map3d/ {
     auth_request /api/map/auth;
     proxy_pass http://127.0.0.1:8100/;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # 在线玩家走 SSE，不能缓冲
     proxy_buffering off;
     proxy_read_timeout 3600s;
+
+    # BlueMap 自带禁止被 iframe 引用的响应头，不去掉会白屏
     proxy_hide_header X-Frame-Options;
     proxy_hide_header Content-Security-Policy;
+
+    # 全局开了 proxy_intercept_errors，这里要关掉，
+    # 否则 BlueMap 的 502 会被替换成维护页，前端拿不到真实状态
+    proxy_intercept_errors off;
 }
 ```
 
-  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是 3D 初始镜头高度，按地形高度调；上了 HTTPS 之后把 `cookie_secure` 设成 `true`。
+  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是 3D 初始镜头高度，按地形高度调；站点是 HTTPS，`cookie_secure` 直接设 `true`。
   7. 改完配置重启后端生效。访问权限卡在 permission ≥ 2，代码里已经处理。
 
 
