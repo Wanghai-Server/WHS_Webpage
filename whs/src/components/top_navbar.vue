@@ -46,6 +46,7 @@ const links = computed(() => {
   }
   return [
     { key: 'nav.forum', label: t('nav.forum'), route: '/forum' },
+    { key: 'nav.map', label: t('nav.map'), route: '/map' },
     { key: 'nav.wiki', label: t('nav.wiki'), route: '/wiki' },
     { key: 'nav.about', label: t('nav.about'), route: '/about' },
   ]

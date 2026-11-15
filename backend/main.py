@@ -1135,6 +1135,7 @@ from api.auth import router as auth_router
 from api.avatar import router as avatar_router
 from api.exam import router as exam_router
 from api.feedback import router as feedback_router
+from api.map import router as map_router
 from api.message import router as message_router
 from api.search import router as search_router
 from api.server import router as server_router
@@ -1150,5 +1151,6 @@ app.include_router(message_router)
 app.include_router(exam_router)
 app.include_router(feedback_router)
 app.include_router(server_router)
+app.include_router(map_router)
 app.include_router(search_router)
 app.include_router(wiki_router)

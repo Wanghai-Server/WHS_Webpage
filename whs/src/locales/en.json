@@ -12,7 +12,8 @@
         "user": "User Center",
         "joinus": "Join Us",
         "search": "Full Search",
-        "feedback": "Feedback"
+        "feedback": "Feedback",
+        "map": "Live Map"
     },
     "nav": {
         "title": "WHS",
@@ -20,8 +21,20 @@
         "wiki": "Wiki",
         "about": "About",
         "feedback": "Feedback",
+        "map": "Map",
         "login": "Login / Register",
         "menu": "Menu"
+    },
+    "map": {
+        "title": "Server Live Map",
+        "subtitle": "Explore the world terrain and online player positions in real time",
+        "loading": "Loading map…",
+        "players": "Online",
+        "membersOnly": "The live map is available to members only",
+        "membersOnlyHint": "Pass the join exam and get whitelisted to view it.",
+        "goExam": "Take the join exam",
+        "goLogin": "Log in first",
+        "error": "Failed to load the map, please try again later"
     },
     "search": {
         "title": "Full Search",
