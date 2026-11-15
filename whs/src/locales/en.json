@@ -28,6 +28,7 @@
     "map": {
         "title": "Server Live Map",
         "subtitle": "Explore the world terrain and online player positions in real time",
+        "eyebrow": "Live BlueMap",
         "loading": "Loading map…",
         "players": "Online",
         "membersOnly": "The live map is available to members only",
@@ -35,13 +36,11 @@
         "goExam": "Take the join exam",
         "goLogin": "Log in first",
         "error": "Failed to load the map, please try again later",
-        "view": "View mode",
         "noViewer": "The live map is not enabled yet",
         "noViewerHint": "It will be available once the BlueMap web app is deployed.",
         "errorViewer": "Failed to load the live map, please try again later",
         "immersiveExit": "Exit full screen",
         "immersiveEnter": "Full screen",
-        "controls2d": "Drag to pan · Scroll to zoom · Click a block for details",
         "controls3d": "Drag to rotate · Right-drag to pan · Scroll to zoom · Click a block for details"
     },
     "search": {
@@ -272,7 +271,7 @@
                 "tps": { "label": "TPS", "unavailable": "—", "pending": "Not reported yet" },
                 "version": { "label": "Game Version", "value": "1.21.11", "note": "Java Edition" },
                 "round": { "label": "Current World", "value": "World 2" },
-                "seed": { "label": "World Seed", "value": "wanghai_commune", "note": "Click to copy", "mapSeed": "-1865289266", "open": "Open full map on ChunkBase" },
+                "seed": { "label": "World Seed", "value": "wanghai_commune", "note": "Click to copy", "mapSeed": "-1865289266", "open": "Open live map" },
                 "loading": "Loading…"
             },
             "members": {

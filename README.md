@@ -572,7 +572,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/api/map/auth` | Cookie | 供 nginx `auth_request` 调用，凭据有效返回 204，否则 401 |
 | GET | `/api/map/players?map_id=` | 登录且 permission≥2 | 当前世界在线玩家数量（已排除其他维度的 `foreign` 玩家） |
 
-2D 与 3D 共用同一个 BlueMap 网页端，后端不再代理瓦片，只负责鉴权与下发配置。
+地图由服务器上的 BlueMap 网页端提供，地图页固定使用 3D 透视视图；后端不再代理瓦片，只负责鉴权与下发配置。
 
 ---
 
@@ -905,9 +905,9 @@ python SMTP/mail_server.py
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
 - **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
-- **在线地图（`/map`）**：页面本身不含地图数据，2D 和 3D 都由服务器上的 BlueMap 网页端提供。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
+- **在线地图（`/map`）**：页面本身不含地图数据，由服务器上的 BlueMap 网页端提供 3D 透视视图。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
-  2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-flat-view` 和 `enable-perspective-view`，BlueMap 5.x 没有 `display-type` 这个键，关掉透视就只剩平面视图；`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
+  2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-perspective-view`，地图页固定使用 3D 透视；`enable-flat-view` 可保留但网站不再提供 2D 切换入口；BlueMap 5.x 没有 `display-type` 这个键。`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
   3. 第一次启动会全量渲染整张地图，吃 CPU 和磁盘，挑没人玩的时候跑，渲染线程数可以调低。
   4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；BlueMap 5.x 的在线玩家是轮询 `players.json`，关掉缓冲可以减少到达延迟。这段放进现有的 `server { listen 31480 ssl; ... }` 里即可。
   5. 代理必须挂鉴权。网站的登录态存在浏览器里，iframe 发请求时不会自己带上，所以后端通过 `/api/map/config` 下发一个 600 秒的 HttpOnly Cookie，nginx 用 `auth_request` 校验。注意 `auth_request` 是**每个子请求**都会触发的，3D 场景一次加载就有几百上千个瓦片和模型请求，不加缓存会把这些全部打到后端，必须按下面的配置给鉴权结果做缓存（通过的结果 60 秒，失败的结果 10 秒）：
@@ -981,7 +981,7 @@ location /api/map/ {
 }
 ```
 
-  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是地图出生点的地表高度，2D 直接用它，3D 在此基础上抬 20 格；站点是 HTTPS，`cookie_secure` 直接设 `true`。
+  6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是地图出生点的地表高度，地图页固定 3D，会在此基础上抬 20 格；站点是 HTTPS，`cookie_secure` 直接设 `true`。
   7. 改完配置重启后端生效。访问权限卡在 permission ≥ 2，代码里已经处理。
 
 
