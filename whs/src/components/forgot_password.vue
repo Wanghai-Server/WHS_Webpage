@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { Eye, EyeOff } from 'lucide-vue-next'
+import HcaptchaBox from './hcaptcha_box.vue'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { sha256 } from '../composables/sha256'
+import { EMAIL_RE, useEmailCode } from '../composables/useEmailCode'
 
 const emit = defineEmits(['close'])
 
@@ -13,15 +14,13 @@ const { t, locale } = useI18n()
 const { showTip } = useTips()
 const hcaptchaSiteKey = useHcaptchaSiteKey()
 
-const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
 const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
 
 // 第一页：验证身份（验证码发送到用户输入的邮箱）
 const email = ref('')
 const code = ref('')
 const hcaptchaToken = ref('')
-const sendCooldown = ref(0)
-let cooldownTimer = null
+const captchaRef = ref(null)
 
 // 第二页：新密码
 const newPassword = ref('')
@@ -31,7 +30,7 @@ const showPasswords = ref(false)
 
 const step = ref('verify') // 'verify' | 'new'
 const loading = ref(false)
-const sendingCode = ref(false)
+const { sending: sendingCode, cooldown: sendCooldown, send: sendEmailCode } = useEmailCode()
 const visible = ref(true) // 控制进入/离开动画；关闭时先播放离开动画再通知父组件
 
 const CLOSE_MS = 260 // 略大于 dialog-fade 离开动画时长(250ms)，保证动画播完再卸载
@@ -66,40 +65,13 @@ function onCaptchaError(err) {
 
 // 必须先完成人机验证，才能获取验证码
 async function sendCode() {
-  if (sendCooldown.value > 0 || sendingCode.value) return
-  if (!EMAIL_RE.test(email.value.trim())) {
-    showTip('warning', t('auth.email_invalid'))
-    return
-  }
-  if (!hcaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
-    return
-  }
-  sendingCode.value = true
-  try {
-    const res = await fetch('/api/user/send_code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (res.ok && data.success) {
-      showTip('info', t('auth.code_sent'))
-      sendCooldown.value = 60
-      if (cooldownTimer) clearInterval(cooldownTimer)
-      cooldownTimer = setInterval(() => {
-        sendCooldown.value -= 1
-        if (sendCooldown.value <= 0) {
-          clearInterval(cooldownTimer)
-          cooldownTimer = null
-        }
-      }, 1000)
-    } else {
-      showTip('error', localMessage(data))
-    }
-  } finally {
-    sendingCode.value = false
-  }
+  await sendEmailCode(email.value, {
+    hcaptchaToken: hcaptchaToken.value,
+    resetCaptcha: () => {
+      hcaptchaToken.value = ''
+      captchaRef.value?.reset()
+    },
+  })
 }
 
 // 第一页 -> 后端预验证（邮箱 + 验证码），通过后进入第二页（人机验证仅发送验证码时需要）
@@ -182,10 +154,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
-  if (cooldownTimer) {
-    clearInterval(cooldownTimer)
-    cooldownTimer = null
-  }
 })
 </script>
 
@@ -220,11 +188,11 @@ onUnmounted(() => {
           </div>
 
           <div class="h-captcha">
-            <VueHcaptcha
+            <HcaptchaBox
               v-if="hcaptchaSiteKey"
+              ref="captchaRef"
               :sitekey="hcaptchaSiteKey"
               :theme="captchaTheme"
-              api-endpoint="https://js.hcaptcha.com/1/api.js"
               @verify="onVerify"
               @expired="onCaptchaExpired"
               @error="onCaptchaError"
@@ -348,9 +316,6 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
-.h-captcha :deep(iframe) {
-  width: 100% !important;
-}
 
 /* 按钮靠左：取消在前，主操作在后 */
 .actions {

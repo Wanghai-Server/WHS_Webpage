@@ -14,8 +14,8 @@ from .basic_database import BasicDatabase, _LockedConnection
 # 用户名仅允许：英文字母、数字、下划线，且至少一个字符。
 USERNAME_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
 
-# 玩家名称（Minecraft 名称）仅允许：英文字母、数字、下划线，且至少一个字符。
-PLAYER_NAME_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
+# 玩家名称（Minecraft Java 官方名称）仅允许：英文字母、数字、下划线，3–16 位。
+PLAYER_NAME_PATTERN = re.compile(r"[a-zA-Z0-9_]{3,16}")
 
 # 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)。
 EMAIL_PATTERN = re.compile(r"[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+")
@@ -106,8 +106,8 @@ ERROR_MESSAGES: dict[str, dict[str, str]] = {
         "en": "Username may only contain letters, digits and underscores",
     },
     "player_name_invalid": {
-        "zh": "玩家名仅允许英文字母、数字和下划线",
-        "en": "Player name may only contain letters, digits and underscores",
+        "zh": "玩家名需为 3–16 位英文字母、数字或下划线",
+        "en": "Player name must be 3-16 letters, digits or underscores",
     },
     "email_invalid": {
         "zh": "邮箱格式不合法",

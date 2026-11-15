@@ -1,0 +1,163 @@
+# ============================================================================
+# WHS Webpage CI —— 前端 / 后端 / 数据层 / MCDR 插件 四层校验
+#
+# 触发：任意分支 push、向 main 的 PR，以及手动触发（Actions 页面 Run workflow）。
+# 说明：
+#   - 只做校验，不发布、不提交、不部署（不需要任何 Secret）；
+#   - 运行器固定 ubuntu-24.04（不跟随 ubuntu-latest 的镜像迁移，避免
+#     2026 年 10–11 月 Ubuntu 24.04 → 26.04 迁移期偶发环境差异）；
+#   - Python 统一 3.14（与本地开发版本一致），Node 统一 22（满足 Vite 8 的
+#     engines: ^20.19.0 || >=22.12.0）；
+#   - 数据层 / MCDR 的检查逻辑在 .github/scripts/ 下，可本地复跑：
+#         python .github/scripts/data_smoke.py
+#         python .github/scripts/backend_smoke.py
+#         python .github/scripts/mcdr_check.py [--packed <目录或 .mcdr>]
+# ============================================================================
+name: CI
+
+on:
+  push:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# 只需要读代码；最小权限。
+permissions:
+  contents: read
+
+# 同一分支 / PR 的新推送会取消上一次仍在运行的 CI，节省 runner 时间。
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUTF8: "1"
+  PYTHONIOENCODING: utf-8
+  PYTHONUNBUFFERED: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  # --------------------------------------------------------------------------
+  # 前端：whs/（Vue 3 + Vite 8）
+  # --------------------------------------------------------------------------
+  frontend:
+    name: 前端 · 依赖安装与生产构建
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Node.js 22
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: whs/package-lock.json
+
+      - name: 安装依赖（npm ci，严格按 lockfile）
+        working-directory: whs
+        run: npm ci --no-audit --no-fund
+
+      - name: 生产构建（vite build）
+        working-directory: whs
+        run: npm run build
+
+      - name: 校验构建产物
+        working-directory: whs
+        run: |
+          set -eu
+          test -f dist/index.html
+          find dist -maxdepth 2 -name '*.js' -print -quit | grep -q .
+          echo "dist 体积：$(du -sh dist | cut -f1)"
+
+  # --------------------------------------------------------------------------
+  # 后端：backend/（FastAPI + uvicorn + 与 MCDR 通信的 WS 命令服务）
+  #   真实启动 uvicorn 后检查接口与 WS 服务，再优雅关闭。
+  # --------------------------------------------------------------------------
+  backend:
+    name: 后端 · 启动与接口冒烟
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            mcdr_connecter_plugin/requirements.txt
+
+      - name: 安装后端依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r backend/requirements.txt
+
+      - name: 后端冒烟（语法检查 + uvicorn 启动 + HTTP/WS 检查）
+        run: python .github/scripts/backend_smoke.py
+
+  # --------------------------------------------------------------------------
+  # 数据层：data/（配置读取、考试 YAML 解析、SQLite 各数据库）
+  #   数据库写入重定向到临时目录，不触碰仓库数据；CI 实例用完即弃。
+  # --------------------------------------------------------------------------
+  data:
+    name: 数据层 · 建库与增删查冒烟
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: 安装数据层依赖（PyYAML）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyyaml>=6.0"
+
+      - name: 数据层冒烟（考试解析 + 五个 SQLite 库 + 颜色代码工具）
+        run: python .github/scripts/data_smoke.py
+
+  # --------------------------------------------------------------------------
+  # MCDR 插件：mcdr_connecter_plugin/（mcdr2web）
+  #   1) 用 mcdreforged pack 校验插件清单并打出 .mcdr 包；
+  #   2) 用最小桩模块替代未入库的 whitelist_api / online_player_api 后导入插件，
+  #      检查命令表与纯函数（tick query / list 输出解析）行为。
+  # --------------------------------------------------------------------------
+  mcdr:
+    name: MCDR 插件 · 清单 / 导入 / 打包校验
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v5
+
+      - name: 安装 Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: mcdr_connecter_plugin/requirements.txt
+
+      - name: 安装 MCDReforged 与插件依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "mcdreforged>=2.15.0,<3" -r mcdr_connecter_plugin/requirements.txt
+
+      - name: MCDR 打包（同时校验 mcdreforged.plugin.json）
+        run: |
+          set -eu
+          mkdir -p "$RUNNER_TEMP/mcdr-dist"
+          python -m mcdreforged pack -i mcdr_connecter_plugin -o "$RUNNER_TEMP/mcdr-dist"
+          ls -l "$RUNNER_TEMP/mcdr-dist"
+
+      - name: 插件清单 / 导入 / 解析函数 / 打包产物检查
+        run: python .github/scripts/mcdr_check.py --packed "$RUNNER_TEMP/mcdr-dist"

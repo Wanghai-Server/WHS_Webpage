@@ -1,5 +1,7 @@
 # WHS Webpage
 
+[![CI](https://github.com/Wanghai-Server/WHS_Webpage/actions/workflows/ci.yml/badge.svg)](https://github.com/Wanghai-Server/WHS_Webpage/actions/workflows/ci.yml)
+
 望海服务器（WangHai Server）官方网站。Vue 3 单页前端 + FastAPI 后端 + SQLite，内置完整用户系统（注册 / 登录 / 资料 / 头像 / 关注 / 消息 / 入服考试 / 反馈中心 / 管理端）与自研现代化维基，并通过本机 WebSocket 与 Minecraft 服务器的 MCDR 插件双向通信（在线名单、TPS、白名单）。
 
 - 中英文双语切换（vue-i18n + 维基内容按语言实时请求后端）
@@ -16,7 +18,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 94 条）
+6. HTTP API（共 95 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -24,7 +26,8 @@
 11. 部署
 12. 运维脚本与开发工具
 13. 已知限制与注意事项
-14. License
+14. CI（GitHub Actions）
+15. License
 
 ---
 
@@ -64,7 +67,9 @@
 
 ### 用户系统
 
-- 注册：邮箱 + 邮箱验证码 + 密码（前端 SHA-256 后传输）+ 头像/昵称补充步骤。
+- 注册：分三步完成——① 邮箱 + 邮箱验证码 + 人机验证（不写数据库，验证通过后由后端在内存签发一次性注册凭证）；② 用户名 + 密码（前端 SHA-256 后传输，提交前校验强度）；③ 完善资料（头像 / 性别单选 / 生日，可留空 = 不透露）。第二步创建账号成功后才写数据库。
+- 注册密码强度：至少 8 位、包含数字、同时包含大写和小写字母；未失焦时未满足项为灰色，失焦后标红、满足项标绿；下方进度条 + 低/中/高等级（等级只在三条要求全部满足后按熵估算计算），不满足强度拒绝提交。密码允许数字、字母与常见特殊字符（ASCII，含 `!@#$%^&*` 等）；特殊字符不强制要求，但会计入字符池熵估算、提升强度等级，UI 中作为第 4 条“可选”检查项展示（缺失不标红、不拦截提交）。
+- 注册验证码：连续错误 5 次锁定该邮箱 1 小时（发送与校验都拒绝）；发送失败时后端回滚内存中的验证码与 60s 冷却，允许立即重试。
 - 登录：账密模式（邮箱 / UID / 用户名 + 密码）或邮箱验证码模式；连续输错 5 次自动锁定账号。
 - 密码安全：前端先 SHA-256，后端再加随机盐存储（`salt$hash`）；原始密码不出浏览器。
 - 登录态：HMAC-SHA256 自签 token（JWT 风格，无第三方依赖），`Authorization: Bearer <token>`，有效期 7 天。
@@ -72,7 +77,7 @@
 - 用户主页：昵称 / 生日 / 性别 / Markdown 简介 / 头像；关注与粉丝列表；UID 复制。
 - 账号设置：改资料、改头像、改邮箱（验证码）、改密码（旧密码 + 验证码）、找回密码、退出登录、注销账号。
 - 密码可见性：登录 / 注册 / 找回密码 / 修改密码 / 注销账号的密码框右侧带眼睛按钮，可切换明文 / 密文；注册等多密码框表单共用一个按钮同时控制。
-- 游戏账户：绑定主账号与最多 2 个小号，记录正版 / 离线标记，支持修改主账号正版状态；添加小号自动加入游戏白名单。
+- 游戏账户：绑定主账号与最多 2 个小号，记录正版 / 离线标记，支持修改主账号正版状态；添加小号自动加入游戏白名单。玩家名（主账号 / 小号 / 考试填写）统一遵循 Minecraft Java 官方规则：**3–16 位、仅英文字母 / 数字 / 下划线**；考试结束后（通过或答题次数用完）玩家名锁定，不可再修改。
 - 权限等级：`0=guest / 1=user / 2=player / 3=admin / 4=owner`；注册默认 1，入服考试及格自动升到 2。
 
 ### 消息中心
@@ -87,7 +92,7 @@
 
 - 玩家端：阅读考前须知 → 完善游戏名 / 正版状态 → 逐题作答（答案自动保存，可上传附件）→ 交卷；最多 2 次机会，60% 及格。
 - 题型：单选、多选（部分分）、填空（按空给分）、主观题（人工改分）。
-- 及格副作用：写入玩家名、权限 < 2 时提升到 player、标记通过、自动加入游戏白名单。
+- 及格副作用：写入玩家名、权限 < 2 时提升到 player、标记通过、自动加入游戏白名单。考试结束后（通过或答题次数用完）`POST /api/exam/profile` 拒绝再修改玩家名（`exam_profile_locked`）。
 - 未通过可重新作答，也可提交人工重审（通知全部管理员，站内消息 + 邮件）。
 - 管理端：查看考生列表、试卷在线编辑（覆盖 `data/exam.yml` 即时生效）、查看/改分答题卡、删除答卷、上传题目附图与说明文档（.docx）。
 
@@ -158,7 +163,20 @@
 WHS_Webpage/
 ├── manage.py                        # 统一启动管理器（前端 dev/prod + 后端 + 日志收集 + 统一关停）
 ├── README.md
+├── CONTRIBUTING.md                  # 贡献指南：PR 要求 / main 分支保护 / 前后端可复用代码
 ├── LICENSE
+├── .github/                         # GitHub 配置与 CI
+│   ├── CODEOWNERS                   # 默认审核人（PR 自动请求审核）
+│   ├── PULL_REQUEST_TEMPLATE.md     # PR 模板（变更类型 / 验证方式 / 截图 / 核对清单）
+│   ├── ISSUE_TEMPLATE/              # Issue 模板
+│   │   ├── bug_report.yml           # Bug 报告（自动打 bug 标签）
+│   │   ├── feature_request.yml      # 功能建议（自动打 enhancement 标签）
+│   │   └── config.yml               # 模板选择页配置（快捷链接、允许空白 Issue）
+│   ├── workflows/ci.yml             # GitHub Actions：前端 / 后端 / 数据层 / MCDR 四层校验
+│   └── scripts/                     # CI 校验脚本（可本地复跑，见第 14 节）
+│       ├── backend_smoke.py
+│       ├── data_smoke.py
+│       └── mcdr_check.py
 ├── express_set_perm.py              # 运维脚本：离线修改用户权限（直接写 SQLite，慎用）
 ├── unlock_user.py                   # 运维脚本：离线解锁账号（尚未纳入版本库）
 │
@@ -167,7 +185,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 94 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 95 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -227,11 +245,13 @@ WHS_Webpage/
 │       │   ├── useTips.js           # 全局轻提示
 │       │   ├── useDialogBox.js      # 全局确认 / 提示对话框
 │       │   ├── useHcaptchaSiteKey.js# hCaptcha site key
+│       │   ├── useEmailCode.js      # 邮箱验证码发送 / 冷却 / 重置人机验证（统一封装）
+│       │   ├── usePasswordStrength.js # 密码强度规则、低/中/高等级与熵估算
 │       │   ├── sha256.js            # 前端密码哈希
 │       │   ├── clipboard.js
 │       │   └── wiki/{api,locale,markdown}.js  # 维基 API 封装 / 语言状态 / Markdown 管线
-│       ├── components/              # 35 个可复用组件
-│       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown
+│       ├── components/              # 36 个可复用组件
+│       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown / hcaptcha_box
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
 │       │   ├── 反馈：feedback_editor
@@ -262,8 +282,8 @@ WHS_Webpage/
 
 ### 5.1 环境要求
 
-- **Python ≥ 3.12**（后端）
-- **Node.js + npm**（前端构建 / 开发服务器）
+- **Python ≥ 3.12**（后端；CI 使用 3.14）
+- **Node.js + npm**（前端构建 / 开发服务器；Vite 8 要求 Node `^20.19.0 || >=22.12.0`，CI 使用 22）
 - 可选：Minecraft 服务器 + [MCDR](https://mcdreforged.com/)（服务器状态、在线名单、白名单联动需要）
 
 ### 5.2 配置
@@ -368,7 +388,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 94 条）
+## 6. HTTP API（共 95 条）
 
 ### 6.1 约定
 
@@ -395,15 +415,16 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/` | 公开 | 服务状态 `{message, status}` |
 | GET | `/api/whs` | 公开 | 站点公开配置：`title_suffix`、`hcaptcha_site_key`、`301` |
 
-### 6.3 认证（9 条）
+### 6.3 认证（10 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/api/user/send_code` | 公开（需 hCaptcha） | 发送邮箱验证码；同邮箱 60s 冷却，验证码 5 分钟有效 |
+| POST | `/api/user/send_code` | 公开（需 hCaptcha） | 发送邮箱验证码；同邮箱 60s 冷却，验证码 5 分钟有效；发送失败回滚冷却与验证码；邮箱被锁定时 429 |
 | GET | `/api/user/username_exists` | 公开 | 用户名是否已占用 |
 | GET | `/api/user/player_name_exists` | 公开 | 玩家名是否已占用（含小号） |
 | POST | `/api/user/suggest_username` | 公开 | 基于 base 推荐一个未占用用户名 |
-| POST | `/api/user/register` | 公开（邮箱验证码） | 注册；成功返回 `{uid, token}` |
+| POST | `/api/user/register/email` | 公开 | 注册第一步：校验邮箱验证码，返回一次性注册凭证 `{ticket, email, expires_in}`（10 分钟、不写数据库）；验证码错误 5 次锁定该邮箱 1 小时 |
+| POST | `/api/user/register` | 公开（注册凭证） | 注册第二步：`{ticket, username, password}` 创建账号；成功返回 `{uid, token}`；凭证无效返回 `register_ticket_invalid` |
 | POST | `/api/user/login` | 公开 | 登录（账密 / 邮箱验证码两种模式） |
 | GET | `/api/user/me` | 登录 | 当前登录用户信息 |
 | POST | `/api/user/{uid}/unlock` | ≥3 且权限严格高于目标 | 解锁账号并清空失败计数 |
@@ -467,7 +488,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/api/exam/attachment/{filename}` | 登录且本人/≥3 | 读取答题附件 |
 | DELETE | `/api/exam/attachment/{filename}` | 登录且本人/≥3 | 删除答题附件 |
 | GET | `/api/exam/profile` | 登录 | 考试档案（玩家名 / 正版状态 / 次数 / 是否通过） |
-| POST | `/api/exam/profile` | 登录 | 保存玩家名与正版状态（玩家名全局查重） |
+| POST | `/api/exam/profile` | 登录 | 保存玩家名与正版状态（玩家名 3–16 位字母/数字/下划线、全局查重；考试结束后 403 `exam_profile_locked`） |
 | POST | `/api/exam/reset` | 登录（可作答时） | 清空本人答题记录（不消耗次数） |
 | POST | `/api/exam/finish` | 登录（可作答时） | 交卷：汇总分数、次数 +1、及格处理 |
 | POST | `/api/exam/review` | 登录 | 申请人工重审（通知全部管理员，站内消息 + 邮件） |
@@ -876,12 +897,13 @@ python SMTP/mail_server.py
 - **单进程假设**：验证码、发送冷却、登录失败计数、TPS / 服务器状态缓存都在进程内存中；多 worker 部署会出现行为不一致。
 - **token 不可吊销**：HMAC 自签 token 有效期 7 天，无刷新 / 登出接口，改密码不会使旧 token 立即失效（banned / locked 会在请求时拦截）。
 - **密钥兜底**：`config.json` 读取异常时 token 密钥会回退到代码内默认值，部署时必须保证配置文件可读且 `token_secret` 为强随机值。
-- **验证码**：存于内存（重启丢失）、5 分钟有效，并会打印到后端 stdout；重置密码等流程没有尝试次数上限。
+- **验证码**：存于内存（重启丢失）、5 分钟有效，并会打印到后端 stdout；注册验证码连续错误 5 次会锁定该邮箱 1 小时；注册凭证（ticket）同样只在内存中保存 10 分钟，重启后失效；重置密码等流程没有尝试次数上限。
+- **注册三步**：第一步不写数据库，第二步创建账号、第三步完善资料分别写库；若用户中途放弃，账号已创建但资料为空，可登录后在设置中补齐。
 - **上传校验**：仅校验声明的类型 / 扩展名与大小，不校验文件真实内容。
 - **无 CORS 中间件**：前端与 API 必须同源（开发用 Vite 代理，生产用反向代理）。
 - **数据库**：无外键、无跨语句事务；部分业务（注册、注销、关注）中途失败可能留下部分写入。
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
-- **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内也没有自动化测试 / CI 配置。
+- **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
 - **在线地图（`/map`）**：页面本身不含地图数据，2D 和 3D 都由服务器上的 BlueMap 网页端提供。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
@@ -911,6 +933,64 @@ location /map3d/ {
   6. `data/config.json` 的 `map` 段：`bluemap_base` 填 `http://127.0.0.1:8100`，后端拉 settings 和玩家数用；`bluemap_viewer` 填 `/map3d/`，这是浏览器入口，必须是同源路径；`maps` 填真实地图 id，默认 `world`；`start_y` 是 3D 初始镜头高度，按地形高度调；上了 HTTPS 之后把 `cookie_secure` 设成 `true`。
   7. 改完配置重启后端生效。访问权限卡在 permission ≥ 2，代码里已经处理。
 
+
+---
+
+## 14. CI（GitHub Actions）
+
+仓库使用 GitHub Actions 做四层自动校验：
+
+- 工作流：`.github/workflows/ci.yml`
+- 校验脚本：`.github/scripts/{backend_smoke,data_smoke,mcdr_check}.py`（与 CI 同一套逻辑，可本地直接运行）
+
+### 14.1 触发条件
+
+- 向**任意分支** push；
+- 向 `main` 提交或更新 PR；
+- 在 Actions 页面手动触发（`workflow_dispatch`）。
+
+同一分支 / PR 的新推送会自动取消上一次仍在运行的 CI。CI 只有只读权限（`contents: read`），不读取任何 Secret，不发布、不部署任何产物。
+
+### 14.2 运行环境
+
+| 项 | 值 |
+|----|----|
+| Runner | `ubuntu-24.04`（固定版本，避开 `ubuntu-latest` 镜像迁移期的环境差异） |
+| Python | 3.14（后端 / 数据层 / MCDR 三个任务） |
+| Node.js | 22（满足 Vite 8 engines 要求：Node 20.19+ 或 22.12+） |
+| 权限 / 密钥 | 只读 / 不需要 |
+
+### 14.3 四个检查任务
+
+| 检查名称 | 校验内容 | 本地对应命令 |
+|----------|----------|--------------|
+| `前端 · 依赖安装与生产构建` | `npm ci`（严格按 `package-lock.json`）→ `vite build` → 校验 `dist/index.html` 与 JS 产物 | `cd whs && npm ci && npm run build` |
+| `后端 · 启动与接口冒烟` | 全仓 Python 语法编译 → 真实启动 uvicorn（含 lifespan、6 个数据库连接、MCDR WS 命令服务）→ 检查 `/`、`/api/whs`、未登录 401、维基页面 / 搜索、未知路由 404、错误方法 405 → WS `ping` 与未知指令 → 日志无 Traceback | `python .github/scripts/backend_smoke.py` |
+| `数据层 · 建库与增删查冒烟` | 考试 YAML 解析（合法 / 非法用例）、`§` 颜色代码剥离、五个 SQLite 库建表与增删查改、维基欢迎页种子与搜索、乐观锁 / 重定向等行为 | `python .github/scripts/data_smoke.py` |
+| `MCDR 插件 · 清单 / 导入 / 打包校验` | `mcdreforged pack` 校验插件清单并生成 `.mcdr` → 用最小桩模块替代未入库依赖后导入插件 → 检查命令表、`tick query` / `list` 解析函数与打包产物内容 | 先安装 `mcdreforged` + `websockets`，再 `python .github/scripts/mcdr_check.py --packed <pack 输出目录>` |
+
+### 14.4 本地复跑与副作用
+
+```bash
+# 前端
+cd whs && npm ci && npm run build
+
+# 后端（需先安装 backend/requirements.txt；Windows 本地会跳过「优雅关闭」日志断言）
+python .github/scripts/backend_smoke.py
+
+# 数据层（只需要 PyYAML）
+python .github/scripts/data_smoke.py
+
+# MCDR 插件（需要 mcdreforged>=2.15 与 websockets；产物 *.mcdr 已被 .gitignore 忽略）
+python -m mcdreforged pack -i mcdr_connecter_plugin -o dist-mcdr
+python .github/scripts/mcdr_check.py --packed dist-mcdr
+```
+
+脚本会自行隔离副作用：数据层脚本先把数据库目录重定向到临时目录；后端脚本使用随机端口启动 uvicorn，并临时改写 `data/config.json` 的 `ws_port`（退出时恢复原内容，原本不存在的文件会删除）。
+
+CI 不覆盖：真实 SMTP / hCaptcha 外部服务、实际 Minecraft 服务器与 MCDR 运行环境、浏览器端 UI / E2E / 视觉回归、生产部署。涉及这些方面的改动仍需人工验证。
+
+> PR 要求、`main` 分支保护规则与前后端可复用代码约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
