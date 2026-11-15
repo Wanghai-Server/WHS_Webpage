@@ -3,14 +3,15 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Pencil, UserRound, Trash2, LogOut } from 'lucide-vue-next'
-import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import ChangePassword from './change_password.vue'
 import CancelAccount from './cancel_account.vue'
 import ManageAccounts from './manage_accounts.vue'
+import HcaptchaBox from './hcaptcha_box.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { useDialogBox } from '../composables/useDialogBox'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
+import { EMAIL_RE, useEmailCode } from '../composables/useEmailCode'
 
 const props = defineProps({
   user: { type: Object, required: true },
@@ -36,8 +37,6 @@ async function logout() {
   clearAuth()
   router.push('/')
 }
-
-const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
 
 // 基本资料（username / player_name 注册与加入时固定，不可修改）
 const fullname = ref(props.user.fullname || '')
@@ -69,15 +68,14 @@ const currentAvatar = computed(() =>
 // 邮箱对话框
 const newEmail = ref(props.user.email || '')
 const emailCode = ref('')
-const emailCooldown = ref(0)
 const savingEmail = ref(false)
 const emailCaptchaToken = ref('')
-let emailTimer = null
+const emailCaptchaRef = ref(null)
 
 // 保存状态
 const savingBasic = ref(false)
 const savingProfile = ref(false)
-const emailSendingCode = ref(false)
+const { sending: emailSendingCode, cooldown: emailCooldown, send: sendEmailCodeRequest } = useEmailCode()
 
 const currentYear = new Date().getFullYear()
 const years = computed(() => {
@@ -291,41 +289,13 @@ function onEmailCaptchaError() {
 }
 
 async function sendEmailCode() {
-  if (!EMAIL_RE.test(newEmail.value.trim())) {
-    showTip('warning', t('auth.email_invalid'))
-    return
-  }
-  // 必须先完成人机验证，才能获取验证码
-  if (!emailCaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
-    return
-  }
-  if (emailCooldown.value > 0 || emailSendingCode.value) return
-  emailSendingCode.value = true
-  try {
-    const res = await fetch('/api/user/send_code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: newEmail.value.trim(), locale: locale.value, hcaptcha_response: emailCaptchaToken.value }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (res.ok && data.success) {
-      showTip('info', t('auth.code_sent'))
-      emailCooldown.value = 60
-      if (emailTimer) clearInterval(emailTimer)
-      emailTimer = setInterval(() => {
-        emailCooldown.value -= 1
-        if (emailCooldown.value <= 0) {
-          clearInterval(emailTimer)
-          emailTimer = null
-        }
-      }, 1000)
-    } else {
-      showTip('error', localMessage(data))
-    }
-  } finally {
-    emailSendingCode.value = false
-  }
+  await sendEmailCodeRequest(newEmail.value, {
+    hcaptchaToken: emailCaptchaToken.value,
+    resetCaptcha: () => {
+      emailCaptchaToken.value = ''
+      emailCaptchaRef.value?.reset()
+    },
+  })
 }
 
 async function changeEmail() {
@@ -380,10 +350,6 @@ function onPasswordDone() {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
-  if (emailTimer) {
-    clearInterval(emailTimer)
-    emailTimer = null
-  }
 })
 </script>
 
@@ -564,11 +530,11 @@ onUnmounted(() => {
             </div>
           </div>
           <div class="h-captcha">
-            <VueHcaptcha
+            <HcaptchaBox
               v-if="hcaptchaSiteKey"
+              ref="emailCaptchaRef"
               :sitekey="hcaptchaSiteKey"
               :theme="captchaTheme"
-              api-endpoint="https://js.hcaptcha.com/1/api.js"
               @verify="onEmailCaptchaVerify"
               @expired="onEmailCaptchaExpired"
               @error="onEmailCaptchaError"
@@ -715,9 +681,6 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
-.h-captcha :deep(iframe) {
-  width: 100% !important;
-}
 
 .btn {
   display: inline-flex;

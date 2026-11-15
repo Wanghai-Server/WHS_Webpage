@@ -10,6 +10,7 @@ from data.main.database.user_database import UserNotFoundError
 
 from main import (
     EMAIL_RE,
+    MC_NAME_RE,
     USERNAME_RE,
     VERIFY_CODES,
     AVATAR_DIR,
@@ -488,7 +489,7 @@ def add_alt_account(uid: int, payload: dict = Body(...), user: dict | None = Dep
         return err
     name = str(payload.get("name") or "").strip()
     premium = payload.get("premium")
-    if not USERNAME_RE.fullmatch(name):
+    if not MC_NAME_RE.fullmatch(name):
         return _error_response("player_name_invalid", 400)
     if premium not in ("premium", "offline"):
         return _error_response("premium_invalid", 400)

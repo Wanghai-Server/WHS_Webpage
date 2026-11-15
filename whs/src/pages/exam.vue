@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import MarkdownIt from 'markdown-it'
 import { colorCodesPlugin } from '../composables/markdown/colorCodes'
-import { FileText } from 'lucide-vue-next'
+import { FileText, TriangleAlert } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import ExamQuestion from '../components/exam_question.vue'
@@ -30,6 +30,9 @@ function renderTips(content) {
 // 阶段：notice（试卷说明）-> profile（个人信息）-> answering（答题）-> done（完成）
 const stage = ref('notice')
 const loading = ref(true)
+
+// Minecraft Java 官方玩家名：3–16 位，仅英文字母、数字、下划线
+const MC_NAME_RE = /^[a-zA-Z0-9_]{3,16}$/
 
 // 试卷说明文档悬浮窗
 const showDocViewer = ref(false)
@@ -65,7 +68,20 @@ const currentQuestion = computed(
 )
 const currentAnswer = computed(() => answers.value[currentId.value] ?? null)
 
-const profileComplete = computed(() => playerName.value.trim() !== '' && premium.value !== '')
+// 阶段：notice（试卷说明）-> profile（个人信息）-> answering（答题）-> done（完成）
+
+const playerNameValid = computed(() => MC_NAME_RE.test(playerName.value.trim()))
+const playerNameTouched = ref(false)
+const profileComplete = computed(() => playerNameValid.value && premium.value !== '')
+
+function onPlayerNameInput(event) {
+  const el = event.target
+  const cleaned = String(el.value || '').replace(/[^a-zA-Z0-9_]/g, '').slice(0, 16)
+  if (el.value !== cleaned) el.value = cleaned
+  playerName.value = cleaned
+  playerNameTouched.value = true
+  scheduleProfileSave()
+}
 
 function localMessage(data) {
   const m = data && data.message
@@ -138,6 +154,8 @@ async function fetchAll() {
 // 个人信息实时保存（防抖）；返回是否保存成功（失败时已弹错误提示）
 function scheduleProfileSave() {
   if (profileTimer) clearTimeout(profileTimer)
+  // 资料不完整/玩家名不合规时不发请求（避免输入过程中反复弹错），开始答题时会再次校验并保存
+  if (!playerNameValid.value || premium.value === '') return
   profileTimer = setTimeout(saveProfile, 500)
 }
 
@@ -159,6 +177,11 @@ async function saveProfile() {
 }
 
 async function startAnswer() {
+  playerNameTouched.value = true
+  if (!playerNameValid.value) {
+    showTip('warning', t('exam.playerNameRule'))
+    return
+  }
   if (!profileComplete.value) {
     showTip('warning', t('exam.profileRequired'))
     return
@@ -359,14 +382,27 @@ onUnmounted(() => {
     <template v-else-if="stage === 'profile'">
       <section class="exam-card load-in">
         <h1 class="exam-title">{{ t('exam.profileTitle') }}</h1>
-        <div class="field">
-          <label class="label">{{ t('exam.playerName') }}</label>
-          <input
-            v-model="playerName"
-            type="text"
-            :placeholder="t('exam.playerNamePlaceholder')"
-            @input="scheduleProfileSave"
-          />
+        <div class="player-field">
+          <label class="float-field">
+            <input
+              v-model="playerName"
+              type="text"
+              placeholder=" "
+              maxlength="16"
+              autocomplete="off"
+              spellcheck="false"
+              @input="onPlayerNameInput"
+              @blur="playerNameTouched = true"
+            />
+            <span class="float-label">{{ t('exam.playerName') }}</span>
+          </label>
+          <p class="name-rule" :class="{ invalid: playerNameTouched && !playerNameValid }">
+            {{ t('exam.playerNameRule') }}
+          </p>
+          <div class="name-lock-warning">
+            <TriangleAlert :size="16" />
+            <span>{{ t('exam.playerNameLockWarning') }}</span>
+          </div>
         </div>
         <div class="field">
           <label class="label">{{ t('exam.premiumLabel') }}</label>
@@ -614,6 +650,41 @@ onUnmounted(() => {
 
 .field input:focus {
   border-color: var(--text-color);
+}
+
+/* 玩家名：浮动标签 + 规则提示 + 锁定警告 */
+.player-field {
+  margin-bottom: 18px;
+}
+
+.name-rule {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--links-color);
+}
+
+.name-rule.invalid {
+  color: #e5484d;
+}
+
+.name-lock-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.12);
+  color: var(--notice-color);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.name-lock-warning svg {
+  flex-shrink: 0;
+  margin-top: 1px;
 }
 
 /* 正版状态单选：横向排列的选项胶囊 */

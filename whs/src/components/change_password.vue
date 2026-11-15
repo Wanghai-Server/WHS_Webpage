@@ -1,12 +1,13 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { Eye, EyeOff } from 'lucide-vue-next'
+import HcaptchaBox from './hcaptcha_box.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { sha256 } from '../composables/sha256'
+import { useEmailCode } from '../composables/useEmailCode'
 
 const props = defineProps({
   uid: { type: Number, required: true },
@@ -25,8 +26,7 @@ const code = ref('')
 const oldPassword = ref('')
 const showOldPassword = ref(false) // 第一页：旧密码单独的显示/隐藏按钮
 const hcaptchaToken = ref('')
-const sendCooldown = ref(0)
-let cooldownTimer = null
+const captchaRef = ref(null)
 
 // 第二页：新密码
 const newPassword = ref('')
@@ -36,7 +36,7 @@ const oldPasswordHash = ref('') // 第一页验证通过后保存，第二页提
 
 const step = ref('verify') // 'verify' | 'new'
 const loading = ref(false)
-const sendingCode = ref(false)
+const { sending: sendingCode, cooldown: sendCooldown, send: sendEmailCode } = useEmailCode()
 const visible = ref(true) // 控制进入/离开动画；关闭时先播放离开动画再通知父组件
 
 const CLOSE_MS = 260 // 略大于 dialog-fade 离开动画时长(250ms)，保证动画播完再卸载
@@ -71,43 +71,19 @@ function onCaptchaError(err) {
 }
 
 async function sendCode() {
-  if (sendCooldown.value > 0 || sendingCode.value) return
-  // 必须先完成人机验证，才能获取验证码
-  if (!hcaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
-    return
-  }
   // 验证码发送到当前登录邮箱（后端 /api/user/send_code 按该邮箱发码）
   const email = authState.user?.email || ''
   if (!email) {
     showTip('error', t('auth.request_failed'))
     return
   }
-  sendingCode.value = true
-  try {
-    const res = await fetch('/api/user/send_code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (res.ok && data.success) {
-      showTip('info', t('auth.code_sent'))
-      sendCooldown.value = 60
-      if (cooldownTimer) clearInterval(cooldownTimer)
-      cooldownTimer = setInterval(() => {
-        sendCooldown.value -= 1
-        if (sendCooldown.value <= 0) {
-          clearInterval(cooldownTimer)
-          cooldownTimer = null
-        }
-      }, 1000)
-    } else {
-      showTip('error', localMessage(data))
-    }
-  } finally {
-    sendingCode.value = false
-  }
+  await sendEmailCode(email, {
+    hcaptchaToken: hcaptchaToken.value,
+    resetCaptcha: () => {
+      hcaptchaToken.value = ''
+      captchaRef.value?.reset()
+    },
+  })
 }
 
 // 第一页 -> 提交验证（验证码 + 旧密码），通过后进入第二页（人机验证仅发送验证码时需要）
@@ -192,10 +168,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
-  if (cooldownTimer) {
-    clearInterval(cooldownTimer)
-    cooldownTimer = null
-  }
 })
 </script>
 
@@ -246,11 +218,11 @@ onUnmounted(() => {
           </div>
 
           <div class="h-captcha">
-            <VueHcaptcha
+            <HcaptchaBox
               v-if="hcaptchaSiteKey"
+              ref="captchaRef"
               :sitekey="hcaptchaSiteKey"
               :theme="captchaTheme"
-              api-endpoint="https://js.hcaptcha.com/1/api.js"
               @verify="onVerify"
               @expired="onCaptchaExpired"
               @error="onCaptchaError"
@@ -379,9 +351,6 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
-.h-captcha :deep(iframe) {
-  width: 100% !important;
-}
 
 /* 按钮靠左：取消在前，主操作在后 */
 .actions {

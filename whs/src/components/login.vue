@@ -1,14 +1,15 @@
 <script setup>
-import { ref, computed, onUnmounted } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import ForgotPassword from './forgot_password.vue'
+import HcaptchaBox from './hcaptcha_box.vue'
 import { useAuth } from '../composables/useAuth'
 import { sha256 } from '../composables/sha256'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { useTips } from '../composables/useTips'
+import { EMAIL_RE, useEmailCode } from '../composables/useEmailCode'
 
 const emit = defineEmits(['switch-register'])
 
@@ -17,8 +18,6 @@ const router = useRouter()
 const { setAuth, fetchMe } = useAuth()
 const { showTip } = useTips()
 
-// 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)
-const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
 const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
 
 // 'account'：账密登录；'email'：邮箱验证码登录
@@ -29,12 +28,11 @@ const showPassword = ref(false)
 const email = ref('')
 const code = ref('')
 const loading = ref(false)
-const sendingCode = ref(false)
 const hcaptchaToken = ref('')
 const hcaptchaSiteKey = useHcaptchaSiteKey()
-const sendCooldown = ref(0)
+const captchaRef = ref(null)
 const showForgot = ref(false)
-let cooldownTimer = null
+const { sending: sendingCode, cooldown: sendCooldown, send: sendEmailCode } = useEmailCode()
 
 const captchaTheme = computed(() => {
   const html = document.documentElement
@@ -119,49 +117,14 @@ async function submit() {
 }
 
 async function sendCode() {
-  if (!EMAIL_RE.test(email.value.trim())) {
-    showTip('warning', t('auth.email_invalid'))
-    return
-  }
-  // 必须先完成人机验证，才能获取验证码
-  if (!hcaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
-    return
-  }
-  if (sendCooldown.value > 0 || sendingCode.value) return
-  sendingCode.value = true
-  try {
-    const res = await fetch('/api/user/send_code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (res.ok && data.success) {
-      showTip('info', t('auth.code_sent'))
-      sendCooldown.value = 60
-      if (cooldownTimer) clearInterval(cooldownTimer)
-      cooldownTimer = setInterval(() => {
-        sendCooldown.value -= 1
-        if (sendCooldown.value <= 0) {
-          clearInterval(cooldownTimer)
-          cooldownTimer = null
-        }
-      }, 1000)
-    } else {
-      showTip('error', localMessage(data))
-    }
-  } finally {
-    sendingCode.value = false
-  }
+  await sendEmailCode(email.value, {
+    hcaptchaToken: hcaptchaToken.value,
+    resetCaptcha: () => {
+      hcaptchaToken.value = ''
+      captchaRef.value?.reset()
+    },
+  })
 }
-
-onUnmounted(() => {
-  if (cooldownTimer) {
-    clearInterval(cooldownTimer)
-    cooldownTimer = null
-  }
-})
 </script>
 
 <template>
@@ -232,11 +195,11 @@ onUnmounted(() => {
 
       <!-- 人机验证码（hCaptcha）：仅邮箱验证码登录模式需要（用于发送验证码） -->
       <div v-if="mode === 'email'" class="h-captcha">
-        <VueHcaptcha
+        <HcaptchaBox
           v-if="hcaptchaSiteKey"
+          ref="captchaRef"
           :sitekey="hcaptchaSiteKey"
           :theme="captchaTheme"
-          api-endpoint="https://js.hcaptcha.com/1/api.js"
           @verify="onVerify"
           @expired="onCaptchaExpired"
           @error="onCaptchaError"

@@ -10,7 +10,7 @@ from data.exam import ExamConfigError, save_exam_config
 
 from main import (
     ERROR_STATUS,
-    USERNAME_RE,
+    MC_NAME_RE,
     EXAM_IMAGE_DIR,
     EXAM_IMAGE_CONTENT_TYPES,
     EXAM_UPLOAD_DIR,
@@ -331,9 +331,14 @@ def exam_save_profile(payload: dict = Body(...), user: dict | None = Depends(get
     """
     if user is None:
         return _error_response("unauthorized", 401)
+    # 考试结束后（已通过 / 次数用完）玩家名锁定：避免通过接口绕过 UI 修改
+    profile = exam_db.get_profile(user["uid"]) or {}
+    if bool(profile.get("passed")) or int(profile.get("attempts", 0)) >= 2:
+        return _error_response("exam_profile_locked", 403)
     player_name = str(payload.get("player_name") or "").strip()[:64]
     is_premium = str(payload.get("is_premium") or "").strip()
-    if not USERNAME_RE.fullmatch(player_name):
+    # Minecraft Java 官方玩家名：3–16 位，仅英文字母、数字、下划线
+    if not MC_NAME_RE.fullmatch(player_name):
         return _error_response("player_name_invalid", 400)
     if is_premium not in ("premium", "offline"):
         return _error_response("premium_invalid", 400)

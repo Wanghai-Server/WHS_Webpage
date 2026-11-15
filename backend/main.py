@@ -129,6 +129,8 @@ MAX_EXAM_DOC_SIZE = 10 * 1024 * 1024  # 10MB
 EMAIL_RE = re.compile(r"[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+")
 PASSWORD_RE = re.compile(r"^[\x00-\x7f]+$")
 USERNAME_RE = re.compile(r"[a-zA-Z0-9_]+")
+# Minecraft Java 官方玩家名：3–16 位，仅英文字母、数字、下划线。
+MC_NAME_RE = re.compile(r"[a-zA-Z0-9_]{3,16}")
 
 # 邮箱验证码：内存存储 email -> {code, exp}，TTL 5 分钟。
 VERIFY_CODES = {}
@@ -141,6 +143,17 @@ _last_send_time: dict[str, float] = {}
 # 连续输错密码 / 验证码次数上限，达到即锁定账号。
 MAX_FAILURES = 5
 _login_failures: dict[str, dict[str, int]] = {}
+
+# 注册流程临时凭证：第一步校验邮箱验证码通过后暂存（不写数据库），
+# 第二步创建账号时消费；ticket -> {email, exp}。
+REGISTER_TICKETS: dict[str, dict] = {}
+REGISTER_TICKET_TTL = 600
+
+# 邮箱验证码连续错误锁定：同一邮箱连续错误 5 次后锁定 1 小时。
+CODE_MAX_FAILURES = 5
+CODE_LOCK_SECONDS = 3600
+_code_failures: dict[str, int] = {}
+_code_locked_until: dict[str, float] = {}
 
 
 def _config() -> dict:
@@ -380,6 +393,18 @@ ERROR_MESSAGES = {
     "code_invalid": {
         "zh": "验证码错误或已过期",
         "en": "Verification code is invalid or expired",
+    },
+    "register_ticket_invalid": {
+        "zh": "注册验证已失效，请重新验证邮箱",
+        "en": "Registration verification has expired, please verify your email again",
+    },
+    "email_verify_locked": {
+        "zh": "该邮箱验证码错误次数过多，已锁定 1 小时，请稍后再试",
+        "en": "Too many failed verification attempts; this email is locked for 1 hour",
+    },
+    "exam_profile_locked": {
+        "zh": "考试已结束，玩家名已锁定，无法修改",
+        "en": "The exam has ended and the player name is locked",
     },
     "captcha_invalid": {
         "zh": "人机验证未通过",
@@ -641,6 +666,8 @@ ERROR_STATUS: dict[str, int] = {
     "avatar_unsupported_type": 400,
     "avatar_not_found": 404,
     "code_invalid": 400,
+    "register_ticket_invalid": 400,
+    "email_verify_locked": 429,
     "captcha_invalid": 400,
     "invalid_credentials": 401,
     "unauthorized": 401,
@@ -679,6 +706,7 @@ ERROR_STATUS: dict[str, int] = {
     "exam_attempts_exhausted": 400,
     "exam_cannot_answer": 403,
     "exam_profile_incomplete": 400,
+    "exam_profile_locked": 403,
     "exam_answers_not_found": 404,
     "exam_score_invalid": 400,
     "exam_attachment_not_found": 404,
@@ -1082,11 +1110,14 @@ def _exam_question_public(qid: int, q: dict) -> dict:
 
 def _apply_exam_pass(uid: int) -> str | None:
     """及格处理：注入 player_name + 权限升级（仅 <2 时）+ 标记 passed。
-    成功返回 None；失败返回错误码（exam_profile_incomplete / player_name_exists）。"""
+    成功返回 None；失败返回错误码（exam_profile_incomplete / player_name_invalid / player_name_exists）。"""
     profile = exam_db.get_profile(uid) or {}
     pname = (profile.get("player_name") or "").strip()
     if not pname:
         return "exam_profile_incomplete"
+    # 防御：即使历史数据里存了不合规的玩家名，也不允许注入白名单/用户资料
+    if not MC_NAME_RE.fullmatch(pname):
+        return "player_name_invalid"
     own = (user_info_db.get_user_info(uid) or {}).get("player_name")
     if pname != own and user_info_db.player_name_exists(pname):
         return "player_name_exists"

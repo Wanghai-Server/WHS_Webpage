@@ -14,7 +14,7 @@ const props = defineProps({
   navRoutes: { type: Object, default: null },
 })
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const router = useRouter()
 const route = useRoute()
 const { state: authState } = useAuth()
@@ -140,10 +140,22 @@ watch(
     else unreadCount.value = 0
   }
 )
+
+// 语言 / 登录态变化后：清掉滚动动画留下的固定内联宽度，避免右侧用户标被挤出导航栏
+// （语言切换会改变按钮文字宽度；若继续沿用旧宽度，展开时布局就会错位，F5 才会恢复）
+watch([locale, isLoggedIn], () => {
+  requestAnimationFrame(() => {
+    if (scrolled.value) return
+    const btn = navbarRef.value && navbarRef.value.querySelector('.login-btn')
+    if (!btn) return
+    btn.style.width = ''
+    btn.style.marginLeft = ''
+    btn.style.opacity = '1'
+  })
+})
 let isMobile = false
 let mediaQuery = null
 let ready = false
-let loginBtnNaturalWidth = 0
 
 function handleScroll() {
   const nowScrolled = window.scrollY > NAVBAR_HEIGHT * 1.5
@@ -167,7 +179,6 @@ function setLoginState(isScrolled) {
   if (!btn || !fab || !fabWrap) return
 
   if (isScrolled) {
-    loginBtnNaturalWidth = btn.offsetWidth
     btn.style.pointerEvents = 'none'
     btn.style.opacity = '0'
     btn.style.width = '0px'
@@ -200,15 +211,20 @@ function animateLoginTransition(isScrolled) {
     btn.style.pointerEvents = 'none'
     fabWrap.style.pointerEvents = 'auto'
     fab.style.pointerEvents = 'auto'
-    loginBtnNaturalWidth = btn.offsetWidth
     animate(btn, { opacity: 0, width: 0, marginLeft: 0, duration: 250, ease: 'outQuad' })
     animate(fab, { opacity: [0, 1], scale: [0.5, 1], duration: 500, ease: 'outBack' })
   } else {
-    // 吸附：文字按钮展开并回弹，圆形淡出
+    // 吸附：先按当前语言 / 登录态重新测量自然宽度，避免沿用旧语言宽度把右侧挤出
     btn.style.pointerEvents = 'auto'
+    btn.style.width = ''
+    btn.style.marginLeft = ''
+    btn.style.opacity = '0'
+    const naturalWidth = btn.offsetWidth
+    btn.style.width = '0px'
+    btn.style.marginLeft = '0px'
     fabWrap.style.pointerEvents = 'none'
     fab.style.pointerEvents = 'none'
-    animate(btn, { opacity: 1, width: loginBtnNaturalWidth, marginLeft: 28, duration: 300, ease: 'outQuad' })
+    animate(btn, { opacity: 1, width: naturalWidth, marginLeft: 28, duration: 300, ease: 'outQuad' })
     animate(fab, { opacity: [1, 0], scale: [1, 0.5], duration: 180, ease: 'outQuad' })
   }
 }

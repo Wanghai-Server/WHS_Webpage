@@ -18,7 +18,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 91 条）
+6. HTTP API（共 92 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -67,7 +67,9 @@
 
 ### 用户系统
 
-- 注册：邮箱 + 邮箱验证码 + 密码（前端 SHA-256 后传输）+ 头像/昵称补充步骤。
+- 注册：分三步完成——① 邮箱 + 邮箱验证码 + 人机验证（不写数据库，验证通过后由后端在内存签发一次性注册凭证）；② 用户名 + 密码（前端 SHA-256 后传输，提交前校验强度）；③ 完善资料（头像 / 性别单选 / 生日，可留空 = 不透露）。第二步创建账号成功后才写数据库。
+- 注册密码强度：至少 8 位、包含数字、同时包含大写和小写字母；未失焦时未满足项为灰色，失焦后标红、满足项标绿；下方进度条 + 低/中/高等级（等级只在三条要求全部满足后按熵估算计算），不满足强度拒绝提交。密码允许数字、字母与常见特殊字符（ASCII，含 `!@#$%^&*` 等）；特殊字符不强制要求，但会计入字符池熵估算、提升强度等级，UI 中作为第 4 条“可选”检查项展示（缺失不标红、不拦截提交）。
+- 注册验证码：连续错误 5 次锁定该邮箱 1 小时（发送与校验都拒绝）；发送失败时后端回滚内存中的验证码与 60s 冷却，允许立即重试。
 - 登录：账密模式（邮箱 / UID / 用户名 + 密码）或邮箱验证码模式；连续输错 5 次自动锁定账号。
 - 密码安全：前端先 SHA-256，后端再加随机盐存储（`salt$hash`）；原始密码不出浏览器。
 - 登录态：HMAC-SHA256 自签 token（JWT 风格，无第三方依赖），`Authorization: Bearer <token>`，有效期 7 天。
@@ -75,7 +77,7 @@
 - 用户主页：昵称 / 生日 / 性别 / Markdown 简介 / 头像；关注与粉丝列表；UID 复制。
 - 账号设置：改资料、改头像、改邮箱（验证码）、改密码（旧密码 + 验证码）、找回密码、退出登录、注销账号。
 - 密码可见性：登录 / 注册 / 找回密码 / 修改密码 / 注销账号的密码框右侧带眼睛按钮，可切换明文 / 密文；注册等多密码框表单共用一个按钮同时控制。
-- 游戏账户：绑定主账号与最多 2 个小号，记录正版 / 离线标记，支持修改主账号正版状态；添加小号自动加入游戏白名单。
+- 游戏账户：绑定主账号与最多 2 个小号，记录正版 / 离线标记，支持修改主账号正版状态；添加小号自动加入游戏白名单。玩家名（主账号 / 小号 / 考试填写）统一遵循 Minecraft Java 官方规则：**3–16 位、仅英文字母 / 数字 / 下划线**；考试结束后（通过或答题次数用完）玩家名锁定，不可再修改。
 - 权限等级：`0=guest / 1=user / 2=player / 3=admin / 4=owner`；注册默认 1，入服考试及格自动升到 2。
 
 ### 消息中心
@@ -90,7 +92,7 @@
 
 - 玩家端：阅读考前须知 → 完善游戏名 / 正版状态 → 逐题作答（答案自动保存，可上传附件）→ 交卷；最多 2 次机会，60% 及格。
 - 题型：单选、多选（部分分）、填空（按空给分）、主观题（人工改分）。
-- 及格副作用：写入玩家名、权限 < 2 时提升到 player、标记通过、自动加入游戏白名单。
+- 及格副作用：写入玩家名、权限 < 2 时提升到 player、标记通过、自动加入游戏白名单。考试结束后（通过或答题次数用完）`POST /api/exam/profile` 拒绝再修改玩家名（`exam_profile_locked`）。
 - 未通过可重新作答，也可提交人工重审（通知全部管理员，站内消息 + 邮件）。
 - 管理端：查看考生列表、试卷在线编辑（覆盖 `data/exam.yml` 即时生效）、查看/改分答题卡、删除答卷、上传题目附图与说明文档（.docx）。
 
@@ -183,7 +185,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 91 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 92 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -243,11 +245,13 @@ WHS_Webpage/
 │       │   ├── useTips.js           # 全局轻提示
 │       │   ├── useDialogBox.js      # 全局确认 / 提示对话框
 │       │   ├── useHcaptchaSiteKey.js# hCaptcha site key
+│       │   ├── useEmailCode.js      # 邮箱验证码发送 / 冷却 / 重置人机验证（统一封装）
+│       │   ├── usePasswordStrength.js # 密码强度规则、低/中/高等级与熵估算
 │       │   ├── sha256.js            # 前端密码哈希
 │       │   ├── clipboard.js
 │       │   └── wiki/{api,locale,markdown}.js  # 维基 API 封装 / 语言状态 / Markdown 管线
-│       ├── components/              # 35 个可复用组件
-│       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown
+│       ├── components/              # 36 个可复用组件
+│       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown / hcaptcha_box
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
 │       │   ├── 反馈：feedback_editor
@@ -384,7 +388,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 91 条）
+## 6. HTTP API（共 92 条）
 
 ### 6.1 约定
 
@@ -411,15 +415,16 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/` | 公开 | 服务状态 `{message, status}` |
 | GET | `/api/whs` | 公开 | 站点公开配置：`title_suffix`、`hcaptcha_site_key`、`301` |
 
-### 6.3 认证（9 条）
+### 6.3 认证（10 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
-| POST | `/api/user/send_code` | 公开（需 hCaptcha） | 发送邮箱验证码；同邮箱 60s 冷却，验证码 5 分钟有效 |
+| POST | `/api/user/send_code` | 公开（需 hCaptcha） | 发送邮箱验证码；同邮箱 60s 冷却，验证码 5 分钟有效；发送失败回滚冷却与验证码；邮箱被锁定时 429 |
 | GET | `/api/user/username_exists` | 公开 | 用户名是否已占用 |
 | GET | `/api/user/player_name_exists` | 公开 | 玩家名是否已占用（含小号） |
 | POST | `/api/user/suggest_username` | 公开 | 基于 base 推荐一个未占用用户名 |
-| POST | `/api/user/register` | 公开（邮箱验证码） | 注册；成功返回 `{uid, token}` |
+| POST | `/api/user/register/email` | 公开 | 注册第一步：校验邮箱验证码，返回一次性注册凭证 `{ticket, email, expires_in}`（10 分钟、不写数据库）；验证码错误 5 次锁定该邮箱 1 小时 |
+| POST | `/api/user/register` | 公开（注册凭证） | 注册第二步：`{ticket, username, password}` 创建账号；成功返回 `{uid, token}`；凭证无效返回 `register_ticket_invalid` |
 | POST | `/api/user/login` | 公开 | 登录（账密 / 邮箱验证码两种模式） |
 | GET | `/api/user/me` | 登录 | 当前登录用户信息 |
 | POST | `/api/user/{uid}/unlock` | ≥3 且权限严格高于目标 | 解锁账号并清空失败计数 |
@@ -483,7 +488,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/api/exam/attachment/{filename}` | 登录且本人/≥3 | 读取答题附件 |
 | DELETE | `/api/exam/attachment/{filename}` | 登录且本人/≥3 | 删除答题附件 |
 | GET | `/api/exam/profile` | 登录 | 考试档案（玩家名 / 正版状态 / 次数 / 是否通过） |
-| POST | `/api/exam/profile` | 登录 | 保存玩家名与正版状态（玩家名全局查重） |
+| POST | `/api/exam/profile` | 登录 | 保存玩家名与正版状态（玩家名 3–16 位字母/数字/下划线、全局查重；考试结束后 403 `exam_profile_locked`） |
 | POST | `/api/exam/reset` | 登录（可作答时） | 清空本人答题记录（不消耗次数） |
 | POST | `/api/exam/finish` | 登录（可作答时） | 交卷：汇总分数、次数 +1、及格处理 |
 | POST | `/api/exam/review` | 登录 | 申请人工重审（通知全部管理员，站内消息 + 邮件） |
@@ -882,7 +887,8 @@ python SMTP/mail_server.py
 - **单进程假设**：验证码、发送冷却、登录失败计数、TPS / 服务器状态缓存都在进程内存中；多 worker 部署会出现行为不一致。
 - **token 不可吊销**：HMAC 自签 token 有效期 7 天，无刷新 / 登出接口，改密码不会使旧 token 立即失效（banned / locked 会在请求时拦截）。
 - **密钥兜底**：`config.json` 读取异常时 token 密钥会回退到代码内默认值，部署时必须保证配置文件可读且 `token_secret` 为强随机值。
-- **验证码**：存于内存（重启丢失）、5 分钟有效，并会打印到后端 stdout；重置密码等流程没有尝试次数上限。
+- **验证码**：存于内存（重启丢失）、5 分钟有效，并会打印到后端 stdout；注册验证码连续错误 5 次会锁定该邮箱 1 小时；注册凭证（ticket）同样只在内存中保存 10 分钟，重启后失效；重置密码等流程没有尝试次数上限。
+- **注册三步**：第一步不写数据库，第二步创建账号、第三步完善资料分别写库；若用户中途放弃，账号已创建但资料为空，可登录后在设置中补齐。
 - **上传校验**：仅校验声明的类型 / 扩展名与大小，不校验文件真实内容。
 - **无 CORS 中间件**：前端与 API 必须同源（开发用 Vite 代理，生产用反向代理）。
 - **数据库**：无外键、无跨语句事务；部分业务（注册、注销、关注）中途失败可能留下部分写入。
