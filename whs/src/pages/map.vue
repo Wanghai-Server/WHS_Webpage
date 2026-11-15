@@ -34,18 +34,19 @@ let loadTimer = null
 let controlsTimer = null
 
 // BlueMap 5.x 的 hash 共 10 段：
-// mapId:x:y:z:distance:rotation:angle:tilt:view:viewHeight
-// 第 9 段必须是 flat / perspective 字符串，传布尔值会被当成 perspective，
-// 2D 会退化成"拉远的透视俯视"。
+// mapId:x:y:z:distance:rotation:angle:tilt:ortho:view
+// ortho 是数字（1=正交），view 必须是 flat / perspective 字符串。
+// 之前把布尔值放在第 9 段、view 放在第 9 段，都会让 BlueMap 回退成透视视角。
 const viewerSrc = computed(() => {
   if (!viewer.value || !activeMap.value) return ''
   const flat = viewMode.value === '2d'
-  const view = flat ? 'flat' : 'perspective'
-  const distance = flat ? 1000 : 150
-  const tilt = flat ? 90 : 60
-  const height = flat ? startY.value : startY.value + 20
   const [x, z] = startPos.value
-  return `${viewer.value}#${activeMap.value}:${x}:${height}:${z}:${distance}:0:0:${tilt}:${view}:1000`
+  const distance = flat ? 1000 : 150
+  const angle = flat ? 0 : 1.1
+  const tilt = 0
+  const ortho = flat ? 1 : 0
+  const view = flat ? 'flat' : 'perspective'
+  return `${viewer.value}#${activeMap.value}:${x}:${startY.value}:${z}:${distance}:0:${angle}:${tilt}:${ortho}:${view}`
 })
 
 function authHeaders() {
@@ -152,7 +153,12 @@ async function refreshCookie() {
       showGate('unauthorized')
       return
     }
-    if (!res.ok) return
+    // 403 / 503 都是可恢复的，继续轮询，避免 Cookie 过期后永远不再续签
+    if (!res.ok) {
+      if (configTimer) clearTimeout(configTimer)
+      configTimer = setTimeout(refreshCookie, 30000)
+      return
+    }
     const data = await res.json()
     scheduleRefresh(data.ttl)
   } catch {

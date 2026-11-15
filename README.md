@@ -909,12 +909,13 @@ python SMTP/mail_server.py
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
   2. 首次启动会生成 `config/bluemap/`。`core.conf` 里 `accept-download` 改成 `true`（要联网下载原版材质）；`maps/world.conf` 里打开 `enable-flat-view` 和 `enable-perspective-view`，BlueMap 5.x 没有 `display-type` 这个键，关掉透视就只剩平面视图；`webserver.conf` 里 `enabled` 改成 `true`、`port` 设 8100、`ip` 显式写 `127.0.0.1`，这一项默认是对外监听的。
   3. 第一次启动会全量渲染整张地图，吃 CPU 和磁盘，挑没人玩的时候跑，渲染线程数可以调低。
-  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；实时玩家走 SSE，需要关掉缓冲。这段放在现有 `server { listen 31480 ssl; ... }` 里面，公网入口就是 31480，不需要额外开端口，也不要动 80 / 443。
+  4. nginx 把 `/map3d/` 反代到 `127.0.0.1:8100/`，`proxy_pass` 末尾必须带斜杠，否则路径会多一层 `map3d` 直接 404；同时转发 `Host`、去掉上游的 `X-Frame-Options` 和 CSP 里的 `frame-ancestors`，不然 iframe 会被浏览器拒绝；实时玩家走 SSE，需要关掉缓冲。这段放进现有的 `server { listen 31480 ssl; ... }` 里即可。
   5. 代理必须挂鉴权。网站的登录态存在浏览器里，iframe 发请求时不会自己带上，所以后端通过 `/api/map/config` 下发一个 600 秒的 HttpOnly Cookie，nginx 用 `auth_request` 校验。注意 `auth_request` 是**每个子请求**都会触发的，3D 场景一次加载就有几百上千个瓦片和模型请求，不加缓存会把这些全部打到后端，必须按下面的配置给鉴权结果做缓存（通过的结果 60 秒，失败的结果 10 秒）：
 
 ```nginx
 # 放在 http { } 块：鉴权结果缓存，否则 3D 场景里每个瓦片 / 模型请求
 # 都会回源到后端一次，一个页面就是几百上千次
+# cache/mapauth 目录要事先建好，路径相对于 nginx 的 prefix 目录
 proxy_cache_path cache/mapauth levels=1:2 keys_zone=mapauth:1m max_size=10m inactive=60s;
 
 # 内部鉴权端点，直接打后端，不经过前端 dev server
