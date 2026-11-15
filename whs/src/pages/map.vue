@@ -33,16 +33,19 @@ let playersTimer = null
 let loadTimer = null
 let controlsTimer = null
 
-// BlueMap 只认完整的 10 段 hash：
-// mapId:x:y:z:distance:rotation:angle:tilt:ortho:viewHeight
-// 2D 用正交俯视（tilt 90），3D 用透视并压低俯仰角，接近游戏内旁观
+// BlueMap 5.x 的 hash 共 10 段：
+// mapId:x:y:z:distance:rotation:angle:tilt:view:viewHeight
+// 第 9 段必须是 flat / perspective 字符串，传布尔值会被当成 perspective，
+// 2D 会退化成"拉远的透视俯视"。
 const viewerSrc = computed(() => {
   if (!viewer.value || !activeMap.value) return ''
   const flat = viewMode.value === '2d'
+  const view = flat ? 'flat' : 'perspective'
+  const distance = flat ? 1000 : 150
   const tilt = flat ? 90 : 60
   const height = flat ? startY.value : startY.value + 20
   const [x, z] = startPos.value
-  return `${viewer.value}#${activeMap.value}:${x}:${height}:${z}:0:0:0:${tilt}:${flat}:1000`
+  return `${viewer.value}#${activeMap.value}:${x}:${height}:${z}:${distance}:0:0:${tilt}:${view}:1000`
 })
 
 function authHeaders() {
@@ -144,12 +147,19 @@ function scheduleRefresh(ttl) {
 async function refreshCookie() {
   try {
     const res = await fetch('/api/map/config', { headers: authHeaders() })
+    // 登录态失效时不能静默返回，否则画面会停在已经 401 的 iframe 上
+    if (res.status === 401) {
+      showGate('unauthorized')
+      return
+    }
     if (!res.ok) return
     const data = await res.json()
     scheduleRefresh(data.ttl)
   } catch {
-    // 网络抖动时保留现有画面，下一轮再试
-    scheduleRefresh(300)
+    // 网络抖动时保留现有画面，30 秒后重试。
+    // 不能沿用长间隔，否则拖到 Cookie 过期后 iframe 会静默停在错误页。
+    if (configTimer) clearTimeout(configTimer)
+    configTimer = setTimeout(refreshCookie, 30000)
   }
 }
 
