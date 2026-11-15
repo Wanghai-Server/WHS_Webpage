@@ -925,7 +925,10 @@ location = /api/map/auth {
 
     proxy_cache mapauth;
     proxy_cache_key "$cookie_whs_map";
-    proxy_cache_valid 204 401 10s;
+    # 通过的结果缓存 60 秒，一个用户再怎么拖地图，一分钟最多回源一次；
+    # 失败的只缓存 10 秒，免得刚登录的人被挡太久
+    proxy_cache_valid 204 60s;
+    proxy_cache_valid 401 10s;
     # 同一凭据的并发请求只放一个回源，其余等结果，避免瞬间打满后端
     proxy_cache_lock on;
     # 等 3 秒还没回来就不再等，直接并发回源，防止一个慢请求拖住整批瓦片
