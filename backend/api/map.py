@@ -3,23 +3,23 @@
 设计要点：
 - 瓦片由 BlueMap 渲染（磁盘上为 gzip 压缩的 PNG），浏览器无法直接跨端口访问，
   因此统一经后端代理，顺带做成员鉴权与缓存。
-- 前端加载瓦片用的是 <img>，带不了 Authorization 头，所以瓦片走**短期签名 URL**：
-  /api/map/config 下发带 uid + 过期时间 + HMAC 签名的地址，过期后前端重新取一次。
+- 前端加载瓦片用的是 <img>，带不了 Authorization 头，所以瓦片走**短期令牌**：
+  /api/map/config 下发带 HMAC 令牌的瓦片模板，令牌过期后前端重新取一次。
 - 仅限正式成员（permission >= 2，即通过入服问卷）访问。
 """
 import base64
 import hashlib
 import hmac
 import json
+import re
 import time
-import urllib.error
 import urllib.request
 
 from fastapi import APIRouter, Header
 from fastapi.responses import JSONResponse, Response
 
 from data import read_config
-from main import _token_secret, get_current_user
+from main import _error_response, _token_secret, get_current_user
 
 router = APIRouter()
 
@@ -27,8 +27,10 @@ router = APIRouter()
 SIGN_TTL = 600
 # 瓦片可被浏览器 / CDN 缓存的时间（秒）
 TILE_CACHE_TTL = 86400
+# BlueMap settings.json 的进程内缓存时间（秒）
+SETTINGS_TTL = 300
 # 正式成员门槛：permission >= 2 等价于已通过入服问卷
-MEMBER_PERMISSION = 2
+_MEMBER_PERMISSION = 2
 
 
 def _map_cfg() -> dict:
@@ -46,11 +48,6 @@ def _map_cfg() -> dict:
         "center": cfg.get("center") or [0, 0],
         "zoom": cfg.get("zoom", -2),
     }
-
-
-def _error(code: str, status: int, zh: str, en: str) -> JSONResponse:
-    """与全站一致的结构化双语错误响应。"""
-    return JSONResponse(status_code=status, content={"code": code, "message": {"zh": zh, "en": en}})
 
 
 def _b64(raw: bytes) -> str:
@@ -86,14 +83,9 @@ def _member(authorization: str):
     """返回 (user, None) 或 (None, 错误响应)。"""
     user = get_current_user(authorization)
     if user is None:
-        return None, _error("unauthorized", 401, "未登录或登录已过期", "Unauthorized")
-    if int(user.get("permission") or 0) < MEMBER_PERMISSION:
-        return None, _error(
-            "map_members_only",
-            403,
-            "在线地图仅对正式成员开放",
-            "The live map is available to members only",
-        )
+        return None, _error_response("unauthorized", 401)
+    if int(user.get("permission") or 0) < _MEMBER_PERMISSION:
+        return None, _error_response("map_members_only", 403)
     return user, None
 
 
@@ -107,8 +99,21 @@ def _fetch(url: str, timeout: float) -> bytes | None:
         return None
 
 
+_SETTINGS_CACHE: dict[tuple[str, str], tuple[float, dict | None]] = {}
+
+
 def _map_settings(cfg: dict, mid: str) -> dict | None:
-    """取 BlueMap 的 settings.json，抽出前端算瓦片坐标需要的参数。"""
+    """取 BlueMap 的 settings.json（带进程内缓存），抽出前端算瓦片坐标需要的参数。"""
+    key = (cfg["base"], mid)
+    cached = _SETTINGS_CACHE.get(key)
+    if cached and time.time() - cached[0] < SETTINGS_TTL:
+        return cached[1]
+    data = _load_settings(cfg, mid)
+    _SETTINGS_CACHE[key] = (time.time(), data)
+    return data
+
+
+def _load_settings(cfg: dict, mid: str) -> dict | None:
     body = _fetch(f"{cfg['base']}/maps/{mid}/settings.json", cfg["timeout"])
     if body is None:
         return None
@@ -169,13 +174,13 @@ def map_tile(map_id: str, lod: str, x: str, y: str, t: str = ""):
     避免后端解压后再被网关二次压缩。
     """
     if not _verify_tile_token(t, map_id):
-        return _error("map_url_invalid", 403, "地图地址无效或已过期", "Invalid or expired map URL")
+        return _error_response("map_url_invalid", 403)
 
     cfg = _map_cfg()
     if map_id not in cfg["maps"]:
-        return _error("map_not_found", 404, "地图不存在", "Map not found")
-    if not all(part.lstrip("-").isdigit() for part in (lod, x, y)):
-        return _error("invalid_parameter", 400, "请求参数不合法", "Invalid request parameters")
+        return _error_response("map_not_found", 404)
+    if not all(re.fullmatch(r"-?\d+", part) for part in (lod, x, y)):
+        return _error_response("invalid_parameter", 400)
 
     body = _fetch(f"{cfg['base']}/maps/{map_id}/tiles/{lod}/{x}/{y}.png", cfg["timeout"])
     if body is None:
@@ -191,19 +196,19 @@ def map_tile(map_id: str, lod: str, x: str, y: str, t: str = ""):
 @router.get("/api/map/players")
 def map_players(map_id: str = "", authorization: str = Header(None)):
     """在线玩家位置（BlueMap live 接口透传；前端轮询，带 Authorization 头）。"""
-    user, err = _member(authorization)
+    _, err = _member(authorization)
     if err:
         return err
 
     cfg = _map_cfg()
     mid = map_id or cfg["default"]
     if mid not in cfg["maps"]:
-        return _error("map_not_found", 404, "地图不存在", "Map not found")
+        return _error_response("map_not_found", 404)
 
     body = _fetch(f"{cfg['base']}/maps/{mid}/live/players.json", cfg["timeout"])
     if body is None:
-        return _error("map_upstream_error", 502, "地图服务暂时不可用", "Map service unavailable")
+        return _error_response("map_upstream_error", 502)
     try:
         return JSONResponse(json.loads(body.decode("utf-8")))
     except Exception:
-        return _error("map_upstream_error", 502, "地图服务返回异常", "Map service returned invalid data")
+        return _error_response("map_upstream_error", 502)

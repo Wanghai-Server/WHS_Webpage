@@ -25,6 +25,7 @@ let playersTimer = null
 // 当前地图的瓦片参数（来自 BlueMap settings.json）
 let geo = null
 let tileBase = ''
+let currentMapId = ''
 
 // BlueMap 的瓦片按 lod 分层：lod 0 是最高清的一层（hires），
 // lod 1..n 是逐级缩小的 lowres，每级相差 lodFactor 倍。
@@ -127,11 +128,15 @@ function renderPlayers(list) {
   })
 }
 
+function authHeaders() {
+  return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
+}
+
 async function loadPlayers() {
   if (!activeMap.value || gate.value) return
   try {
     const res = await fetch(`/api/map/players?map_id=${encodeURIComponent(activeMap.value)}`, {
-      headers: { Authorization: `Bearer ${authState.token}` },
+      headers: authHeaders(),
     })
     if (!res.ok) return
     const data = await res.json()
@@ -151,53 +156,64 @@ function destroyMap() {
   }
 }
 
-async function loadConfig() {
-  loading.value = true
+function showGate(code) {
+  const membersOnly = code === 'map_members_only'
+  gate.value = {
+    code,
+    title: membersOnly ? t('map.membersOnly') : t('map.error'),
+    hint: membersOnly ? t('map.membersOnlyHint') : '',
+    action: code === 'unauthorized' ? 'login' : membersOnly ? 'joinus' : '',
+  }
+  destroyMap()
+  currentMapId = ''
+}
+
+async function loadConfig({ rebuild = false } = {}) {
+  if (!leafletMap) loading.value = true
   try {
-    const res = await fetch('/api/map/config', {
-      headers: { Authorization: `Bearer ${authState.token}` },
-    })
+    const res = await fetch('/api/map/config', { headers: authHeaders() })
     const data = await res.json().catch(() => ({}))
     if (!res.ok) {
-      gate.value = {
-        code: data.code || 'error',
-        title: data.code === 'map_members_only' ? t('map.membersOnly') : t('map.error'),
-        hint: data.code === 'map_members_only' ? t('map.membersOnlyHint') : '',
-        action: data.code === 'unauthorized' ? 'login'
-          : data.code === 'map_members_only' ? 'joinus' : '',
-      }
-      loading.value = false
+      showGate(data.code || 'error')
       return
     }
     gate.value = null
     maps.value = data.maps || []
-    const target = data.maps?.find((m) => m.id === data.default) || data.maps?.[0]
+    // 续签时保持当前选中的地图，只有首次进入或手动切换才回落到默认地图
+    const target = data.maps?.find((m) => m.id === activeMap.value)
+      || data.maps?.find((m) => m.id === data.default)
+      || data.maps?.[0]
     if (!target) {
-      gate.value = { code: 'empty', title: t('map.error'), hint: '', action: '' }
-      loading.value = false
+      showGate('empty')
       return
     }
     activeMap.value = target.id
     tileBase = target.tile
-    await nextTick()
-    destroyMap()
-    setupMap(target)
+    if (rebuild || currentMapId !== target.id) {
+      currentMapId = target.id
+      destroyMap()
+      await nextTick()
+      setupMap(target)
+    } else if (tileLayer) {
+      // 令牌已换新，让已加载的瓦片用新地址重新请求
+      tileLayer.redraw()
+    }
 
-    // 签名过期前自动续签，避免长时间停留后瓦片 401
     if (configTimer) clearTimeout(configTimer)
     const wait = Math.max((data.refetch_after || 300) * 1000, 60000)
     configTimer = setTimeout(loadConfig, wait)
 
     loadPlayers()
   } catch {
-    gate.value = { code: 'network', title: t('map.error'), hint: '', action: '' }
+    // 已有地图时遇到网络抖动不销毁画面，等下次续签重试
+    if (!leafletMap) showGate('network')
   } finally {
     loading.value = false
   }
 }
 
 async function onMapChange() {
-  await loadConfig()
+  await loadConfig({ rebuild: true })
 }
 
 onMounted(() => {
@@ -283,7 +299,7 @@ onBeforeUnmount(() => {
 
 .map-select {
   padding: 8px 12px;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--float-bg);
   border-radius: 8px;
   background: transparent;
   color: var(--text-color, #1f2937);
@@ -297,7 +313,7 @@ onBeforeUnmount(() => {
 
 .map-canvas-wrap {
   position: relative;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--float-bg);
   border-radius: 12px;
   overflow: hidden;
 }
@@ -323,7 +339,7 @@ onBeforeUnmount(() => {
 
 .map-gate {
   padding: 56px 24px;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--float-bg);
   border-radius: 12px;
   text-align: center;
 }

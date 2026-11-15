@@ -429,6 +429,22 @@ ERROR_MESSAGES = {
         "zh": "权限不足",
         "en": "Permission denied",
     },
+    "map_members_only": {
+        "zh": "在线地图仅对正式成员开放",
+        "en": "The live map is available to members only",
+    },
+    "map_url_invalid": {
+        "zh": "地图地址无效或已过期",
+        "en": "Invalid or expired map URL",
+    },
+    "map_not_found": {
+        "zh": "地图不存在",
+        "en": "Map not found",
+    },
+    "map_upstream_error": {
+        "zh": "地图服务暂时不可用",
+        "en": "Map service is temporarily unavailable",
+    },
     "gender_invalid": {
         "zh": "性别选项不合法",
         "en": "Invalid gender option",
