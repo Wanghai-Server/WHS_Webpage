@@ -1,0 +1,11 @@
+# Issue 模板选择页配置
+# - blank_issues_enabled: 是否允许创建空白 Issue（不选模板）
+# - contact_links: 在「新建 Issue」页面展示的快捷链接
+blank_issues_enabled: true
+contact_links:
+  - name: 贡献指南（PR 要求 / 分支保护 / 可复用代码）
+    url: https://github.com/Wanghai-Server/WHS_Webpage/blob/main/CONTRIBUTING.md
+    about: 提交 Issue 或 PR 前请先阅读：main 分支保护规则、PR 要求、可复用代码与代码风格。
+  - name: 项目文档（README）
+    url: https://github.com/Wanghai-Server/WHS_Webpage/blob/main/README.md
+    about: 架构、快速开始、HTTP API、WebSocket 协议、数据层、部署与 CI 说明。

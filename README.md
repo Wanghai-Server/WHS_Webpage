@@ -1,5 +1,7 @@
 # WHS Webpage
 
+[![CI](https://github.com/Wanghai-Server/WHS_Webpage/actions/workflows/ci.yml/badge.svg)](https://github.com/Wanghai-Server/WHS_Webpage/actions/workflows/ci.yml)
+
 望海服务器（WangHai Server）官方网站。Vue 3 单页前端 + FastAPI 后端 + SQLite，内置完整用户系统（注册 / 登录 / 资料 / 头像 / 关注 / 消息 / 入服考试 / 反馈中心 / 管理端）与自研现代化维基，并通过本机 WebSocket 与 Minecraft 服务器的 MCDR 插件双向通信（在线名单、TPS、白名单）。
 
 - 中英文双语切换（vue-i18n + 维基内容按语言实时请求后端）
@@ -24,7 +26,8 @@
 11. 部署
 12. 运维脚本与开发工具
 13. 已知限制与注意事项
-14. License
+14. CI（GitHub Actions）
+15. License
 
 ---
 
@@ -158,7 +161,20 @@
 WHS_Webpage/
 ├── manage.py                        # 统一启动管理器（前端 dev/prod + 后端 + 日志收集 + 统一关停）
 ├── README.md
+├── CONTRIBUTING.md                  # 贡献指南：PR 要求 / main 分支保护 / 前后端可复用代码
 ├── LICENSE
+├── .github/                         # GitHub 配置与 CI
+│   ├── CODEOWNERS                   # 默认审核人（PR 自动请求审核）
+│   ├── PULL_REQUEST_TEMPLATE.md     # PR 模板（变更类型 / 验证方式 / 截图 / 核对清单）
+│   ├── ISSUE_TEMPLATE/              # Issue 模板
+│   │   ├── bug_report.yml           # Bug 报告（自动打 bug 标签）
+│   │   ├── feature_request.yml      # 功能建议（自动打 enhancement 标签）
+│   │   └── config.yml               # 模板选择页配置（快捷链接、允许空白 Issue）
+│   ├── workflows/ci.yml             # GitHub Actions：前端 / 后端 / 数据层 / MCDR 四层校验
+│   └── scripts/                     # CI 校验脚本（可本地复跑，见第 14 节）
+│       ├── backend_smoke.py
+│       ├── data_smoke.py
+│       └── mcdr_check.py
 ├── express_set_perm.py              # 运维脚本：离线修改用户权限（直接写 SQLite，慎用）
 ├── unlock_user.py                   # 运维脚本：离线解锁账号（尚未纳入版本库）
 │
@@ -262,8 +278,8 @@ WHS_Webpage/
 
 ### 5.1 环境要求
 
-- **Python ≥ 3.12**（后端）
-- **Node.js + npm**（前端构建 / 开发服务器）
+- **Python ≥ 3.12**（后端；CI 使用 3.14）
+- **Node.js + npm**（前端构建 / 开发服务器；Vite 8 要求 Node `^20.19.0 || >=22.12.0`，CI 使用 22）
 - 可选：Minecraft 服务器 + [MCDR](https://mcdreforged.com/)（服务器状态、在线名单、白名单联动需要）
 
 ### 5.2 配置
@@ -871,8 +887,66 @@ python SMTP/mail_server.py
 - **无 CORS 中间件**：前端与 API 必须同源（开发用 Vite 代理，生产用反向代理）。
 - **数据库**：无外键、无跨语句事务；部分业务（注册、注销、关注）中途失败可能留下部分写入。
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
-- **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内也没有自动化测试 / CI 配置。
+- **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
+
+---
+
+## 14. CI（GitHub Actions）
+
+仓库使用 GitHub Actions 做四层自动校验：
+
+- 工作流：`.github/workflows/ci.yml`
+- 校验脚本：`.github/scripts/{backend_smoke,data_smoke,mcdr_check}.py`（与 CI 同一套逻辑，可本地直接运行）
+
+### 14.1 触发条件
+
+- 向**任意分支** push；
+- 向 `main` 提交或更新 PR；
+- 在 Actions 页面手动触发（`workflow_dispatch`）。
+
+同一分支 / PR 的新推送会自动取消上一次仍在运行的 CI。CI 只有只读权限（`contents: read`），不读取任何 Secret，不发布、不部署任何产物。
+
+### 14.2 运行环境
+
+| 项 | 值 |
+|----|----|
+| Runner | `ubuntu-24.04`（固定版本，避开 `ubuntu-latest` 镜像迁移期的环境差异） |
+| Python | 3.14（后端 / 数据层 / MCDR 三个任务） |
+| Node.js | 22（满足 Vite 8 engines 要求：Node 20.19+ 或 22.12+） |
+| 权限 / 密钥 | 只读 / 不需要 |
+
+### 14.3 四个检查任务
+
+| 检查名称 | 校验内容 | 本地对应命令 |
+|----------|----------|--------------|
+| `前端 · 依赖安装与生产构建` | `npm ci`（严格按 `package-lock.json`）→ `vite build` → 校验 `dist/index.html` 与 JS 产物 | `cd whs && npm ci && npm run build` |
+| `后端 · 启动与接口冒烟` | 全仓 Python 语法编译 → 真实启动 uvicorn（含 lifespan、6 个数据库连接、MCDR WS 命令服务）→ 检查 `/`、`/api/whs`、未登录 401、维基页面 / 搜索、未知路由 404、错误方法 405 → WS `ping` 与未知指令 → 日志无 Traceback | `python .github/scripts/backend_smoke.py` |
+| `数据层 · 建库与增删查冒烟` | 考试 YAML 解析（合法 / 非法用例）、`§` 颜色代码剥离、五个 SQLite 库建表与增删查改、维基欢迎页种子与搜索、乐观锁 / 重定向等行为 | `python .github/scripts/data_smoke.py` |
+| `MCDR 插件 · 清单 / 导入 / 打包校验` | `mcdreforged pack` 校验插件清单并生成 `.mcdr` → 用最小桩模块替代未入库依赖后导入插件 → 检查命令表、`tick query` / `list` 解析函数与打包产物内容 | 先安装 `mcdreforged` + `websockets`，再 `python .github/scripts/mcdr_check.py --packed <pack 输出目录>` |
+
+### 14.4 本地复跑与副作用
+
+```bash
+# 前端
+cd whs && npm ci && npm run build
+
+# 后端（需先安装 backend/requirements.txt；Windows 本地会跳过「优雅关闭」日志断言）
+python .github/scripts/backend_smoke.py
+
+# 数据层（只需要 PyYAML）
+python .github/scripts/data_smoke.py
+
+# MCDR 插件（需要 mcdreforged>=2.15 与 websockets；产物 *.mcdr 已被 .gitignore 忽略）
+python -m mcdreforged pack -i mcdr_connecter_plugin -o dist-mcdr
+python .github/scripts/mcdr_check.py --packed dist-mcdr
+```
+
+脚本会自行隔离副作用：数据层脚本先把数据库目录重定向到临时目录；后端脚本使用随机端口启动 uvicorn，并临时改写 `data/config.json` 的 `ws_port`（退出时恢复原内容，原本不存在的文件会删除）。
+
+CI 不覆盖：真实 SMTP / hCaptcha 外部服务、实际 Minecraft 服务器与 MCDR 运行环境、浏览器端 UI / E2E / 视觉回归、生产部署。涉及这些方面的改动仍需人工验证。
+
+> PR 要求、`main` 分支保护规则与前后端可复用代码约定见 [CONTRIBUTING.md](CONTRIBUTING.md)。
 
 ---
 
