@@ -28,6 +28,7 @@
     "map": {
         "title": "服务器在线地图",
         "subtitle": "实时查看世界地形与在线玩家位置",
+        "eyebrow": "实时 BlueMap",
         "loading": "地图加载中…",
         "players": "在线玩家",
         "membersOnly": "在线地图仅对正式成员开放",
@@ -35,13 +36,11 @@
         "goExam": "去参加入服问卷",
         "goLogin": "先去登录",
         "error": "地图加载失败，请稍后重试",
-        "view": "视图模式",
         "noViewer": "服务器尚未开启在线地图",
         "noViewerHint": "管理员部署 BlueMap 网页端后即可查看。",
         "errorViewer": "在线地图加载失败，请稍后重试",
         "immersiveExit": "退出全屏",
         "immersiveEnter": "全屏浏览",
-        "controls2d": "拖动平移 · 滚轮缩放 · 点击方块查看信息",
         "controls3d": "左键拖动旋转 · 右键拖动平移 · 滚轮缩放 · 点击方块查看信息"
     },
     "search": {
@@ -271,7 +270,7 @@
                 "tps": { "label": "TPS", "unavailable": "—", "pending": "暂无数据，等待服务器上报" },
                 "version": { "label": "游戏版本", "value": "1.21.11", "note": "Java 版" },
                 "round": { "label": "当前周目", "value": "第二周目" },
-                "seed": { "label": "世界种子", "value": "wanghai_commune", "note": "点击复制", "mapSeed": "-1865289266", "open": "在 ChunkBase 打开完整地图" },
+                "seed": { "label": "世界种子", "value": "wanghai_commune", "note": "点击复制", "mapSeed": "-1865289266", "open": "查看在线地图" },
                 "loading": "获取中…"
             },
             "members": {

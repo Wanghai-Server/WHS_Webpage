@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Maximize2, Minimize2, Users, Map as MapIcon } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import { useAuth } from '../composables/useAuth'
@@ -13,8 +14,6 @@ const frameEl = ref(null)
 const maps = ref([])
 const activeMap = ref('')
 const playerCount = ref(0)
-// 2D / 3D 只是同一个 BlueMap 网页端的两种视图，记住上次选择
-const viewMode = ref(localStorage.getItem('whs_map_view') === '3d' ? '3d' : '2d')
 const viewer = ref('')
 const startPos = ref([0, 0])
 const startY = ref(80)
@@ -25,7 +24,7 @@ const immersive = ref(false)
 const showControls = ref(false)
 const gate = ref(null)
 const loading = ref(true)
-// 换图或换视图时递增，强制重建 iframe，让 BlueMap 按新参数初始化
+// 地图变化时重建 iframe，让 BlueMap 按新的地图/出生点初始化
 const frameKey = ref(0)
 
 let configTimer = null
@@ -33,21 +32,13 @@ let playersTimer = null
 let loadTimer = null
 let controlsTimer = null
 
-// BlueMap 5.x 的 hash 共 10 段：
-// mapId:x:y:z:distance:rotation:angle:tilt:ortho:view
-// ortho 是数字（1=正交），view 必须是 flat / perspective 字符串。
-// 之前把布尔值放在第 9 段、view 放在第 9 段，都会让 BlueMap 回退成透视视角。
+// BlueMap 5.x 的 hash：mapId:x:y:z:distance:rotation:angle:tilt:ortho:view
+// 地图页固定使用 3D 透视视图；视角贴近地表并略微压低，接近游戏内旁观。
 const viewerSrc = computed(() => {
   if (!viewer.value || !activeMap.value) return ''
-  const flat = viewMode.value === '2d'
   const [x, z] = startPos.value
-  const distance = flat ? 1000 : 150
-  const angle = flat ? 0 : 1.1
-  const tilt = 0
-  const ortho = flat ? 1 : 0
-  const view = flat ? 'flat' : 'perspective'
-  const y = startY.value + (flat ? 0 : 20)
-  return `${viewer.value}#${activeMap.value}:${x}:${y}:${z}:${distance}:0:${angle}:${tilt}:${ortho}:${view}`
+  const y = startY.value + 20
+  return `${viewer.value}#${activeMap.value}:${x}:${y}:${z}:150:0:1.1:0:0:perspective`
 })
 
 function authHeaders() {
@@ -102,23 +93,8 @@ function onKeydown(e) {
   if (e.key === 'Escape' && immersive.value) exitImmersive()
 }
 
-function switchView(mode) {
-  if (viewMode.value === mode) return
-  viewMode.value = mode
-  localStorage.setItem('whs_map_view', mode)
-  if (mode === '3d') enterImmersive()
-  else exitImmersive()
-}
-
 watch(immersive, (on) => {
   document.body.style.overflow = on ? 'hidden' : ''
-})
-
-watch(viewMode, () => {
-  loaded.value = false
-  failed.value = false
-  frameKey.value += 1
-  beginLoad()
 })
 
 // ---------- 加载状态 ----------
@@ -164,7 +140,6 @@ async function refreshCookie() {
     scheduleRefresh(data.ttl)
   } catch {
     // 网络抖动时保留现有画面，30 秒后重试。
-    // 不能沿用长间隔，否则拖到 Cookie 过期后 iframe 会静默停在错误页。
     if (configTimer) clearTimeout(configTimer)
     configTimer = setTimeout(refreshCookie, 30000)
   }
@@ -251,36 +226,48 @@ onBeforeUnmount(() => {
 
   <main class="map-page">
     <header class="map-head">
-      <div>
+      <div class="map-heading">
+        <span class="map-eyebrow">
+          <span class="map-eyebrow-dot" aria-hidden="true"></span>
+          {{ t('map.eyebrow') }}
+        </span>
         <h1 class="map-title">{{ t('map.title') }}</h1>
         <p class="map-sub">{{ t('map.subtitle') }}</p>
       </div>
+
       <div class="map-tools">
-        <div class="view-switch" role="group" :aria-label="t('map.view')">
-          <span class="view-thumb" :class="{ 'is-3d': viewMode === '3d' }" aria-hidden="true"></span>
-          <button
-            type="button"
-            class="view-btn"
-            :class="{ active: viewMode === '2d' }"
-            :aria-pressed="viewMode === '2d'"
-            @click="switchView('2d')"
-          >2D</button>
-          <button
-            type="button"
-            class="view-btn"
-            :class="{ active: viewMode === '3d' }"
-            :aria-pressed="viewMode === '3d'"
-            @click="switchView('3d')"
-          >3D</button>
-        </div>
-        <select v-if="maps.length > 1" v-model="activeMap" class="map-select" @change="onMapChange">
-          <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.name }}</option>
-        </select>
-        <span class="map-count">{{ t('map.players') }} {{ playerCount }}</span>
+        <span class="map-live">
+          <Users :size="15" aria-hidden="true" />
+          {{ t('map.players') }}
+          <strong>{{ playerCount }}</strong>
+        </span>
+
+        <label v-if="maps.length > 1" class="map-select-wrap">
+          <MapIcon :size="15" class="map-select-icon" aria-hidden="true" />
+          <select
+            v-model="activeMap"
+            class="map-select"
+            :aria-label="t('map.title')"
+            @change="onMapChange"
+          >
+            <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.name }}</option>
+          </select>
+        </label>
+
+        <button
+          v-if="available && loaded && !immersive"
+          type="button"
+          class="map-fullscreen"
+          @click="enterImmersive"
+        >
+          <Maximize2 :size="16" aria-hidden="true" />
+          <span>{{ t('map.immersiveEnter') }}</span>
+        </button>
       </div>
     </header>
 
     <div v-if="gate" class="map-gate">
+      <span class="gate-icon" aria-hidden="true"><MapIcon :size="28" /></span>
       <h2 class="gate-title">{{ gate.title }}</h2>
       <p v-if="gate.hint" class="gate-hint">{{ gate.hint }}</p>
       <router-link v-if="gate.action === 'login'" class="gate-link" to="/login">{{ t('map.goLogin') }}</router-link>
@@ -305,31 +292,32 @@ onBeforeUnmount(() => {
         @load="onFrameLoad"
       ></iframe>
 
-      <div v-else-if="loading" class="map-loading">{{ t('map.loading') }}</div>
+      <div v-if="available && !loaded && !failed" class="map-loading">
+        <span class="map-spinner" aria-hidden="true"></span>
+        <span>{{ t('map.loading') }}</span>
+      </div>
+      <div v-else-if="!available && loading" class="map-loading">
+        <span class="map-spinner" aria-hidden="true"></span>
+        <span>{{ t('map.loading') }}</span>
+      </div>
 
-      <div v-else class="map-tip">
+      <div v-if="failed" class="map-tip">
+        <p class="tip-title">{{ t('map.errorViewer') }}</p>
+      </div>
+      <div v-else-if="!available && !loading && !gate" class="map-tip">
         <p class="tip-title">{{ t('map.noViewer') }}</p>
         <p class="tip-hint">{{ t('map.noViewerHint') }}</p>
       </div>
 
-      <div v-if="available && !loaded && !failed" class="map-loading">{{ t('map.loading') }}</div>
-      <div v-if="failed" class="map-tip">
-        <p class="tip-title">{{ t('map.errorViewer') }}</p>
-      </div>
-
       <div v-if="immersive" class="immersive-bar">
         <button type="button" class="immersive-btn" @click="exitImmersive">
-          {{ t('map.immersiveExit') }}
-        </button>
-      </div>
-      <div v-else-if="available && loaded" class="immersive-bar">
-        <button type="button" class="immersive-btn" @click="enterImmersive">
-          {{ t('map.immersiveEnter') }}
+          <Minimize2 :size="16" aria-hidden="true" />
+          <span>{{ t('map.immersiveExit') }}</span>
         </button>
       </div>
 
       <div v-if="showControls && loaded" class="map-hint">
-        {{ viewMode === '3d' ? t('map.controls3d') : t('map.controls2d') }}
+        {{ t('map.controls3d') }}
       </div>
     </div>
   </main>
@@ -339,62 +327,204 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .map-page {
-  padding: 72px 24px 48px;
-  max-width: 1440px;
+  position: relative;
+  isolation: isolate;
+  max-width: 1500px;
   margin: 0 auto;
+  padding: 88px 28px 56px;
   box-sizing: border-box;
 }
 
+.map-page::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 86% 2%, rgba(235, 170, 40, 0.12), transparent 30%),
+    radial-gradient(circle at 8% 6%, rgba(124, 139, 158, 0.09), transparent 26%);
+}
+
 .map-head {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: 16px;
+  gap: 24px;
   flex-wrap: wrap;
-  margin-bottom: 16px;
+  margin-bottom: 22px;
+}
+
+.map-heading {
+  min-width: 0;
+}
+
+.map-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  color: #a16207;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.map-eyebrow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
 }
 
 .map-title {
-  margin: 0 0 6px;
-  font-size: 28px;
-  font-weight: 800;
+  margin: 0;
   color: var(--text-color, #1f2937);
+  font-size: clamp(30px, 4.1vw, 46px);
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  line-height: 1.05;
 }
 
 .map-sub {
-  margin: 0;
-  font-size: 14px;
+  max-width: 680px;
+  margin: 12px 0 0;
   color: var(--links-color, #6b7280);
+  font-size: 15px;
+  line-height: 1.7;
 }
 
 .map-tools {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.map-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 13px;
+  box-sizing: border-box;
+  border: 1px solid var(--float-bg);
+  border-radius: 12px;
+  background: var(--card-color);
+  color: var(--links-color);
+  font-size: 13px;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+}
+
+.map-live svg {
+  color: #22c55e;
+}
+
+.map-live strong {
+  color: var(--text-color);
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.map-select-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  border: 1px solid var(--float-bg);
+  border-radius: 12px;
+  background: var(--card-color);
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.map-select-wrap:focus-within {
+  border-color: rgba(235, 170, 40, 0.55);
+  box-shadow: 0 0 0 3px rgba(235, 170, 40, 0.12);
+}
+
+.map-select-icon {
+  position: absolute;
+  left: 12px;
+  z-index: 1;
+  color: var(--links-color);
+  pointer-events: none;
 }
 
 .map-select {
-  padding: 8px 12px;
-  border: 1px solid var(--float-bg);
-  border-radius: 8px;
+  height: 38px;
+  max-width: 220px;
+  padding: 0 30px 0 34px;
+  border: 0;
+  outline: 0;
   background: transparent;
-  color: var(--text-color, #1f2937);
+  color: var(--text-color);
   font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  appearance: none;
 }
 
-.map-count {
-  font-size: 14px;
-  color: var(--links-color, #6b7280);
+.map-select:focus-visible {
+  outline: 2px solid var(--text-color);
+  outline-offset: -2px;
+  border-radius: 12px;
+}
+
+.map-fullscreen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: #ebaa28;
+  color: #1f2937;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(235, 170, 40, 0.18);
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.map-fullscreen:hover {
+  background: #f0b438;
+  box-shadow: 0 8px 22px rgba(235, 170, 40, 0.25);
+  transform: translateY(-1px);
+}
+
+.map-fullscreen:active {
+  transform: translateY(0);
+}
+
+.map-fullscreen:focus-visible {
+  outline: 2px solid var(--text-color);
+  outline-offset: 3px;
 }
 
 .map-canvas-wrap {
   position: relative;
-  border: 1px solid var(--float-bg);
-  border-radius: 12px;
+  height: calc(100vh - 250px);
+  min-height: 480px;
+  max-height: 860px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 22px;
   overflow: hidden;
-  height: calc(100vh - 240px);
-  min-height: 420px;
-  background: #0f172a;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.12), transparent 42%),
+    #0b1220;
+  box-shadow:
+    0 30px 80px rgba(15, 23, 42, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
 }
 
 .map-frame {
@@ -402,23 +532,41 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   border: 0;
+  background: #0b1220;
 }
 
 .map-loading {
   position: absolute;
   inset: 0;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(15, 23, 42, 0.55);
-  color: #fff;
-  font-size: 15px;
+  gap: 12px;
+  background: rgba(8, 15, 28, 0.76);
+  color: #f8fafc;
+  font-size: 14px;
+  letter-spacing: 0.02em;
   pointer-events: none;
+}
+
+.map-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #ebaa28;
+  border-radius: 50%;
+  animation: map-spin 0.8s linear infinite;
+}
+
+@keyframes map-spin {
+  to { transform: rotate(360deg); }
 }
 
 .map-tip {
   position: absolute;
   inset: 0;
+  z-index: 3;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -426,99 +574,94 @@ onBeforeUnmount(() => {
   gap: 8px;
   padding: 24px;
   text-align: center;
+  background: radial-gradient(circle at center, rgba(30, 41, 59, 0.6), rgba(8, 15, 28, 0.92));
 }
 
 .tip-title {
   margin: 0;
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
+  color: #f8fafc;
+  font-size: 17px;
+  font-weight: 800;
 }
 
 .tip-hint {
+  max-width: 440px;
   margin: 0;
-  font-size: 13px;
   color: #cbd5e1;
+  font-size: 13px;
+  line-height: 1.7;
 }
 
 .map-gate {
-  padding: 56px 24px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 64px 24px;
   border: 1px solid var(--float-bg);
-  border-radius: 12px;
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(235, 170, 40, 0.08), transparent 46%),
+    var(--card-color);
   text-align: center;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.08);
+}
+
+.gate-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: 4px;
+  border-radius: 18px;
+  background: rgba(235, 170, 40, 0.13);
+  color: #a16207;
 }
 
 .gate-title {
-  margin: 0 0 10px;
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-color, #1f2937);
+  margin: 0;
+  color: var(--text-color);
+  font-size: 23px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
 }
 
 .gate-hint {
-  margin: 0 0 18px;
+  max-width: 520px;
+  margin: 0;
+  color: var(--links-color);
   font-size: 14px;
-  color: var(--links-color, #6b7280);
+  line-height: 1.7;
 }
 
 .gate-link {
-  display: inline-block;
-  padding: 10px 28px;
-  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  margin-top: 8px;
+  padding: 0 24px;
+  border-radius: 11px;
   background: #ebaa28;
   color: #1f2937;
-  font-weight: 700;
+  font-size: 14px;
+  font-weight: 800;
   text-decoration: none;
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 
-/* 2D / 3D 分段切换：白色胶囊滑块跟随选中项滑动 */
-.view-switch {
-  position: relative;
-  display: inline-flex;
-  padding: 3px;
-  border-radius: 999px;
-  background: var(--float-bg);
+.gate-link:hover {
+  background: #f0b438;
+  transform: translateY(-1px);
 }
 
-.view-btn {
-  position: relative;
-  z-index: 1;
-  min-width: 52px;
-  padding: 6px 0;
-  border: none;
-  border-radius: 999px;
-  background: transparent;
-  color: var(--links-color);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: color 0.24s ease;
-}
-
-.view-btn.active {
-  color: var(--text-color);
-}
-
-.view-btn:focus-visible {
+.map-fullscreen:focus-visible,
+.gate-link:focus-visible {
   outline: 2px solid var(--text-color);
-  outline-offset: 1px;
-}
-
-.view-thumb {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: calc(50% - 3px);
-  height: calc(100% - 6px);
-  border-radius: 999px;
-  background: var(--card-color);
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
-  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.view-thumb.is-3d {
-  transform: translateX(100%);
+  outline-offset: 3px;
 }
 
 /* 浏览器全屏不可用时的退路：铺满视口 */
@@ -528,33 +671,40 @@ onBeforeUnmount(() => {
   z-index: 2000;
   height: 100%;
   min-height: 0;
+  max-height: none;
   border: none;
   border-radius: 0;
 }
 
 .immersive-bar {
   position: absolute;
-  top: 18px;
-  right: 18px;
-  z-index: 3;
+  left: 22px;
+  bottom: 22px;
+  z-index: 6;
 }
 
 .immersive-btn {
-  padding: 9px 18px;
-  border: none;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.72);
-  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 11px;
+  background: rgba(8, 15, 28, 0.78);
+  color: #f8fafc;
   font: inherit;
   font-size: 13px;
-  font-weight: 600;
-  backdrop-filter: blur(10px);
+  font-weight: 700;
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .immersive-btn:hover {
-  background: rgba(15, 23, 42, 0.92);
+  border-color: rgba(255, 255, 255, 0.3);
+  background: rgba(8, 15, 28, 0.92);
 }
 
 .immersive-btn:focus-visible {
@@ -565,15 +715,22 @@ onBeforeUnmount(() => {
 .map-hint {
   position: absolute;
   left: 50%;
-  bottom: 28px;
-  z-index: 3;
-  padding: 10px 20px;
+  bottom: 24px;
+  z-index: 5;
+  max-width: calc(100% - 200px);
+  box-sizing: border-box;
+  padding: 10px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.72);
+  background: rgba(8, 15, 28, 0.78);
   color: #e2e8f0;
   font-size: 13px;
   white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  pointer-events: none;
   backdrop-filter: blur(10px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
   animation: hint-in 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
@@ -588,40 +745,104 @@ onBeforeUnmount(() => {
   }
 }
 
+:global(html.dark) .map-eyebrow {
+  color: #f0b860;
+}
+
+:global(html.dark) .map-canvas-wrap {
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 30px 80px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+:global(html.dark) .gate-icon {
+  color: #f0b860;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .map-hint {
     animation: none;
     transform: translateX(-50%);
   }
 
-  .view-thumb {
-    transition: none;
+  .map-spinner {
+    animation: none;
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 900px) {
+  .map-page {
+    padding: 76px 18px 40px;
+  }
+
+  .map-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 18px;
+  }
+
+  .map-tools {
+    width: 100%;
+    justify-content: flex-start;
+    margin-left: 0;
+  }
+
+  .map-canvas-wrap {
+    height: calc(100vh - 300px);
+    min-height: 400px;
+  }
+}
+
+@media (max-width: 560px) {
   .map-page {
     padding: 60px 12px 32px;
   }
 
   .map-title {
-    font-size: 22px;
+    font-size: 29px;
+  }
+
+  .map-sub {
+    font-size: 14px;
+  }
+
+  .map-tools {
+    gap: 8px;
+  }
+
+  .map-live,
+  .map-fullscreen,
+  .map-select-wrap {
+    min-height: 38px;
+  }
+
+  .map-fullscreen {
+    padding: 0 13px;
   }
 
   .map-canvas-wrap {
-    height: calc(100vh - 280px);
+    height: calc(100vh - 340px);
+    min-height: 340px;
+    border-radius: 16px;
   }
 
   .map-hint {
     width: calc(100% - 32px);
-    box-sizing: border-box;
+    max-width: none;
+    bottom: 16px;
     text-align: center;
     white-space: normal;
+    border-radius: 12px;
   }
 
   .immersive-bar {
-    top: 12px;
-    right: 12px;
+    left: 12px;
+    bottom: 12px;
+  }
+
+  .gate-title {
+    font-size: 20px;
   }
 }
 </style>

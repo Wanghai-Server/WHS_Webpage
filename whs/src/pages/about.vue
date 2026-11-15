@@ -8,7 +8,7 @@ import {
   Landmark, Vote, BookOpen, Scale,
   Mountain, Map, Sparkles, Hammer,
   Ban, Globe, Activity, Bot, User,
-  Copy, Check, ArrowDown, ChevronRight, ExternalLink,
+  Copy, Check, ArrowDown, ChevronRight,
   ShieldCheck, GraduationCap, Bell, Cpu,
 } from 'lucide-vue-next'
 
@@ -156,11 +156,9 @@ async function fetchMembers() {
 }
 
 // ---------------------------------------------------------------------------
-// 世界种子：点击复制种子；旁边提供 ChunkBase 完整地图外链
+// 世界种子：点击复制种子；旁边提供站内在线地图入口
 // （种子图弹窗已回退，后续考虑经 MCDR 插件解析 .mca 实现种子图）
 // ---------------------------------------------------------------------------
-const chunkbaseMapUrl = `https://www.chunkbase.com/apps/seed-map#seed=${encodeURIComponent(stats.value.seed.mapSeed)}`
-
 // 复制世界种子
 const copied = ref(false)
 let copyTimer = null
@@ -395,7 +393,7 @@ onUnmounted(() => {
           <span class="stat-label">{{ stats.round.label }}</span>
           <span class="stat-value">{{ stats.round.value }}</span>
         </div>
-        <!-- 世界种子（普通格尺寸，点击复制，右上角外链打开 ChunkBase 完整地图） -->
+        <!-- 世界种子（普通格尺寸，点击复制，右上角进入站内在线地图） -->
         <div
           class="stat-cell seed-cell"
           role="button"
@@ -415,17 +413,15 @@ onUnmounted(() => {
           <span class="stat-note">
             {{ copied ? t('pages.about.copied') : stats.seed.note }}
           </span>
-          <a
-            class="seed-chunkbase-link"
-            :href="chunkbaseMapUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+          <router-link
+            class="seed-map-link"
+            to="/map"
             :aria-label="stats.seed.open"
             :title="stats.seed.open"
             @click.stop
           >
-            <ExternalLink :size="16" />
-          </a>
+            <Map :size="16" />
+          </router-link>
         </div>
       </div>
     </section>
@@ -1025,7 +1021,7 @@ onUnmounted(() => {
 }
 
 /* 种子单元格：普通格尺寸（位于原"服务器性质"位置），整格可点击复制；
-   右上角为 ChunkBase 完整地图外链按钮（不再单独占一整行） */
+   右上角为站内在线地图入口（不再单独占一整行） */
 .seed-cell {
   position: relative;
   flex-direction: column;
@@ -1052,8 +1048,8 @@ onUnmounted(() => {
   color: #ebaa28;
 }
 
-/* ChunkBase 完整地图外链（种子格右上角图标按钮） */
-.seed-chunkbase-link {
+/* 站内在线地图入口（种子格右上角图标按钮） */
+.seed-map-link {
   position: absolute;
   top: 10px;
   right: 10px;
@@ -1073,7 +1069,7 @@ onUnmounted(() => {
     background-color 0.2s ease;
 }
 
-.seed-chunkbase-link:hover {
+.seed-map-link:hover {
   color: #ebaa28;
   border-color: rgba(235, 170, 40, 0.5);
   background: rgba(235, 170, 40, 0.08);
