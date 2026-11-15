@@ -2,12 +2,13 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { Eye, EyeOff } from 'lucide-vue-next'
+import HcaptchaBox from './hcaptcha_box.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { sha256 } from '../composables/sha256'
+import { useEmailCode } from '../composables/useEmailCode'
 
 const props = defineProps({
   uid: { type: Number, required: true },
@@ -27,11 +28,10 @@ const code = ref('')
 const oldPassword = ref('')
 const showPassword = ref(false)
 const hcaptchaToken = ref('')
-const sendCooldown = ref(0)
-let cooldownTimer = null
+const captchaRef = ref(null)
 
 const loading = ref(false)
-const sendingCode = ref(false)
+const { sending: sendingCode, cooldown: sendCooldown, send: sendEmailCode } = useEmailCode()
 const visible = ref(true) // 控制进入/离开动画
 
 // 两段式确认：第一次点击“注销”进入待确认态，再次点击才执行
@@ -78,41 +78,18 @@ function onCaptchaError(err) {
 
 // 必须先完成人机验证，才能获取验证码
 async function sendCode() {
-  if (sendCooldown.value > 0 || sendingCode.value) return
-  if (!hcaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
-    return
-  }
   const email = authState.user?.email || ''
   if (!email) {
     showTip('error', t('auth.request_failed'))
     return
   }
-  sendingCode.value = true
-  try {
-    const res = await fetch('/api/user/send_code', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-    })
-    const data = await res.json().catch(() => ({}))
-    if (res.ok && data.success) {
-      showTip('info', t('auth.code_sent'))
-      sendCooldown.value = 60
-      if (cooldownTimer) clearInterval(cooldownTimer)
-      cooldownTimer = setInterval(() => {
-        sendCooldown.value -= 1
-        if (sendCooldown.value <= 0) {
-          clearInterval(cooldownTimer)
-          cooldownTimer = null
-        }
-      }, 1000)
-    } else {
-      showTip('error', localMessage(data))
-    }
-  } finally {
-    sendingCode.value = false
-  }
+  await sendEmailCode(email, {
+    hcaptchaToken: hcaptchaToken.value,
+    resetCaptcha: () => {
+      hcaptchaToken.value = ''
+      captchaRef.value?.reset()
+    },
+  })
 }
 
 // 注销：首次点击进入待确认态，再次点击提交后端验证并删除
@@ -177,10 +154,6 @@ onMounted(() => {
 
 onUnmounted(() => {
   document.removeEventListener('keydown', handleKeydown)
-  if (cooldownTimer) {
-    clearInterval(cooldownTimer)
-    cooldownTimer = null
-  }
   if (confirmTimer) {
     clearTimeout(confirmTimer)
     confirmTimer = null
@@ -233,11 +206,11 @@ onUnmounted(() => {
           </div>
 
           <div class="h-captcha">
-            <VueHcaptcha
+            <HcaptchaBox
               v-if="hcaptchaSiteKey"
+              ref="captchaRef"
               :sitekey="hcaptchaSiteKey"
               :theme="captchaTheme"
-              api-endpoint="https://js.hcaptcha.com/1/api.js"
               @verify="onVerify"
               @expired="onCaptchaExpired"
               @error="onCaptchaError"
@@ -316,9 +289,6 @@ onUnmounted(() => {
   margin-bottom: 16px;
 }
 
-.h-captcha :deep(iframe) {
-  width: 100% !important;
-}
 
 /* 按钮靠左：取消在前，注销在后 */
 .actions {

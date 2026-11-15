@@ -6,7 +6,7 @@
  * - 回车/点击：wiki 标题、用户 username / player_name / uid 精确命中则直接打开，
  *   否则跳转 /search?q= 展示全部结果。
  */
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Search, ChevronRight } from 'lucide-vue-next'
@@ -18,6 +18,7 @@ const router = useRouter()
 
 const open = ref(false)
 const query = ref('')
+const inputRef = ref(null)
 const results = ref({ wiki: [], users: [] })
 const loading = ref(false)
 let timer = null
@@ -123,6 +124,11 @@ onBeforeUnmount(() => {
 watch(lang, () => {
   if (query.value.trim()) runSearch()
 })
+
+// 展开面板后主动聚焦输入框：autofocus 在 SPA 动态挂载时并不可靠
+watch(open, (visible) => {
+  if (visible) nextTick(() => inputRef.value?.focus())
+})
 </script>
 
 <template>
@@ -144,11 +150,11 @@ watch(lang, () => {
         <div class="gs-box">
           <Search :size="15" class="gs-box-icon" />
           <input
+            ref="inputRef"
             v-model="query"
             type="text"
             class="gs-input"
             :placeholder="t('search.placeholder')"
-            autofocus
             @input="onInput"
             @keydown="onKeydown"
           />

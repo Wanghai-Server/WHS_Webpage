@@ -1,13 +1,15 @@
 <script setup>
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import VueHcaptcha from '@hcaptcha/vue3-hcaptcha'
 import { Eye, EyeOff } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { sha256 } from '../composables/sha256'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { useTips } from '../composables/useTips'
+import { EMAIL_RE, useEmailCode } from '../composables/useEmailCode'
+import { usePasswordStrength } from '../composables/usePasswordStrength'
+import HcaptchaBox from './hcaptcha_box.vue'
 import UsernameSuggestion from './username_suggestion.vue'
 import FullUserInfo from './full_user_info.vue'
 
@@ -21,27 +23,38 @@ const router = useRouter()
 const { setAuth, fetchMe } = useAuth()
 const { showTip } = useTips()
 
-// 三段式邮箱：本地部分(字母/数字/_/./-)+ 单个@ + 域名(至少一个点)
-const EMAIL_RE = /^[a-zA-Z0-9_.-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$/
 const USERNAME_RE = /^[a-zA-Z0-9_]+$/
 const PASSWORD_ASCII_RE = /^[\x00-\x7F]+$/
 
-// 编排步骤：register / suggestion / full_info
-const step = ref('register')
+// 编排步骤：email（邮箱+验证码+人机验证）→ account（用户名+密码）→ suggestion / full_info
+const step = ref('email')
 
+// 第一步
 const email = ref('')
-const username = ref('')
 const code = ref('')
+const hcaptchaToken = ref('')
+const hcaptchaSiteKey = useHcaptchaSiteKey()
+const captchaRef = ref(null)
+const ticket = ref('')
+const ticketEmail = ref('')
+const verifying = ref(false)
+
+// 第二步
+const username = ref('')
 const password = ref('')
 const confirmPassword = ref('')
 // 注册页两个密码框共用一个显示/隐藏按钮（按钮在“确认密码”框内）
 const showPassword = ref(false)
 const loading = ref(false)
-const sendingCode = ref(false)
-const hcaptchaToken = ref('')
-const hcaptchaSiteKey = useHcaptchaSiteKey()
-const sendCooldown = ref(0)
-let cooldownTimer = null
+
+const { sending: sendingCode, cooldown: sendCooldown, send: sendEmailCode } = useEmailCode()
+const {
+  rules: passwordRules,
+  hardRules: passwordHardRules,
+  level: passwordLevel,
+  percent: strengthPercent,
+  touch: touchPasswordStrength,
+} = usePasswordStrength(password)
 
 const suggestionBase = ref('')
 const registeredUid = ref(null)
@@ -52,6 +65,12 @@ const captchaTheme = computed(() => {
   if (html.classList.contains('dark')) return 'dark'
   if (html.classList.contains('light')) return 'light'
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+})
+
+const strengthClass = computed(() => passwordLevel.value || 'none')
+const strengthText = computed(() => {
+  if (!passwordLevel.value) return '—'
+  return t(`register.strength_${passwordLevel.value}`)
 })
 
 function onVerify(token) {
@@ -77,7 +96,7 @@ watch(() => props.prefill, (p) => {
     password.value = p.password
     confirmPassword.value = p.password
   }
-  if (p.code) code.value = p.code
+  if (p.code) code.value = String(p.code).replace(/\D/g, '').slice(0, 6)
 }, { immediate: true, deep: true })
 
 function localMessage(data) {
@@ -87,49 +106,140 @@ function localMessage(data) {
 }
 
 async function sendCode() {
+  await sendEmailCode(email.value, {
+    hcaptchaToken: hcaptchaToken.value,
+    resetCaptcha: () => {
+      // token 一次性，发送成功后清空本地 token 并重置控件
+      hcaptchaToken.value = ''
+      captchaRef.value?.reset()
+    },
+  })
+}
+
+// ---- 验证码输入：只允许数字，允许粘贴（粘贴时剥离非数字） ----
+function sanitizeCode(value) {
+  return String(value || '').replace(/\D/g, '').slice(0, 6)
+}
+
+function onCodeInput(event) {
+  const el = event.target
+  const next = sanitizeCode(el.value)
+  if (el.value !== next) el.value = next
+  code.value = next
+}
+
+function onCodeKeydown(event) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return
+  if (event.key.length === 1 && !/[0-9]/.test(event.key)) {
+    event.preventDefault()
+  }
+}
+
+function onCodePaste(event) {
+  event.preventDefault()
+  const el = event.target
+  const pasted = sanitizeCode(event.clipboardData?.getData('text') || '')
+  if (!pasted) return
+  const start = el.selectionStart ?? el.value.length
+  const end = el.selectionEnd ?? el.value.length
+  const next = sanitizeCode(el.value.slice(0, start) + pasted + el.value.slice(end))
+  el.value = next
+  code.value = next
+  const cursor = Math.min(start + pasted.length, next.length)
+  nextTick(() => el.setSelectionRange(cursor, cursor))
+}
+
+// ---- 第一步 → 第二步：校验邮箱验证码并换取注册凭证 ----
+async function goAccount() {
   if (!EMAIL_RE.test(email.value.trim())) {
     showTip('warning', t('auth.email_invalid'))
     return
   }
-  // 必须先完成人机验证，才能获取验证码
-  if (!hcaptchaToken.value) {
-    showTip('warning', t('auth.captcha_required'))
+  // 返回上一步后凭证仍有效：邮箱未变时无需重新输码
+  if (ticket.value && ticketEmail.value === email.value.trim()) {
+    step.value = 'account'
     return
   }
-  if (sendCooldown.value > 0 || sendingCode.value) return
-  sendingCode.value = true
+  if (!code.value.trim()) {
+    showTip('warning', t('auth.code_required'))
+    return
+  }
+  verifying.value = true
   try {
-    const res = await fetch('/api/user/send_code', {
+    const res = await fetch('/api/user/register/email', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value.trim(), locale: locale.value, hcaptcha_response: hcaptchaToken.value }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (res.ok && data.success) {
-    showTip('info', t('auth.code_sent'))
-    sendCooldown.value = 60
-    if (cooldownTimer) clearInterval(cooldownTimer)
-    cooldownTimer = setInterval(() => {
-      sendCooldown.value -= 1
-      if (sendCooldown.value <= 0) {
-        clearInterval(cooldownTimer)
-        cooldownTimer = null
-      }
-    }, 1000)
-  } else {
-    showTip('error', localMessage(data))
-  }
+      body: JSON.stringify({ email: email.value.trim(), code: code.value.trim() }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) {
+      showTip('error', localMessage(data))
+      return
+    }
+    ticket.value = data.ticket
+    ticketEmail.value = data.email
+    code.value = ''
+    step.value = 'account'
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
   } finally {
-    sendingCode.value = false
+    verifying.value = false
   }
 }
 
-onUnmounted(() => {
-  if (cooldownTimer) {
-    clearInterval(cooldownTimer)
-    cooldownTimer = null
+function backToEmail() {
+  step.value = 'email'
+}
+
+// ---- 第二步：用户名 + 密码 ----
+async function submitAccount() {
+  touchPasswordStrength()
+  if (!USERNAME_RE.test(username.value.trim())) {
+    showTip('warning', t('auth.username_invalid'))
+    return
   }
-})
+  if (!password.value) {
+    showTip('warning', t('auth.password_required'))
+    return
+  }
+  if (!PASSWORD_ASCII_RE.test(password.value)) {
+    showTip('warning', t('auth.password_ascii'))
+    return
+  }
+  // 提交前再次校验强度：后端只能看到哈希，强度只能由前端判断
+  if (!passwordHardRules.value.every((rule) => rule.ok)) {
+    showTip('warning', t('register.password_weak'))
+    return
+  }
+  if (password.value !== confirmPassword.value) {
+    showTip('warning', t('auth.password_mismatch'))
+    return
+  }
+  if (!ticket.value) {
+    step.value = 'email'
+    showTip('error', t('register.ticket_expired'))
+    return
+  }
+
+  loading.value = true
+  try {
+    // 注册前先查重（避免创建失败）
+    const checkRes = await fetch(`/api/user/username_exists?username=${encodeURIComponent(username.value.trim())}`)
+    const checkData = await checkRes.json().catch(() => ({}))
+    if (checkRes.ok && checkData.exists) {
+      suggestionBase.value = username.value.trim()
+      step.value = 'suggestion'
+      return
+    }
+    await doRegister()
+  } catch (e) {
+    showTip('error', t('auth.request_failed'))
+    console.warn(e)
+  } finally {
+    loading.value = false
+  }
+}
 
 // 真正发起注册请求；成功则进入 full_info 步骤
 async function doRegister() {
@@ -138,9 +248,8 @@ async function doRegister() {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: email.value.trim(),
+      ticket: ticket.value,
       username: username.value.trim(),
-      code: code.value.trim(),
       password: passwordHash,
     }),
   })
@@ -149,39 +258,20 @@ async function doRegister() {
     setAuth(data.token, { uid: data.uid })
     fetchMe() // 注册成功：拉取完整用户信息填充公共变量（注册响应只有 uid）
     registeredUid.value = data.uid
+    ticket.value = ''
+    ticketEmail.value = ''
     step.value = 'full_info'
     return true
   }
+  if (data.code === 'register_ticket_invalid') {
+    // 凭证失效：回到第一步重新验证（旧验证码已被消费，需重新发送）
+    ticket.value = ''
+    ticketEmail.value = ''
+    code.value = ''
+    step.value = 'email'
+  }
   showTip('error', localMessage(data))
   return false
-}
-
-async function submit() {
-  loading.value = true
-  try {
-    if (!EMAIL_RE.test(email.value.trim())) { showTip('warning', t('auth.email_invalid')); return }
-    if (!USERNAME_RE.test(username.value.trim())) { showTip('warning', t('auth.username_invalid')); return }
-    if (!code.value.trim()) { showTip('warning', t('auth.code_required')); return }
-    if (!password.value) { showTip('warning', t('auth.password_required')); return }
-    if (!PASSWORD_ASCII_RE.test(password.value)) { showTip('warning', t('auth.password_ascii')); return }
-    if (password.value !== confirmPassword.value) { showTip('warning', t('auth.password_mismatch')); return }
-
-    // 注册前先查重（避免消耗验证码）
-    const checkRes = await fetch(`/api/user/username_exists?username=${encodeURIComponent(username.value.trim())}`)
-    const checkData = await checkRes.json().catch(() => ({}))
-    if (checkRes.ok && checkData.exists) {
-      suggestionBase.value = username.value.trim()
-      step.value = 'suggestion'
-      return
-    }
-
-    await doRegister()
-  } catch (e) {
-    showTip('error', t('auth.request_failed'))
-    console.warn(e)
-  } finally {
-    loading.value = false
-  }
 }
 
 async function onSuggestionConfirm(chosenUsername) {
@@ -201,84 +291,135 @@ async function onSuggestionConfirm(chosenUsername) {
 <template>
   <div class="register-form">
     <Transition name="step" mode="out-in">
-      <div v-if="step === 'register'" key="register">
+      <!-- 第一步：邮箱 + 验证码 + 人机验证 -->
+      <div v-if="step === 'email'" key="email">
         <h1 class="form-title">{{ t('auth.register_title') }}</h1>
 
-      <form class="form" novalidate @submit.prevent="submit">
-        <label class="float-field">
-          <input v-model="email" type="email" placeholder=" " autocomplete="email" />
-          <span class="float-label">{{ t('auth.email') }}</span>
-        </label>
-        <label class="float-field">
-          <input v-model="username" type="text" placeholder=" " autocomplete="username" />
-          <span class="float-label">{{ t('register.username_placeholder') }}</span>
-        </label>
-
-        <div class="code-row">
+        <form class="form" novalidate @submit.prevent="goAccount">
           <label class="float-field">
-            <input v-model="code" type="text" placeholder=" " autocomplete="one-time-code" />
-            <span class="float-label">{{ t('auth.code') }}</span>
+            <input v-model="email" type="email" placeholder=" " autocomplete="email" />
+            <span class="float-label">{{ t('auth.email') }}</span>
           </label>
-          <button type="button" class="send-code" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
-            <span v-if="sendingCode" class="spinner"></span>
-            {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
-          </button>
-        </div>
 
-        <label class="float-field">
-          <input
-            v-model="password"
-            :type="showPassword ? 'text' : 'password'"
-            placeholder=" "
-            autocomplete="new-password"
-          />
-          <span class="float-label">{{ t('auth.password') }}</span>
-        </label>
-        <div class="pwd-field">
-          <label class="float-field">
-            <input
-              v-model="confirmPassword"
-              :type="showPassword ? 'text' : 'password'"
-              placeholder=" "
-              autocomplete="new-password"
+          <div class="code-row">
+            <label class="float-field">
+              <input
+                :value="code"
+                type="text"
+                inputmode="numeric"
+                placeholder=" "
+                autocomplete="one-time-code"
+                maxlength="6"
+                @input="onCodeInput"
+                @keydown="onCodeKeydown"
+                @paste="onCodePaste"
+              />
+              <span class="float-label">{{ t('auth.code') }}</span>
+            </label>
+            <button type="button" class="send-code" :disabled="sendCooldown > 0 || sendingCode" @click="sendCode">
+              <span v-if="sendingCode" class="spinner"></span>
+              {{ sendCooldown > 0 ? `${sendCooldown}s` : t('auth.send_code') }}
+            </button>
+          </div>
+
+          <!-- 人机验证码（hCaptcha 官方 Vue 组件，自适应容器宽度） -->
+          <div class="h-captcha">
+            <HcaptchaBox
+              v-if="hcaptchaSiteKey"
+              ref="captchaRef"
+              :sitekey="hcaptchaSiteKey"
+              :theme="captchaTheme"
+              @verify="onVerify"
+              @expired="onCaptchaExpired"
+              @error="onCaptchaError"
             />
-            <span class="float-label">{{ t('auth.confirm_password') }}</span>
-          </label>
-          <button
-            type="button"
-            class="pwd-toggle"
-            :aria-label="showPassword ? t('auth.hide_password') : t('auth.show_password')"
-            :title="showPassword ? t('auth.hide_password') : t('auth.show_password')"
-            :aria-pressed="showPassword"
-            @click="showPassword = !showPassword"
-          >
-            <EyeOff v-if="showPassword" :size="18" />
-            <Eye v-else :size="18" />
+          </div>
+
+          <button type="submit" class="submit" :disabled="verifying">
+            <span v-if="verifying" class="spinner"></span>
+            {{ t('register.next') }}
           </button>
-        </div>
-
-        <!-- 人机验证码（hCaptcha 官方 Vue 组件） -->
-        <div class="h-captcha">
-          <VueHcaptcha
-            v-if="hcaptchaSiteKey"
-            :sitekey="hcaptchaSiteKey"
-            :theme="captchaTheme"
-            api-endpoint="https://js.hcaptcha.com/1/api.js"
-            @verify="onVerify"
-            @expired="onCaptchaExpired"
-            @error="onCaptchaError"
-          />
-        </div>
-
-        <button type="submit" class="submit" :disabled="loading">
-          <span v-if="loading" class="spinner"></span>
-          {{ t('auth.register') }}
-        </button>
-      </form>
+        </form>
 
         <button type="button" class="switch-link" @click="emit('switch-login')">
           {{ t('auth.go_login') }}
         </button>
+      </div>
+
+      <!-- 第二步：用户名 + 密码（含强度提示） -->
+      <div v-else-if="step === 'account'" key="account">
+        <h1 class="form-title">{{ t('auth.register_title') }}</h1>
+
+        <form class="form" novalidate @submit.prevent="submitAccount">
+          <label class="float-field">
+            <input v-model="username" type="text" placeholder=" " autocomplete="username" />
+            <span class="float-label">{{ t('register.username_placeholder') }}</span>
+          </label>
+
+          <label class="float-field">
+            <input
+              v-model="password"
+              :type="showPassword ? 'text' : 'password'"
+              placeholder=" "
+              autocomplete="new-password"
+              @blur="touchPasswordStrength"
+            />
+            <span class="float-label">{{ t('auth.password') }}</span>
+          </label>
+          <div class="pwd-field">
+            <label class="float-field">
+              <input
+                v-model="confirmPassword"
+                :type="showPassword ? 'text' : 'password'"
+                placeholder=" "
+                autocomplete="new-password"
+                @blur="touchPasswordStrength"
+              />
+              <span class="float-label">{{ t('auth.confirm_password') }}</span>
+            </label>
+            <button
+              type="button"
+              class="pwd-toggle"
+              :aria-label="showPassword ? t('auth.hide_password') : t('auth.show_password')"
+              :title="showPassword ? t('auth.hide_password') : t('auth.show_password')"
+              :aria-pressed="showPassword"
+              @click="showPassword = !showPassword"
+            >
+              <EyeOff v-if="showPassword" :size="18" />
+              <Eye v-else :size="18" />
+            </button>
+          </div>
+
+          <!-- 当前强度：较短进度条 + 低/中/高（未满足三条要求时不计算等级） -->
+          <div class="pwd-strength" :class="`strength-${strengthClass}`">
+            <div class="pwd-strength-track">
+              <span class="pwd-strength-fill" :style="{ width: `${strengthPercent}%` }"></span>
+            </div>
+            <span class="pwd-strength-label">{{ strengthText }}</span>
+          </div>
+
+          <!-- 三条硬性要求：默认灰色，满足变绿，失焦后未满足标红 -->
+          <ul class="pwd-rules">
+            <li
+              v-for="rule in passwordRules"
+              :key="rule.key"
+              :class="[`rule-${rule.state}`, { 'rule-optional': rule.optional }]"
+            >
+              <span class="rule-dot" aria-hidden="true"></span>
+              <span>{{ t(`register.rule_${rule.key}`) }}</span>
+            </li>
+          </ul>
+
+          <button type="submit" class="submit" :disabled="loading">
+            <span v-if="loading" class="spinner"></span>
+            {{ t('auth.register') }}
+          </button>
+        </form>
+
+        <div class="form-actions">
+          <button type="button" class="switch-link" @click="backToEmail">{{ t('register.back') }}</button>
+          <button type="button" class="switch-link" @click="emit('switch-login')">{{ t('auth.go_login') }}</button>
+        </div>
       </div>
 
       <UsernameSuggestion
@@ -287,7 +428,7 @@ async function onSuggestionConfirm(chosenUsername) {
         :base="suggestionBase"
         :loading="loading"
         @confirm="onSuggestionConfirm"
-        @back="step = 'register'"
+        @back="step = 'account'"
       />
 
       <FullUserInfo v-else key="full_info" :uid="registeredUid" />
@@ -371,10 +512,6 @@ async function onSuggestionConfirm(chosenUsername) {
   width: 100%;
 }
 
-.h-captcha :deep(iframe) {
-  width: 100% !important;
-}
-
 .submit {
   display: flex;
   align-items: center;
@@ -409,5 +546,114 @@ async function onSuggestionConfirm(chosenUsername) {
 
 .switch-link:hover {
   color: var(--text-color);
+}
+
+.form-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.form-actions .switch-link {
+  width: auto;
+  margin-top: 0;
+}
+
+/* 密码强度：短进度条 + 等级文字 */
+.pwd-strength {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pwd-strength-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--float-bg);
+  overflow: hidden;
+}
+
+.pwd-strength-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--links-color);
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.pwd-strength-label {
+  min-width: 2.5em;
+  font-size: 12px;
+  line-height: 1;
+  text-align: right;
+  color: var(--links-color);
+}
+
+.strength-low .pwd-strength-fill {
+  background: #e5484d;
+}
+
+.strength-low .pwd-strength-label {
+  color: #e5484d;
+}
+
+.strength-middle .pwd-strength-fill {
+  background: #f59e0b;
+}
+
+.strength-middle .pwd-strength-label {
+  color: #f59e0b;
+}
+
+.strength-high .pwd-strength-fill {
+  background: #22c55e;
+}
+
+.strength-high .pwd-strength-label {
+  color: #22c55e;
+}
+
+/* 三条硬性要求 */
+.pwd-rules {
+  list-style: none;
+  margin: -4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--links-color);
+}
+
+.pwd-rules li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.2s ease;
+}
+
+.rule-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.rule-ok {
+  color: #22c55e;
+}
+
+.rule-error {
+  color: #e5484d;
+}
+
+/* 特殊字符为可选项：只影响强度等级，不拦截提交 */
+.rule-optional {
+  opacity: 0.85;
 }
 </style>

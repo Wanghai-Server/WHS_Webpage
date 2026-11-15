@@ -7,7 +7,7 @@
  * - 搜索框下方提供"搜索Wiki"按钮，跳转 /wiki/search 专注搜索 Wiki；
  * - 地址栏 q 变化 / 语言切换自动重新搜索。
  */
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Search, FileSearch, Users } from 'lucide-vue-next'
@@ -29,6 +29,7 @@ watch([() => siteConfig.value?.title_suffix, lang], () => {
 }, { immediate: true })
 
 const query = ref(String(route.query.q || ''))
+const inputRef = ref(null)
 const tab = ref('wiki') // 'wiki' | 'users' | 'feedback'
 const wikiResults = ref([])
 const usersResults = ref([])
@@ -96,6 +97,16 @@ watch(query, (v) => {
     : `${t('search.title')}${suffix.value}`
 }, { immediate: true })
 
+onMounted(() => {
+  // 进入全量搜索页 / 从手机导航搜索按钮跳转后，直接聚焦输入框即可输入
+  nextTick(() => {
+    const el = inputRef.value
+    if (!el) return
+    el.focus()
+    if (query.value.trim()) el.select()
+  })
+})
+
 onUnmounted(() => {
   clearTimeout(timer)
   document.title = `${t('search.title')}${suffix.value}`
@@ -147,11 +158,11 @@ function goWikiSearch() {
       <div class="search-box">
         <Search :size="18" class="search-icon" />
         <input
+          ref="inputRef"
           v-model="query"
           type="text"
           class="search-input"
           :placeholder="t('search.placeholder')"
-          autofocus
           @input="onInput"
           @keydown.enter="runSearch"
         />

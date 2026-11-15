@@ -206,6 +206,8 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 | `useTips.js` | `{ showTip, dismiss }` | 全局轻提示：`showTip(type, 文本)`，type 取 `info` / `warning` / `error`；由全局 `tips.vue` 渲染 |
 | `useDialogBox.js` | `{ confirm, alert }` | Promise 版确认 / 提示框，**替代 `window.confirm` / `window.alert`**；由全局 `dialog_box.vue` 渲染 |
 | `useHcaptchaSiteKey.js` | `siteKey` ref | hCaptcha 公钥（来自 `/api/whs`），不要在前端硬编码 |
+| `useEmailCode.js` | `EMAIL_RE`、`useEmailCode()` → `{ sending, cooldown, send, stopCooldown }` | 邮箱验证码发送统一封装：邮箱校验 / 人机验证要求 / 60s 冷却 / 提示 / 成功后重置人机验证；所有发码处（注册、登录、找回密码、改密码、注销、改邮箱）必须使用本模块，不要各组件重复实现 |
+| `usePasswordStrength.js` | `PASSWORD_ALLOWED_RE`、`analyzePassword`、`hasSpecialCharacter`、`estimatePasswordEntropy`、`getPasswordStrengthLevel`、`usePasswordStrength(password)` → `{ touched, rules, hardRules, level, percent, touch }` | 密码强度：三条硬性要求（≥8 位 / 数字 / 大小写）+ 一条“特殊字符（可选）”检查项；等级只在三条硬性要求全部满足后按字符池熵估算（特殊字符计入 33 字符池）给出低 / 中 / 高；未失焦前未满足项为灰色，调用 `touch()` 后硬性未满足项标红，可选特殊字符项永不标红；提交用 `hardRules` 判断 |
 | `sha256.js` | `sha256(text)` | 纯 JS SHA-256（HTTP 环境也可用）；密码在前端哈希后再传后端 |
 | `clipboard.js` | `copyText(text)` | 复制到剪贴板（Clipboard API 不可用时回退 textarea） |
 | `wiki/api.js` | `wikiApi`、`WikiApiError` | 维基 API 封装：自动附 token、自动带 `lang`，异常统一带 `code` |
@@ -223,7 +225,8 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 #### 6.1.3 全局组件与组件目录（`whs/src/components/`）
 
 - `tips.vue` / `dialog_box.vue` 在 `App.vue` 全局挂载，**不要**在页面里再实现 toast / confirm。
-- 导航与公共：`top_navbar`（导航、用户下拉、消息悬浮按钮）、`page_footer`、`global_search`、`user_dropdown`、`tabs`、`status_dropdown`。
+- 导航与公共：`top_navbar`（导航、用户下拉、消息悬浮按钮）、`page_footer`、`global_search`、`user_dropdown`、`tabs`、`status_dropdown`、`hcaptcha_box`。
+- **hCaptcha 统一使用 `hcaptcha_box.vue`**：它负责跨域 iframe 的宽度适配（够宽居中、更窄等比缩放）并提供 `reset()`（`ref.reset()`）；新增人机验证时不要再直接使用 `@hcaptcha/vue3-hcaptcha`，也不要再写 `iframe { width: 100% }`。
 - 账号：`login` / `register` / `forgot_password` / `full_user_info` / `username_suggestion` / `change_password` / `cancel_account` / `user_settings` / `manage_accounts` / `user_profile` / `basic_user_info` / `follow_list` / `player_info`。
 - 消息：`message_box`（消息中心 + 发布 / 编辑 / 预览）、`message_detail`（Markdown 详情）。
 - 反馈：`feedback_editor`（Markdown 编辑 + 预览）。
@@ -286,6 +289,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - 成功响应直接返回 dict；错误响应统一 `_error_response(code, status)`，不要返回裸字符串或自定义结构。
 - 分页参数统一 `page` / `page_size`（上限 100；反馈接口 50），缺省 1 / 10。
 - 请求体参数优先用函数参数 / `Body(...)` + 手动校验（与现有代码一致），错误码写入 `ERROR_MESSAGES` / `ERROR_STATUS`。
+- **玩家名统一使用 `main.MC_NAME_RE`**（Minecraft Java 官方：`^[A-Za-z0-9_]{3,16}$`）：考试问卷、主账号、小号等所有写入玩家名的入口都必须用它校验，不要再用不限长度的 `USERNAME_RE`；考试结束后（通过 / 次数用完）玩家名锁定（`exam_profile_locked`）。
 
 #### 6.2.3 权限模型
 
