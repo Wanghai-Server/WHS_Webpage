@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
@@ -14,6 +14,12 @@ const mapEl = ref(null)
 const maps = ref([])
 const activeMap = ref('')
 const players = ref([])
+// 2D / 3D 视图切换，记住上次选择
+const viewMode = ref(localStorage.getItem('whs_map_view') === '3d' ? '3d' : '2d')
+const viewer = ref('')
+const viewerStarted = ref(false)
+const viewerReady = ref(false)
+const viewerFailed = ref(false)
 const gate = ref(null) // 非空时展示提示卡片（未登录 / 非正式成员 / 服务异常）
 const loading = ref(true)
 
@@ -22,6 +28,7 @@ let tileLayer = null
 let playerLayer = null
 let configTimer = null
 let playersTimer = null
+let viewerTimer = null
 // 当前地图的瓦片参数（来自 BlueMap settings.json）
 let geo = null
 let tileBase = ''
@@ -128,6 +135,41 @@ function renderPlayers(list) {
   })
 }
 
+// 3D 视图由 BlueMap webapp 自己渲染，这里只传地图 id，视角交给它自己的 startPos
+const viewerSrc = computed(() => `${viewer.value}#${activeMap.value}`)
+
+function startViewer() {
+  if (viewerStarted.value) return
+  viewerStarted.value = true
+  viewerReady.value = false
+  viewerFailed.value = false
+  if (viewerTimer) clearTimeout(viewerTimer)
+  // 跨源 iframe 无法可靠捕获加载失败，用超时兜底
+  viewerTimer = setTimeout(() => {
+    if (!viewerReady.value) viewerFailed.value = true
+  }, 15000)
+}
+
+function onViewerLoad() {
+  viewerReady.value = true
+  if (viewerTimer) clearTimeout(viewerTimer)
+}
+
+function switchView(mode) {
+  if (viewMode.value === mode) return
+  viewMode.value = mode
+  localStorage.setItem('whs_map_view', mode)
+  if (mode === '3d' && viewer.value) startViewer()
+}
+
+watch(viewMode, async (mode) => {
+  // 2D 容器在 3D 模式下是 display:none，切回来需要重新计算尺寸
+  if (mode === '2d' && leafletMap) {
+    await nextTick()
+    leafletMap.invalidateSize()
+  }
+})
+
 function authHeaders() {
   return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
 }
@@ -189,6 +231,8 @@ async function loadConfig({ rebuild = false } = {}) {
     }
     activeMap.value = target.id
     tileBase = target.tile
+    viewer.value = data.viewer || ''
+    if (viewMode.value === '3d' && viewer.value) startViewer()
     if (rebuild || currentMapId !== target.id) {
       currentMapId = target.id
       destroyMap()
@@ -224,6 +268,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (configTimer) clearTimeout(configTimer)
   if (playersTimer) clearInterval(playersTimer)
+  if (viewerTimer) clearTimeout(viewerTimer)
   destroyMap()
 })
 </script>
@@ -238,6 +283,23 @@ onBeforeUnmount(() => {
         <p class="map-sub">{{ t('map.subtitle') }}</p>
       </div>
       <div class="map-tools">
+        <div class="view-switch" role="group" :aria-label="t('map.view')">
+          <span class="view-thumb" :class="{ 'is-3d': viewMode === '3d' }" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="view-btn"
+            :class="{ active: viewMode === '2d' }"
+            :aria-pressed="viewMode === '2d'"
+            @click="switchView('2d')"
+          >2D</button>
+          <button
+            type="button"
+            class="view-btn"
+            :class="{ active: viewMode === '3d' }"
+            :aria-pressed="viewMode === '3d'"
+            @click="switchView('3d')"
+          >3D</button>
+        </div>
         <select v-if="maps.length > 1" v-model="activeMap" class="map-select" @change="onMapChange">
           <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.id }}</option>
         </select>
@@ -253,8 +315,30 @@ onBeforeUnmount(() => {
     </div>
 
     <div v-show="!gate" class="map-canvas-wrap">
-      <div ref="mapEl" class="map-canvas"></div>
-      <div v-if="loading" class="map-loading">{{ t('map.loading') }}</div>
+      <div v-show="viewMode === '2d'" ref="mapEl" class="map-canvas"></div>
+
+      <div v-show="viewMode === '3d'" class="map-3d">
+        <iframe
+          v-if="viewerStarted && viewer"
+          :src="viewerSrc"
+          class="map-3d-frame"
+          title="3D map"
+          allowfullscreen
+          @load="onViewerLoad"
+        ></iframe>
+        <div v-else class="map-3d-tip">
+          <p class="tip-title">{{ t('map.no3d') }}</p>
+          <p class="tip-hint">{{ t('map.no3dHint') }}</p>
+        </div>
+        <div v-if="viewerStarted && viewer && !viewerReady && !viewerFailed" class="map-loading">
+          {{ t('map.loading3d') }}
+        </div>
+        <div v-if="viewerFailed" class="map-3d-tip">
+          <p class="tip-title">{{ t('map.error3d') }}</p>
+        </div>
+      </div>
+
+      <div v-if="viewMode === '2d' && loading" class="map-loading">{{ t('map.loading') }}</div>
     </div>
   </main>
 
@@ -367,6 +451,101 @@ onBeforeUnmount(() => {
   text-decoration: none;
 }
 
+/* 2D / 3D 分段切换：白色胶囊滑块跟随选中项滑动 */
+.view-switch {
+  position: relative;
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--float-bg);
+}
+
+.view-btn {
+  position: relative;
+  z-index: 1;
+  min-width: 52px;
+  padding: 6px 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--links-color);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: color 0.24s ease;
+}
+
+.view-btn.active {
+  color: var(--text-color);
+}
+
+.view-btn:focus-visible {
+  outline: 2px solid var(--text-color);
+  outline-offset: 1px;
+}
+
+.view-thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: calc(50% - 3px);
+  height: calc(100% - 6px);
+  border-radius: 999px;
+  background: var(--card-color);
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.16);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.view-thumb.is-3d {
+  transform: translateX(100%);
+}
+
+.map-3d {
+  position: relative;
+  height: calc(100vh - 240px);
+  min-height: 420px;
+  background: #0f172a;
+}
+
+.map-3d-frame {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.map-3d-tip {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.tip-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.tip-hint {
+  margin: 0;
+  font-size: 13px;
+  color: #cbd5e1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .view-thumb {
+    transition: none;
+  }
+}
+
 @media (max-width: 768px) {
   .map-page {
     padding: 60px 12px 32px;
@@ -377,6 +556,10 @@ onBeforeUnmount(() => {
   }
 
   .map-canvas {
+    height: calc(100vh - 280px);
+  }
+
+  .map-3d {
     height: calc(100vh - 280px);
   }
 }

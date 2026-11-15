@@ -34,7 +34,12 @@
         "membersOnlyHint": "Pass the join exam and get whitelisted to view it.",
         "goExam": "Take the join exam",
         "goLogin": "Log in first",
-        "error": "Failed to load the map, please try again later"
+        "error": "Failed to load the map, please try again later",
+        "view": "View mode",
+        "loading3d": "Loading 3D view…",
+        "no3d": "3D view is not enabled yet",
+        "no3dHint": "It will be available once the BlueMap web app is deployed.",
+        "error3d": "Failed to load the 3D view, please try again later"
     },
     "search": {
         "title": "Full Search",

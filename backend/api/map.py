@@ -47,6 +47,8 @@ def _map_cfg() -> dict:
         "timeout": float(cfg.get("timeout") or 10),
         "center": cfg.get("center") or [0, 0],
         "zoom": cfg.get("zoom", -2),
+        # 3D 视图入口：由 nginx 把该路径反代到 BlueMap webapp（同源，复用登录态）
+        "viewer": str(cfg.get("bluemap_viewer") or ""),
     }
 
 
@@ -161,6 +163,7 @@ def map_config(authorization: str = Header(None)):
         "default": cfg["default"],
         "center": cfg["center"],
         "zoom": cfg["zoom"],
+        "viewer": cfg["viewer"],
         "expires_at": exp,
         "refetch_after": SIGN_TTL - 60,
     }
