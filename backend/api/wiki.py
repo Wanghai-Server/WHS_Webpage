@@ -482,7 +482,7 @@ def wiki_upload_file(filename: str):
 # 依赖 python-docx / openpyxl，未安装时返回 wiki_import_unavailable。
 # ---------------------------------------------------------------------------
 IMPORT_EXTS = {"docx", "xlsx"}
-IMPORT_MAX_SIZE = 10 * 1024 * 1024
+IMPORT_MAX_SIZE = 30 * 1024 * 1024
 # 表格单元格总数上限，防止超大表把响应撑爆
 IMPORT_MAX_CELLS = 20000
 
