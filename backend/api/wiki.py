@@ -623,7 +623,7 @@ async def wiki_import(
 ):
     """把 Word / Excel 转成 Markdown 正文（不落库，由前端插入后再保存）。
 
-    - 仅接受 .docx / .xlsx，单文件上限 10MB；
+    - 仅接受 .docx / .xlsx，单文件上限 30MiB；
     - 表格单元格总数超过 20000 时拒绝；
     - Word 内嵌图片会存进 ``data/wiki_upload/``，正文里替换为图片地址。
     """

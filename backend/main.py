@@ -383,8 +383,8 @@ ERROR_MESSAGES = {
         "en": "Only .docx and .xlsx files are supported",
     },
     "wiki_import_too_large": {
-        "zh": "文件不能超过 10MB",
-        "en": "File must not exceed 10MB",
+        "zh": "文件不能超过 30MiB",
+        "en": "File must not exceed 30MiB",
     },
     "wiki_import_too_many_cells": {
         "zh": "表格内容过多，请拆分后再导入",
