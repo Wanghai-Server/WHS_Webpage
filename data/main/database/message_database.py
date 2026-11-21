@@ -1,7 +1,7 @@
 """消息数据库（基于 sqlite3）。
 
 ``messages`` 表存储系统消息（``scope='system'``，所有人可见），
-并预留定向消息（``scope='user'`` + ``target_uid``，未来功能）能力。
+以及定向消息（``scope='user'`` + ``target_uid``，如考试通知）。
 
 继承 :class:`UserDatabase` 复用其表管理 / 迁移 / 连接生命周期逻辑
 （``connect`` / ``_migrate`` 均按子类的 ``TABLE_NAME`` / ``TABLE_COLUMNS`` 工作），
@@ -18,10 +18,12 @@ from .user_database import UserDatabase
 
 MESSAGE_TABLE_COLUMNS: dict[str, str] = {
     "id": "INTEGER PRIMARY KEY AUTOINCREMENT",
-    "scope": "TEXT NOT NULL",          # 'system'：系统消息（所有人可见）；'user'：定向消息（未来）
+    "scope": "TEXT NOT NULL",          # 'system'：系统消息（所有人可见）；'user'：定向消息（考试通知等）
     "target_uid": "INTEGER",           # 定向消息的目标用户 uid；系统消息为 NULL
-    "title": "TEXT NOT NULL DEFAULT ''",  # 消息标题（纯文本，列表展示用）
-    "content": "TEXT NOT NULL",        # Markdown 内容
+    "title": "TEXT NOT NULL DEFAULT ''",  # 消息标题（中文 / 主语言，纯文本，列表展示用）
+    "content": "TEXT NOT NULL DEFAULT ''",  # Markdown 内容（中文 / 主语言）
+    "title_en": "TEXT NOT NULL DEFAULT ''",  # 英文标题（为空时展示回退中文）
+    "content_en": "TEXT NOT NULL DEFAULT ''",  # 英文 Markdown 内容（为空时展示回退中文）
     "author_uid": "INTEGER NOT NULL",  # 发布者 uid
     "read_uids": "TEXT",               # JSON 数组：已读该消息的用户 uid 列表
     "created_at": "TEXT NOT NULL",     # ISO 8601 时间字符串
@@ -50,17 +52,24 @@ class MessageDatabase(UserDatabase):
         *,
         scope: str = "system",
         target_uid: int | None = None,
+        title_en: str = "",
+        content_en: str = "",
     ) -> int:
-        """创建一条消息并返回自增 ``id``。"""
+        """创建一条消息并返回自增 ``id``。
+
+        ``title`` / ``content`` 为主语言（中文）字段，``title_en`` / ``content_en``
+        为英文版本；英文为空时由 API 层回退到主语言。
+        """
         if scope not in ("system", "user"):
             raise ValueError(f"非法的 scope: {scope!r}")
         if scope == "user" and target_uid is None:
             raise ValueError("定向消息必须指定 target_uid")
         created_at = datetime.datetime.now().isoformat(timespec="seconds")
         cursor = self._conn.execute(
-            f"INSERT INTO {self.TABLE_NAME} (scope, target_uid, title, content, author_uid, created_at) "
-            f"VALUES (?, ?, ?, ?, ?, ?)",
-            (scope, target_uid, title, content, author_uid, created_at),
+            f"INSERT INTO {self.TABLE_NAME} "
+            f"(scope, target_uid, title, content, title_en, content_en, author_uid, created_at) "
+            f"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (scope, target_uid, title, content, title_en, content_en, author_uid, created_at),
         )
         self._conn.commit()
         return int(cursor.lastrowid)
@@ -81,7 +90,7 @@ class MessageDatabase(UserDatabase):
         return [self._row_to_dict(row) for row in rows]
 
     def list_user_messages(self, target_uid: int, limit: int = 50) -> list[dict[str, Any]]:
-        """返回定向给指定用户的消息（未来功能）。"""
+        """返回定向给指定用户的消息（如考试通知）。"""
         rows = self._conn.execute(
             f"SELECT * FROM {self.TABLE_NAME} WHERE scope = 'user' AND target_uid = ? "
             f"ORDER BY id DESC LIMIT ?",
@@ -97,8 +106,15 @@ class MessageDatabase(UserDatabase):
         self._conn.commit()
         return cursor.rowcount > 0
 
-    def update_message(self, message_id: int, title: str, content: str) -> bool:
-        """更新消息的标题与内容，并记录编辑时间；返回是否真的更新了。
+    def update_message(
+        self,
+        message_id: int,
+        title: str,
+        content: str,
+        title_en: str = "",
+        content_en: str = "",
+    ) -> bool:
+        """更新消息的双语标题与内容，并记录编辑时间；返回是否真的更新了。
 
         编辑会清空 ``read_uids``（置 NULL）：消息内容已变更，
         所有用户（含发布者本人）都需要重新阅读。
@@ -107,9 +123,9 @@ class MessageDatabase(UserDatabase):
             return False
         updated_at = datetime.datetime.now().isoformat(timespec="seconds")
         cursor = self._conn.execute(
-            f"UPDATE {self.TABLE_NAME} SET title = ?, content = ?, updated_at = ?, "
-            f"read_uids = NULL WHERE id = ?",
-            (title, content, updated_at, message_id),
+            f"UPDATE {self.TABLE_NAME} SET title = ?, content = ?, title_en = ?, content_en = ?, "
+            f"updated_at = ?, read_uids = NULL WHERE id = ?",
+            (title, content, title_en, content_en, updated_at, message_id),
         )
         self._conn.commit()
         return cursor.rowcount > 0

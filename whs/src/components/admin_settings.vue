@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -43,6 +43,55 @@ const showExamPanel = ref(false)
 const showExamConfigPanel = ref(false)
 const showAnswerSheet = ref(false)
 const showFeedbackPanel = ref(false)
+
+// 任一悬浮框打开时锁定页面滚动：滚轮 / 触摸落在遮罩背景上时不再带着背景页面滚动
+const anyPanelOpen = computed(
+  () =>
+    showUserPanel.value ||
+    showExamPanel.value ||
+    showExamConfigPanel.value ||
+    showAnswerSheet.value ||
+    showFeedbackPanel.value
+)
+
+watch(anyPanelOpen, (open) => {
+  document.body.style.overflow = open ? 'hidden' : ''
+})
+
+// 悬浮框滚动：把滚轮转发给主对话框。
+// 题目卡片 / 表格等内部元素如果自身形成了不能滚动的滚动容器（overflow 非 visible），
+// 浏览器会把滚轮事件吞掉；这里统一判断指针下是否有真正可滚动的小滚动框，
+// 没有就把滚动交给主对话框，保证"除小滚动框外任何位置都能滚动"。
+function onOverlayWheel(e) {
+  if (!e.deltaY) return
+  const panel = e.currentTarget.querySelector('.panel')
+  if (!panel) return
+  let el = e.target
+  while (el && el !== panel) {
+    if (el.nodeType === 1) {
+      const style = getComputedStyle(el)
+      if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+        const down = e.deltaY > 0
+        const canMove = down
+          ? el.scrollTop + el.clientHeight < el.scrollHeight - 1
+          : el.scrollTop > 0
+        if (canMove) return
+      }
+    }
+    el = el.parentElement
+  }
+  const delta =
+    e.deltaMode === 1
+      ? e.deltaY * 16
+      : e.deltaMode === 2
+        ? e.deltaY * panel.clientHeight
+        : e.deltaY
+  const atTop = panel.scrollTop <= 0
+  const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
+  if ((delta < 0 && atTop) || (delta > 0 && atBottom)) return
+  e.preventDefault()
+  panel.scrollTop += delta
+}
 
 // ------------------------------------------------------------------
 // 用户管理（原表格逻辑迁入悬浮框）
@@ -607,6 +656,7 @@ onUnmounted(() => {
   clearTimeout(userSearchTimer)
   clearTimeout(candidateSearchTimer)
   clearTimeout(feedbackSearchTimer)
+  document.body.style.overflow = ''
 })
 </script>
 
@@ -639,7 +689,7 @@ onUnmounted(() => {
     <!-- 用户管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showUserPanel" class="panel-overlay">
+        <div v-if="showUserPanel" class="panel-overlay" @wheel="onOverlayWheel">
           <div class="panel">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.userEntry') }}</h2>
@@ -730,6 +780,8 @@ onUnmounted(() => {
                   </tbody>
                 </table>
               </div>
+            </div>
+            <div class="panel-foot">
               <div class="pagination">
                 <button class="page-btn" :disabled="page <= 1 || loading" @click="goPage(page - 1)">
                   <span v-if="loading" class="spinner"></span>
@@ -750,7 +802,7 @@ onUnmounted(() => {
     <!-- 考试管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showExamPanel" class="panel-overlay">
+        <div v-if="showExamPanel" class="panel-overlay" @wheel="onOverlayWheel">
           <div class="panel">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examEntry') }}</h2>
@@ -811,6 +863,8 @@ onUnmounted(() => {
                   </tbody>
                 </table>
               </div>
+            </div>
+            <div class="panel-foot">
               <div class="pagination">
                 <button class="page-btn" :disabled="cPage <= 1 || cLoading" @click="cGoPage(cPage - 1)">
                   <span v-if="cLoading" class="spinner"></span>
@@ -831,7 +885,7 @@ onUnmounted(() => {
     <!-- 答题卡审阅悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showAnswerSheet" class="panel-overlay">
+        <div v-if="showAnswerSheet" class="panel-overlay" @wheel="onOverlayWheel">
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examSheetTitle') }}</h2>
@@ -875,7 +929,7 @@ onUnmounted(() => {
     <!-- 试卷管理悬浮框（在线编辑考试试卷） -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showExamConfigPanel" class="panel-overlay">
+        <div v-if="showExamConfigPanel" class="panel-overlay" @wheel="onOverlayWheel">
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examConfigEntry') }}</h2>
@@ -894,7 +948,7 @@ onUnmounted(() => {
     <!-- 反馈管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showFeedbackPanel" class="panel-overlay">
+        <div v-if="showFeedbackPanel" class="panel-overlay" @wheel="onOverlayWheel">
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.feedbackEntry') }}</h2>
@@ -975,16 +1029,18 @@ onUnmounted(() => {
                     </tbody>
                   </table>
                 </div>
-                <div class="pagination">
-                  <button class="page-btn" :disabled="feedbackPage <= 1 || feedbackLoading" @click="feedbackGoPage(feedbackPage - 1)">
-                    <ChevronLeft :size="18" />
-                  </button>
-                  <span class="page-info">{{ t('admin.pageInfo', { page: feedbackPage, total: feedbackTotalPages }) }}</span>
-                  <button class="page-btn" :disabled="feedbackPage >= feedbackTotalPages || feedbackLoading" @click="feedbackGoPage(feedbackPage + 1)">
-                    <ChevronRight :size="18" />
-                  </button>
-                </div>
               </template>
+            </div>
+            <div v-if="!feedbackLoading && feedbackItems.length" class="panel-foot">
+              <div class="pagination">
+                <button class="page-btn" :disabled="feedbackPage <= 1 || feedbackLoading" @click="feedbackGoPage(feedbackPage - 1)">
+                  <ChevronLeft :size="18" />
+                </button>
+                <span class="page-info">{{ t('admin.pageInfo', { page: feedbackPage, total: feedbackTotalPages }) }}</span>
+                <button class="page-btn" :disabled="feedbackPage >= feedbackTotalPages || feedbackLoading" @click="feedbackGoPage(feedbackPage + 1)">
+                  <ChevronRight :size="18" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -994,7 +1050,7 @@ onUnmounted(() => {
     <!-- 权限设置对话框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showDialog" class="panel-overlay">
+        <div v-if="showDialog" class="panel-overlay" @wheel="onOverlayWheel">
           <div class="mini-dialog">
             <h3 class="dialog-title">{{ t('admin.setPermission') }}</h3>
             <p class="dialog-hint">{{ dialogUser ? dialogUser.username : '' }} · UID {{ dialogUser ? dialogUser.uid : '' }}</p>
@@ -1093,7 +1149,11 @@ onUnmounted(() => {
   backdrop-filter: blur(12px);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   color: var(--text-color);
-  overflow: hidden;
+  /* 主对话框自身滚动：滚轮 / 触摸落在对话框内任意非小滚动框的位置都能滚动
+     （头部与翻页栏固定，内容在两者之间滚动） */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
 }
 
 .panel-wide {
@@ -1200,10 +1260,19 @@ onUnmounted(() => {
 }
 
 .panel-body {
-  flex: 1;
-  min-height: 0;
+  flex: 1 0 auto;
   padding: 16px 20px;
-  overflow-y: auto;
+}
+
+/* 翻页栏：位于内容末尾（随对话框一起滚动） */
+.panel-foot {
+  flex-shrink: 0;
+  padding: 10px 20px;
+  border-top: 1px solid var(--links-color);
+}
+
+.panel-foot .pagination {
+  margin-top: 0;
 }
 
 .table-empty {

@@ -1,11 +1,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import MarkdownIt from 'markdown-it'
-import { colorCodesPlugin } from '../composables/markdown/colorCodes'
-import { Plus, Trash2, Save, Upload, Eye } from 'lucide-vue-next'
+import { Plus, Trash2, Save, Upload } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
+import MarkdownEditer from './markdown_editer.vue'
 
 // 可复用组件：管理员在线编辑入服考试试卷（类似答题卡审阅的逐题编辑，支持新增/删除题目）
 const { t, locale } = useI18n()
@@ -15,16 +14,8 @@ const { showTip } = useTips()
 const loading = ref(true)
 const saving = ref(false)
 const form = ref(null) // { total_score, tips, tips_doc, questions: [...] }
-const showTipsPreview = ref(false)
 
 const QUESTION_TYPES = ['single_choice', 'multiple_choice', 'fill_blank', 'subjective']
-
-// Markdown 渲染（试卷说明 tips 预览；html: false 防 XSS）
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-colorCodesPlugin(md)
-function renderTips(content) {
-  return md.render(content || '')
-}
 
 // 附图上传：共享隐藏 file input，openUpload 记录目标对象（题目 / 选项 / tips），
 // 上传成功后：题目与选项写入目标的 image 字段；tips 模式把 Markdown 图片语法追加到说明末尾。
@@ -424,25 +415,16 @@ onMounted(fetchConfig)
         </button>
       </div>
 
-      <!-- 试卷说明（tips）：Markdown 文本 + 图片上传，考生先阅读才能填个人信息 -->
+      <!-- 试卷说明（tips）：Markdown 编辑器，考生先阅读才能填个人信息 -->
       <div class="tips-card">
         <div class="tips-head">
           <span class="tips-title">{{ t('admin.examConfigTips') }}</span>
-          <button type="button" class="mini-btn" :disabled="uploadingImg || uploadingDoc" @click="openUpload({ tips: true })">
-            <span v-if="uploadingImg" class="spinner"></span>
-            <Upload v-else :size="14" /> {{ t('admin.examConfigTipsUpload') }}
-          </button>
-          <button type="button" class="mini-btn" @click="showTipsPreview = !showTipsPreview">
-            <Eye :size="14" /> {{ showTipsPreview ? t('admin.examConfigTipsHide') : t('admin.examConfigTipsPreview') }}
-          </button>
         </div>
-        <textarea
+        <MarkdownEditer
           v-model="form.tips"
-          class="subject-input"
-          rows="5"
           :placeholder="t('admin.examConfigTipsPlaceholder')"
-        ></textarea>
-        <div v-if="showTipsPreview" class="tips-preview" v-html="renderTips(form.tips)"></div>
+          :min-height="160"
+        />
 
         <!-- 试卷说明文档（仅 .docx，考生端以悬浮窗浏览） -->
         <div class="doc-row">
@@ -745,7 +727,7 @@ onMounted(fetchConfig)
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 14px;
   background: var(--card-color);
-  overflow: hidden;
+  /* 不使用 overflow: hidden：它会让卡片成为滚动容器，吞掉主对话框的滚轮/触摸滚动 */
 }
 
 /* 试卷说明编辑卡片 */
@@ -856,6 +838,8 @@ onMounted(fetchConfig)
   padding: 10px 14px;
   background: var(--float-bg);
   flex-wrap: wrap;
+  /* 卡片不再裁剪内容，头部自身补上顶部圆角 */
+  border-radius: 13px 13px 0 0;
 }
 
 .q-title {

@@ -1,4 +1,4 @@
-<script setup>
+﻿<script setup>
 /**
  * 反馈详情页（/feedback/:id）。
  *
@@ -18,7 +18,7 @@ import {
 } from 'lucide-vue-next'
 import Top_navbar from '../../components/top_navbar.vue'
 import Page_footer from '../../components/page_footer.vue'
-import WikiMarkdown from '../../components/wiki/wiki_markdown.vue'
+import MarkdownView from '../../components/markdown_view.vue'
 import FeedbackEditor from '../../components/feedback_editor.vue'
 import StatusDropdown from '../../components/status_dropdown.vue'
 import { useAuth } from '../../composables/useAuth'
@@ -267,7 +267,7 @@ watch(() => route.params.id, fetchDetail, { immediate: true })
           </header>
 
           <div class="fbd-content">
-            <WikiMarkdown :content="feedback.content" />
+            <MarkdownView :content="feedback.content" />
           </div>
         </article>
 
@@ -293,7 +293,7 @@ watch(() => route.params.id, fetchDetail, { immediate: true })
                 <span class="fbd-comment-time">{{ formatTime(comment.created_at) }}</span>
               </div>
               <div class="fbd-comment-body">
-                <WikiMarkdown :content="comment.content" />
+                <MarkdownView :content="comment.content" />
               </div>
             </li>
           </ul>

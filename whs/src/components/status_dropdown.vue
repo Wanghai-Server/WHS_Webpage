@@ -2,7 +2,8 @@
 /**
  * 通用状态下拉选择器（自定义样式，替代原生 select）。
  *
- * - 支持三种外观：pill（搜索栏同款胶囊）、chip（表格内的小状态标签）、action（详情页操作按钮）；
+ * - 支持四种外观：pill（搜索栏同款胶囊）、chip（表格内的小状态标签）、action（详情页操作按钮）、
+ *   select（页面工具栏中的紧凑下拉，如地图选择）；
  * - 菜单通过 Teleport 渲染到 body 并使用 fixed 定位，避免被表格/面板的 overflow 裁剪，
  *   同时自动限制在视口内，手机端不会超出屏幕；
  * - 点击外部 / Esc 关闭，滚动或窗口尺寸变化时跟随按钮重新定位。
@@ -13,7 +14,7 @@ import { ChevronDown } from 'lucide-vue-next'
 const props = defineProps({
   modelValue: { type: String, default: '' },
   options: { type: Array, default: () => [] }, // [{ value, label }]
-  variant: { type: String, default: 'pill' }, // 'pill' | 'chip' | 'action'
+  variant: { type: String, default: 'pill' }, // 'pill' | 'chip' | 'action' | 'select'
   ariaLabel: { type: String, default: '' },
   disabled: { type: Boolean, default: false },
 })
@@ -122,6 +123,7 @@ onUnmounted(() => {
       :aria-expanded="open"
       @click="toggle"
     >
+      <slot name="prefix" />
       <span class="sd-value">{{ current.label }}</span>
       <ChevronDown :size="variant === 'chip' ? 13 : 16" class="sd-caret" />
     </button>
@@ -205,6 +207,25 @@ onUnmounted(() => {
   padding: 0 18px;
   border-radius: 999px;
   font-size: 13.5px;
+}
+
+/* select：页面工具栏中的紧凑下拉（如地图选择），与同排按钮同为 12px 圆角 */
+.sd-select .sd-btn {
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
+}
+
+.sd-select .sd-btn:hover:not(:disabled),
+.sd-select .sd-btn.open {
+  border-color: rgba(235, 170, 40, 0.55);
+}
+
+.sd-select .sd-btn.open {
+  box-shadow: 0 0 0 3px rgba(235, 170, 40, 0.12);
 }
 
 /* chip：表格内的状态标签 */

@@ -561,3 +561,512 @@ button.gs-toggle > svg {
   background: var(--float-bg);
 }
 
+/* ==========================================================================
+   Markdown 渲染正文（全站统一）
+   - 由 components/markdown_view.vue 输出 .md-body，Wiki 的 .wiki-md 在其上覆盖排版
+   - 包含代码块语法高亮配色、LaTeX / mermaid 容器、媒体文件等公共样式
+   ========================================================================== */
+.md-body {
+  color: var(--text-color);
+  font-size: 15px;
+  line-height: 1.75;
+  word-break: break-word;
+}
+
+.md-body > :first-child {
+  margin-top: 0;
+}
+
+.md-body > :last-child {
+  margin-bottom: 0;
+}
+
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4,
+.md-body h5,
+.md-body h6 {
+  margin: 1.4em 0 0.6em;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.md-body h1 { font-size: 26px; }
+.md-body h2 { font-size: 22px; }
+.md-body h3 { font-size: 18px; }
+.md-body h4,
+.md-body h5,
+.md-body h6 { font-size: 16px; }
+
+.md-body p {
+  margin: 0.7em 0;
+}
+
+.md-body a {
+  color: var(--links-color);
+  text-decoration: none;
+  border-bottom: 1px dashed currentColor;
+}
+
+.md-body a:hover {
+  color: var(--text-color);
+}
+
+.md-body ul,
+.md-body ol {
+  margin: 0.7em 0;
+  padding-left: 1.6em;
+}
+
+.md-body li {
+  margin: 0.25em 0;
+}
+
+.md-body blockquote {
+  margin: 1em 0;
+  padding: 0.4em 1em;
+  border-left: 3px solid var(--notice-color);
+  border-radius: 0 10px 10px 0;
+  background: var(--float-bg);
+  color: var(--links-color);
+}
+
+.md-body blockquote p {
+  margin: 0.3em 0;
+}
+
+.md-body code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--float-bg);
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.md-body pre {
+  margin: 1em 0;
+  padding: 14px 16px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: var(--float-bg);
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.md-body pre code {
+  padding: 0;
+  background: transparent;
+  font-size: 13.5px;
+}
+
+/* 代码块：顶部语言标签栏 + 代码区（语言标签由渲染管线生成） */
+.md-body .md-code-block {
+  margin: 1em 0;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 12px;
+  background: var(--float-bg);
+  overflow: hidden;
+}
+
+.md-body .md-code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 14px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.16);
+  color: var(--links-color);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.md-body .md-code-lang {
+  letter-spacing: 0.02em;
+}
+
+/* 代码块内部不再重复描边（优先级高于各页面 scoped 的 pre 样式） */
+.md-body .md-code-block > pre.md-code {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.md-body table {
+  width: 100%;
+  margin: 1em 0;
+  border-collapse: collapse;
+  font-size: 14.5px;
+}
+
+.md-body th,
+.md-body td {
+  padding: 8px 12px;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  text-align: left;
+}
+
+.md-body th {
+  background: var(--float-bg);
+  font-weight: 700;
+}
+
+.md-body tr:nth-child(even) td {
+  background: var(--float-bg);
+}
+
+.md-body img {
+  max-width: 100%;
+  border-radius: 12px;
+}
+
+.md-body hr {
+  margin: 2em 0;
+  border: none;
+  border-top: 1px solid var(--float-bg);
+}
+
+/* 视频 / 音频（图片语法 + 媒体扩展名由渲染管线转成 video/audio） */
+.md-body video.md-media {
+  display: block;
+  max-width: 100%;
+  max-height: 70vh;
+  margin: 0.5em auto;
+  border-radius: 12px;
+  background: var(--float-bg);
+}
+
+.md-body audio.md-media {
+  display: block;
+  width: 100%;
+  margin: 0.5em 0;
+}
+
+.md-body .md-media-caption {
+  margin: 4px 0 0.8em;
+  font-size: 13px;
+  color: var(--links-color);
+  text-align: center;
+}
+
+/* LaTeX（KaTeX 渲染结果 / 未渲染前的原文回退） */
+.md-body .md-math-block {
+  display: block;
+  margin: 1em 0;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.md-body .md-math {
+  white-space: nowrap;
+}
+
+/* mermaid 图表容器 */
+.md-body .md-mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 1em 0;
+  overflow-x: auto;
+}
+
+.md-body .md-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.md-body .md-mermaid-source {
+  margin: 0;
+  width: 100%;
+}
+
+.md-body .md-mermaid-error {
+  margin: 0;
+  width: 100%;
+  color: #e5484d;
+}
+
+/* highlight.js 代码高亮配色（跟随站点明暗主题） */
+.md-body .hljs {
+  display: block;
+  color: inherit;
+  background: transparent;
+}
+
+.md-body .hljs-comment,
+.md-body .hljs-quote {
+  color: #6e7781;
+  font-style: italic;
+}
+
+.md-body .hljs-keyword,
+.md-body .hljs-selector-tag,
+.md-body .hljs-doctag,
+.md-body .hljs-formula {
+  color: #cf222e;
+}
+
+.md-body .hljs-string,
+.md-body .hljs-regexp,
+.md-body .hljs-char.escape_,
+.md-body .hljs-template-tag,
+.md-body .hljs-template-variable {
+  color: #0a3069;
+}
+
+.md-body .hljs-number,
+.md-body .hljs-literal,
+.md-body .hljs-variable.constant_,
+.md-body .hljs-link {
+  color: #0550ae;
+}
+
+.md-body .hljs-title,
+.md-body .hljs-title.class_,
+.md-body .hljs-title.function_,
+.md-body .hljs-section {
+  color: #8250df;
+}
+
+.md-body .hljs-attr,
+.md-body .hljs-attribute,
+.md-body .hljs-property,
+.md-body .hljs-variable,
+.md-body .hljs-selector-id,
+.md-body .hljs-selector-class,
+.md-body .hljs-selector-attr,
+.md-body .hljs-selector-pseudo {
+  color: #953800;
+}
+
+.md-body .hljs-built_in,
+.md-body .hljs-type,
+.md-body .hljs-symbol,
+.md-body .hljs-bullet {
+  color: #0550ae;
+}
+
+.md-body .hljs-meta,
+.md-body .hljs-meta .hljs-keyword {
+  color: #0969da;
+}
+
+.md-body .hljs-emphasis {
+  font-style: italic;
+}
+
+.md-body .hljs-strong {
+  font-weight: 700;
+}
+
+.md-body .hljs-addition {
+  color: #1a7f37;
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.md-body .hljs-deletion {
+  color: #cf222e;
+  background: rgba(229, 72, 77, 0.1);
+}
+
+html.dark .md-body .hljs-comment,
+html.dark .md-body .hljs-quote {
+  color: #8b949e;
+}
+
+html.dark .md-body .hljs-keyword,
+html.dark .md-body .hljs-selector-tag,
+html.dark .md-body .hljs-doctag,
+html.dark .md-body .hljs-formula {
+  color: #ff7b72;
+}
+
+html.dark .md-body .hljs-string,
+html.dark .md-body .hljs-regexp,
+html.dark .md-body .hljs-char.escape_,
+html.dark .md-body .hljs-template-tag,
+html.dark .md-body .hljs-template-variable {
+  color: #a5d6ff;
+}
+
+html.dark .md-body .hljs-number,
+html.dark .md-body .hljs-literal,
+html.dark .md-body .hljs-variable.constant_,
+html.dark .md-body .hljs-link {
+  color: #79c0ff;
+}
+
+html.dark .md-body .hljs-title,
+html.dark .md-body .hljs-title.class_,
+html.dark .md-body .hljs-title.function_,
+html.dark .md-body .hljs-section {
+  color: #d2a8ff;
+}
+
+html.dark .md-body .hljs-attr,
+html.dark .md-body .hljs-attribute,
+html.dark .md-body .hljs-property,
+html.dark .md-body .hljs-variable,
+html.dark .md-body .hljs-selector-id,
+html.dark .md-body .hljs-selector-class,
+html.dark .md-body .hljs-selector-attr,
+html.dark .md-body .hljs-selector-pseudo {
+  color: #ffa657;
+}
+
+html.dark .md-body .hljs-built_in,
+html.dark .md-body .hljs-type,
+html.dark .md-body .hljs-symbol,
+html.dark .md-body .hljs-bullet {
+  color: #79c0ff;
+}
+
+html.dark .md-body .hljs-meta,
+html.dark .md-body .hljs-meta .hljs-keyword {
+  color: #a5d6ff;
+}
+
+html.dark .md-body .hljs-addition {
+  color: #7ee787;
+  background: rgba(34, 197, 94, 0.12);
+}
+
+html.dark .md-body .hljs-deletion {
+  color: #ffa198;
+  background: rgba(229, 72, 77, 0.12);
+}
+
+/* 跟随系统深色主题（未手动指定 html.light）时的代码高亮配色 */
+@media (prefers-color-scheme: dark) {
+  html:not(.light) .md-body .hljs-comment,
+  html:not(.light) .md-body .hljs-quote {
+    color: #8b949e;
+  }
+
+  html:not(.light) .md-body .hljs-keyword,
+  html:not(.light) .md-body .hljs-selector-tag,
+  html:not(.light) .md-body .hljs-doctag,
+  html:not(.light) .md-body .hljs-formula {
+    color: #ff7b72;
+  }
+
+  html:not(.light) .md-body .hljs-string,
+  html:not(.light) .md-body .hljs-regexp,
+  html:not(.light) .md-body .hljs-char.escape_,
+  html:not(.light) .md-body .hljs-template-tag,
+  html:not(.light) .md-body .hljs-template-variable {
+    color: #a5d6ff;
+  }
+
+  html:not(.light) .md-body .hljs-number,
+  html:not(.light) .md-body .hljs-literal,
+  html:not(.light) .md-body .hljs-variable.constant_,
+  html:not(.light) .md-body .hljs-link {
+    color: #79c0ff;
+  }
+
+  html:not(.light) .md-body .hljs-title,
+  html:not(.light) .md-body .hljs-title.class_,
+  html:not(.light) .md-body .hljs-title.function_,
+  html:not(.light) .md-body .hljs-section {
+    color: #d2a8ff;
+  }
+
+  html:not(.light) .md-body .hljs-attr,
+  html:not(.light) .md-body .hljs-attribute,
+  html:not(.light) .md-body .hljs-property,
+  html:not(.light) .md-body .hljs-variable,
+  html:not(.light) .md-body .hljs-selector-id,
+  html:not(.light) .md-body .hljs-selector-class,
+  html:not(.light) .md-body .hljs-selector-attr,
+  html:not(.light) .md-body .hljs-selector-pseudo {
+    color: #ffa657;
+  }
+
+  html:not(.light) .md-body .hljs-built_in,
+  html:not(.light) .md-body .hljs-type,
+  html:not(.light) .md-body .hljs-symbol,
+  html:not(.light) .md-body .hljs-bullet {
+    color: #79c0ff;
+  }
+
+  html:not(.light) .md-body .hljs-meta,
+  html:not(.light) .md-body .hljs-meta .hljs-keyword {
+    color: #a5d6ff;
+  }
+
+  html:not(.light) .md-body .hljs-addition {
+    color: #7ee787;
+    background: rgba(34, 197, 94, 0.12);
+  }
+
+  html:not(.light) .md-body .hljs-deletion {
+    color: #ffa198;
+    background: rgba(229, 72, 77, 0.12);
+  }
+}
+
+
+/* ==========================================================================
+   Markdown 代码块 / mermaid 图的复制按钮
+   ========================================================================== */
+.md-body .md-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--links-color);
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.md-body .md-copy-btn svg {
+  display: block;
+}
+
+/* 纯图标按钮：覆盖全局 button > svg 的 0.04em 上移，保证图标在按钮内视觉居中 */
+.md-body .md-copy-btn > svg {
+  transform: none;
+}
+
+.md-body .md-copy-btn:hover {
+  color: var(--text-color);
+  border-color: var(--links-color);
+  background: var(--float-bg);
+}
+
+.md-body .md-copy-btn.copied {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.5);
+}
+
+/* mermaid：复制按钮浮在图表右上角 */
+.md-body .md-mermaid-block {
+  position: relative;
+  width: fit-content;
+  max-width: 100%;
+  margin: 1em auto;
+  /* 预留复制按钮的顶部空间，按钮对齐图表右上角 */
+  padding-top: 26px;
+}
+
+.md-body .md-mermaid-block > .md-mermaid {
+  margin: 0;
+}
+
+.md-body .md-mermaid-copy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  background: var(--card-color);
+}
+
+.md-body .md-mermaid-copy:hover {
+  background: var(--float-bg);
+}

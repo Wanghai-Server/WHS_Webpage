@@ -8,6 +8,7 @@
 - 深色 / 浅色主题，响应式布局
 - 前端生产模式由 Vite 构建，后端只提供 `/api/*`，静态资源需单独托管（见「部署」）
 - 统一启动器：根目录 `manage.py` 同时拉起前端与后端，收集两路日志并统一关停
+- 统一 Markdown 体系：全站共用一套渲染管线（`§` 颜色、LaTeX、mermaid、代码语法高亮）与通用 Markdown 编辑器（编辑 / 预览、语法工具条、附件上传）
 
 ---
 
@@ -18,7 +19,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 95 条）
+6. HTTP API（共 97 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -38,7 +39,7 @@
    │  静态资源：Vite dev/preview 或生产环境 nginx/Caddy 托管 whs/dist
    │  HTTP /api/* ──(dev/preview 代理 或 反向代理)──▶ FastAPI（uvicorn 127.0.0.1:7777）
    │                                                  ├─ 6 个数据库单例 → data/database/*.db（sqlite3，无 ORM）
-   │                                                  ├─ 上传目录 data/{avatar,exam_image,exam_upload,wiki_upload}
+   │                                                  ├─ 上传目录 data/{avatar,exam_image,exam_upload,wiki_upload,markdown_upload}
    │                                                  ├─ WsCommandServer（127.0.0.1:<ws_port>，默认 8765）
    │                                                  │    ⇅ JSON：{request_id, command|success, data}
    │                                                  │  MCDR 插件 mcdr2web ──RCON──▶ Minecraft 服务器
@@ -63,6 +64,7 @@
 - 顶部导航（自定义导航、全局搜索、消息盒子、头像菜单；手机端以「搜索按钮 + 用户头像」替代桌面导航）、底部页脚（语言 / 主题切换）。
 - 手机端导航搜索按钮直接跳转 `/search` 全量搜索页（桌面端仍为滑入式搜索小面板）；导航栏各元素带依次淡入下滑入场动效。
 - 手机端（≤768px）所有对话框统一为底部弹层：贴底、全宽、顶部 20px 圆角、高度不小于 20% 且不超过 80% 占屏高、内部滚动，并从底部滑入 / 滑出；桌面端保持居中弹窗不变。
+- 管理端悬浮框（用户 / 考试 / 反馈 / 试卷管理、答题卡）统一为单滚动区：头部与翻页栏随内容滚动、不叠加额外背景色；打开时锁定背景页面滚动，滚轮落在代码块 / 表格等小滚动框上时仍可滚动主对话框；翻页栏在内容末尾，滚到底即可翻页。
 - 非法路由（不存在的站内路径）按 `whs_config.json` 的 `301` 配置统一跳转（站内路径或外链）。
 
 ### 用户系统
@@ -75,18 +77,29 @@
 - 登录态：HMAC-SHA256 自签 token（JWT 风格，无第三方依赖），`Authorization: Bearer <token>`，有效期 7 天。
 - 账号状态：`banned`（封禁）/ `locked`（锁定）由统一依赖拦截，受保护接口一律 403。
 - 用户主页：昵称 / 生日 / 性别 / Markdown 简介 / 头像；关注与粉丝列表；UID 复制。
-- 账号设置：改资料、改头像、改邮箱（验证码）、改密码（旧密码 + 验证码）、找回密码、退出登录、注销账号。
+- 账号设置：昵称、性别、生日、个人简介、头像、邮箱、密码、游戏账户；其中个人简介 / 基本资料 / 管理游戏账户为“行式入口 + 悬浮窗”编辑，基本资料的性别单选项与生日输入框与注册表单一致。
+- 修改密码：先校验当前邮箱验证码与旧密码，再设置新密码；新密码输入框带与注册相同的强度提示（进度条 + 三条硬性要求 + 可选特殊字符），不满足强度不提交；密码可见性切换与其它表单一致。
+- 改头像、改邮箱（验证码）、找回密码、退出登录、注销账号。
 - 密码可见性：登录 / 注册 / 找回密码 / 修改密码 / 注销账号的密码框右侧带眼睛按钮，可切换明文 / 密文；注册等多密码框表单共用一个按钮同时控制。
 - 游戏账户：绑定主账号与最多 2 个小号，记录正版 / 离线标记，支持修改主账号正版状态；添加小号自动加入游戏白名单。玩家名（主账号 / 小号 / 考试填写）统一遵循 Minecraft Java 官方规则：**3–16 位、仅英文字母 / 数字 / 下划线**；考试结束后（通过或答题次数用完）玩家名锁定，不可再修改。
 - 权限等级：`0=guest / 1=user / 2=player / 3=admin / 4=owner`；注册默认 1，入服考试及格自动升到 2。
 
+### Markdown 体系
+
+- 统一渲染管线（`whs/src/composables/markdown/renderer.js`）：全站 Markdown 共用同一套 markdown-it 配置与插件，支持维基同款 `§` 颜色 / 格式代码、LaTeX（`$...$` / `$$...$$`，KaTeX）、mermaid 图表、代码块语法高亮（highlight.js 全语言）、外链新窗口、标题 id / 目录、图片与音视频媒体渲染。
+- 统一编辑器（`whs/src/components/markdown_editer.vue`）：GitHub 风格“编辑 / 预览”标签页 + 语法提示工具条 + 字数统计；图片 / 视频 / 音频上传（类型与大小同维基）支持点击、粘贴文件与拖拽到组件区域；代码块带语言栏与复制按钮，mermaid 图右上角可复制源码。
+- 渲染性能：KaTeX / mermaid / highlight.js 均按需懒加载（不进入首屏包）；mermaid 语法错误不向页面追加错误图，只在图表位置提示原始代码。
+- 使用位置：个人简介、消息发布 / 编辑、反馈提交 / 编辑、试卷说明 = 统一编辑器；个人主页简介、消息详情、反馈详情 / 评论、考试说明、维基正文 = 统一渲染组件（`markdown_view.vue`；维基另有排版包装 `wiki_markdown.vue`）。
+- 编辑器支持 `multilingual` 参数（v-model 为 `{ zh, en }` 对象，编辑与编辑预览按所选语言，站点展示始终跟随网站语言）；系统消息的标题 + 正文已启用该模式（发布 / 编辑时统一语言切换），个人简介 / 反馈 / 试卷说明等其余非维基字段仍是单语言字符串。
+
 ### 消息中心
 
 - 系统消息（管理员发布，Markdown）与定向消息（玩家通知）。
+- 标题 / 正文均为双语对象 `{ zh, en }`：列表与详情按站点语言展示，缺失语言自动回退另一种；旧消息只有中文时，英文界面显示中文。发布 / 编辑对话框用统一语言切换（同一开关同时控制标题与正文）。
 - 已读状态按用户记录（`read_uids`），未读数量徽标；管理员编辑消息后全员重新未读。
 - 「全部已读」按钮一键清除未读（透明无边框、扫把图标；手机端仅图标）。
 - 管理员可发布 / 编辑 / 删除自己发布的系统消息；用户可查看消息详情。
-- 发布 / 编辑对话框支持 **编辑 / 预览** 切换（预览使用与详情相同的 Markdown 渲染，表格、代码块、颜色代码等所见即所得）。
+- 发布 / 编辑对话框使用统一 Markdown 编辑器（编辑 / 预览标签页、语法工具条、上传 / 粘贴 / 拖拽），预览与详情使用同一渲染管线，表格、代码块、LaTeX、mermaid、颜色代码等所见即所得。
 
 ### 入服考试
 
@@ -94,11 +107,12 @@
 - 题型：单选、多选（部分分）、填空（按空给分）、主观题（人工改分）。
 - 及格副作用：写入玩家名、权限 < 2 时提升到 player、标记通过、自动加入游戏白名单。考试结束后（通过或答题次数用完）`POST /api/exam/profile` 拒绝再修改玩家名（`exam_profile_locked`）。
 - 未通过可重新作答，也可提交人工重审（通知全部管理员，站内消息 + 邮件）。
-- 管理端：查看考生列表、试卷在线编辑（覆盖 `data/exam.yml` 即时生效）、查看/改分答题卡、删除答卷、上传题目附图与说明文档（.docx）。
+- 管理端：查看考生列表、试卷在线编辑（覆盖 `data/exam.yml` 即时生效）、查看/改分答题卡、删除答卷、上传题目附图与说明文档（.docx）；试卷说明使用统一 Markdown 编辑器（含图片 / 视频 / 音频上传）。
 
 ### 维基（自研，不依赖开源维基程序）
 
 - 页面内容为 Markdown，存于 SQLite（`wiki.db`），中英双语各存一份；标题从正文首个 H1 自动提取。
+- 正文使用全站统一渲染管线：`§` 颜色代码、LaTeX（KaTeX）、mermaid 图表、代码块语法高亮（highlight.js）、音视频媒体均与站内其它 Markdown 一致；代码块带语言栏与复制按钮，mermaid 图右上角可复制源码。
 - 目录（TOC）由前端渲染时从 Markdown 标题（h1–h6）自动生成，滚动高亮、点击定位、阅读进度。
 - 搜索：SQLite FTS5 全文索引（`trigram` 分词，中文/英文 3 字符及以上子串匹配，BM25 标题加权），短查询自动回退 LIKE。
 - 每页独立的**最小编辑权限**（2/3/4）：普通玩家默认 2，管理员可调高；页面级写操作按页面自身权限校验。
@@ -106,9 +120,9 @@
 - 乐观锁：保存携带 `base_rev`，他人已修改时返回 409，前端提示「加载最新 / 强制保存」。
 - 重定向：页面改名后旧路径自动跳转（支持重定向链，最多 8 步，拒绝循环）；管理员可增删查。
 - 消歧义页：编辑器可标记「消歧义页」；系统也会在启动与页面写操作时自动构建/清理自动消歧义页（被人工编辑过的自动页不再接管）。
-- 媒体上传：图片（≤5MB）/ 视频（≤50MB）/ 音频（≤20MB），插入 Markdown 后渲染为图片、`<video>`、`<audio>` 播放器。
+- 媒体上传：图片（≤5MB）/ 视频（≤50MB）/ 音频（≤20MB），插入 Markdown 后渲染为图片、`<video>`、`<audio>` 播放器；编辑器支持点击上传、粘贴文件与**全屏拖拽**上传，上传规则与全站 Markdown 编辑器共用同一套白名单 / 大小限制。
 - 颜色 / 格式代码：支持 MC 风格的 `§` 代码（全站 Markdown 通用，包括维基、反馈、消息、考试提示与用户简介）——`§0`–`§f` 为 MC 官方 16 色，`§#RRGGBB` 支持任意 HEX；`§l` 粗体、`§o` 斜体、`§n` 下划线、`§m` 删除线、`§r` 复位。代码块与行内代码内不解析；编辑器工具栏提供颜色下拉（选中文字上色并自动加 `§r`，光标处插入则按 MC 规则持续生效）；页面标题 / 搜索与列表摘要会自动剥离 `§` 代码。注意：颜色代码会重置格式，需要「颜色 + 粗体」时先写颜色再写格式（如 `§e§l文字`）。
-- 编辑器：双栏实时预览、语言切换、附件上传、拖拽分栏、未保存离开确认。
+- 编辑器：保留双栏实时预览、语言切换、附件上传、拖拽分栏、未保存离开确认；语法插入 / 撤销 / 上传片段生成复用全站共享工具（`composables/markdown/insert.js`），预览使用统一渲染组件。
 
 ### 全站搜索
 
@@ -118,7 +132,7 @@
 ### 反馈中心
 
 - 公开浏览：`/feedback` 列表（分页、状态筛选、关键词搜索）与 `/feedback/:id` 详情页；列表/详情无需登录。
-- 提交与评论需登录：标题 + 分类（问题 / 建议 / 其他）+ Markdown 正文，支持编辑预览；详情页评论区支持 Markdown，登录用户可跟帖。
+- 提交与评论需登录：标题 + 分类（问题 / 建议 / 其他）+ Markdown 正文，正文使用统一 Markdown 编辑器（编辑 / 预览、语法工具条、上传 / 粘贴 / 拖拽）；详情页评论区支持 Markdown，登录用户可跟帖。
 - 状态流转：`pending`（待处理）/ `resolved`（已处理）/ `closed`（已关闭）；管理员可在详情页或管理端修改状态。
 - 权限：作者可编辑 / 删除自己的反馈；管理员（permission ≥ 3）可删除任意反馈、修改状态。
 - 管理端：用户页「管理员」→「反馈管理」，列表支持状态筛选、分页、查看、改状态、删除（带确认框）。
@@ -142,7 +156,7 @@
 | 路由 | Vue Router 5（history 模式，页面全部懒加载） |
 | 国际化 | vue-i18n 9 |
 | 图标 / 动画 / 3D | lucide-vue-next / animejs / skinview3d |
-| Markdown | markdown-it（自研标题 id、目录、媒体渲染规则） |
+| Markdown | markdown-it + 自研统一渲染管线（§ 颜色、标题 id、目录、媒体、代码块语言栏）；highlight.js（代码高亮）、KaTeX（LaTeX）、mermaid（图表），三者均按需懒加载 |
 | DOCX 渲染 | mammoth（考试说明文档） |
 | 人机验证 | hCaptcha（`@hcaptcha/vue3-hcaptcha`） |
 | 后端框架 | FastAPI + uvicorn |
@@ -185,7 +199,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 95 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 97 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -196,7 +210,9 @@ WHS_Webpage/
 │   │   ├── feedback.py              # 反馈中心（列表 / 详情 / 提交 / 编辑 / 删除 / 评论 / 状态）
 │   │   ├── server.py                # 服务器实时状态
 │   │   ├── search.py                # 全站搜索（Wiki + 用户 + 反馈）
-│   │   └── wiki.py                  # 维基（页面 / 修订 / 重定向 / 消歧义 / 媒体）
+│   │   ├── wiki.py                  # 维基（页面 / 修订 / 重定向 / 消歧义 / 媒体）
+│   │   ├── markdown.py              # 全站 Markdown 编辑器媒体上传 / 读取
+│   │   └── media_upload.py          # 媒体上传共享工具（白名单 / 大小限制 / 落盘 / 读取）
 │   └── venv/                        # Python 虚拟环境（不入库）
 │
 ├── data/                            # 配置 + 数据层 + 运行时数据
@@ -222,7 +238,8 @@ WHS_Webpage/
 │   ├── avatar/                      # 头像文件（不入库）
 │   ├── exam_image/                  # 试卷附图 / 说明文档（不入库）
 │   ├── exam_upload/                 # 答题附件（不入库）
-│   └── wiki_upload/                 # 维基媒体文件（不入库）
+│   ├── wiki_upload/                 # 维基媒体文件（不入库）
+│   └── markdown_upload/             # 全站 Markdown 编辑器媒体文件（不入库）
 │
 ├── whs/                             # 前端（Vue 3 + Vite）
 │   ├── index.html
@@ -249,17 +266,23 @@ WHS_Webpage/
 │       │   ├── usePasswordStrength.js # 密码强度规则、低/中/高等级与熵估算
 │       │   ├── sha256.js            # 前端密码哈希
 │       │   ├── clipboard.js
-│       │   └── wiki/{api,locale,markdown}.js  # 维基 API 封装 / 语言状态 / Markdown 管线
-│       ├── components/              # 36 个可复用组件
+│       │   ├── markdown/            # 统一 Markdown 体系
+│       │   │   ├── renderer.js      # 全站渲染管线（§ 颜色 / LaTeX / mermaid / 代码占位 / 媒体 / 标题目录）
+│       │   │   ├── insert.js        # 语法插入 / 媒体片段生成（编辑器与维基共用）
+│       │   │   ├── upload.js        # Markdown 编辑器上传（/api/markdown/upload）与类型 / 大小常量
+│       │   │   └── colorCodes.js    # MC § 颜色 / 格式代码插件
+│       │   └── wiki/{api,locale,markdown}.js  # 维基 API / 语言状态 / Markdown 兼容层（委托统一渲染管线）
+│       ├── components/              # 38 个可复用组件
 │       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown / hcaptcha_box
+│       │   ├── Markdown：markdown_editer（通用编辑器）/ markdown_view（统一渲染与复制 / mermaid / 公式增强）
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
 │       │   ├── 反馈：feedback_editor
 │       │   ├── 考试：exam_question / exam_editor / doc_viewer
 │       │   ├── 维基：wiki_markdown / wiki_outline / wiki_outline_node / wiki_search / wiki_page_404
 │       │   └── 管理：admin_settings / admin_user_panel / joinus_tips
-│       └── pages/                   # 16 个页面
-│           ├── home.vue / about.vue / login.vue / user.vue / search.vue / joinus.vue / exam.vue
+│       └── pages/                   # 17 个页面
+│           ├── home.vue / about.vue / map.vue / login.vue / user.vue / search.vue / joinus.vue / exam.vue
 │           ├── forum/index.vue      # 论坛（静态占位）
 │           ├── feedback/            # 反馈中心：index（列表） / detail（详情）
 │           └── wiki/                # index / layout / page_view / page_editor / page_history / search
@@ -388,7 +411,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 95 条）
+## 6. HTTP API（共 97 条）
 
 ### 6.1 约定
 
@@ -470,10 +493,12 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/api/message/unread_count` | 登录 | 未读消息数量（系统 + 定向） |
 | POST | `/api/message/{message_id}/read` | 登录 | 标记消息已读（幂等） |
 | POST | `/api/message/read_all` | 登录 | 把本人全部消息（系统 + 定向）标为已读（幂等，用于「全部已读」） |
-| POST | `/api/admin/messages` | ≥3 | 发布系统消息 `{title, content}` |
-| PUT | `/api/admin/messages/{message_id}` | ≥3 且作者本人 | 编辑系统消息（全员重新未读） |
+| POST | `/api/admin/messages` | ≥3 | 发布系统消息 `{title:{zh,en}, content:{zh,en}}`（也兼容旧版字符串，按中文处理） |
+| PUT | `/api/admin/messages/{message_id}` | ≥3 且作者本人 | 编辑系统消息（同一双语结构；全员重新未读） |
 | DELETE | `/api/admin/messages/{message_id}` | ≥3 且作者本人 | 删除系统消息 |
 | GET | `/api/message/{user_id}` | 登录且本人/≥3 | 定向消息列表 |
+
+- 消息的 `title` / `content` 统一返回 `{zh,en}` 对象；前端按站点语言取值，缺失语言回退另一种。系统消息与定向消息（考试重审 / 通过通知）都带双语内容。
 
 ### 6.7 入服考试（23 条）
 
@@ -573,6 +598,16 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/api/map/players?map_id=` | 登录且 permission≥2 | 当前世界在线玩家数量（已排除其他维度的 `foreign` 玩家） |
 
 地图由服务器上的 BlueMap 网页端提供，地图页固定使用 3D 透视视图；后端不再代理瓦片，只负责鉴权与下发配置。
+
+### 6.13 全站 Markdown 上传（2 条）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| POST | `/api/markdown/upload` | 登录 | 上传 Markdown 编辑器媒体（multipart）；类型 / 大小与维基媒体相同：图片≤5MB / 视频≤50MB / 音频≤20MB；返回 `{url, type, original}` |
+| GET | `/api/markdown/upload/{filename}` | 公开 | 读取已上传的 Markdown 媒体文件 |
+
+- 文件保存到独立目录 `data/markdown_upload/`（与维基分开），随机 UUID 文件名；与 `/api/wiki/upload` 共用 `backend/api/media_upload.py` 的白名单 / 大小限制 / 落盘与读取逻辑。
+- 错误码：`markdown_upload_unsupported`（400）/ `markdown_upload_too_large`（413）/ `markdown_upload_not_found`（404）。
 
 ---
 
@@ -681,7 +716,8 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | `id` | 主键 |
 | `scope` | `system` / `user` |
 | `target_uid` | 定向消息接收者（系统消息为空） |
-| `title` / `content` | 标题 / Markdown 正文 |
+| `title` / `content` | 中文（主语言）标题 / Markdown 正文 |
+| `title_en` / `content_en` | 英文标题 / 正文；为空字符串时展示回退到中文（旧消息自动补空列） |
 | `author_uid` | 发布者 uid（系统消息为管理员） |
 | `read_uids` | 已读用户 uid 列表（JSON） |
 | `created_at` / `updated_at` | 时间 |
@@ -788,6 +824,7 @@ CREATE VIRTUAL TABLE wiki_fts USING fts5(
 | 试卷附图 | `data/exam_image/` | 5MB | jpg / png / webp / gif |
 | 试卷说明文档 | `data/exam_image/` | 10MB | 仅 `.docx` |
 | 维基媒体 | `data/wiki_upload/` | 图片 5MB / 视频 50MB / 音频 20MB | png/jpg/jpeg/webp/gif、mp4/webm/mov、mp3/wav/ogg/m4a/aac/flac |
+| Markdown 编辑器媒体 | `data/markdown_upload/` | 图片 5MB / 视频 50MB / 音频 20MB | 与维基媒体相同（共用 `backend/api/media_upload.py` 的白名单与大小限制；上传需登录） |
 
 - 文件名使用随机 uuid，服务端保存时按声明的 Content-Type / 扩展名白名单校验，**不检查文件真实内容**。
 - 以上目录均被 `.gitignore` 忽略，部署与备份时需单独处理。
@@ -819,6 +856,9 @@ npm install
 npm run build        # 产物：whs/dist/
 ```
 
+- Markdown 渲染增强依赖 `highlight.js`（代码高亮）、`katex`（LaTeX）与 `mermaid`（图表），均由 `npm install` 安装，并在运行时按需懒加载：不进入首屏主包，但构建产物会包含 KaTeX 字体、mermaid / 高亮分块；部署机的 `npm install` 不能跳过。
+- `npm run build` 输出中 KaTeX / mermaid / highlight 相关分块大于 500KB 属于预期（按需加载，不影响首屏），无需据此调整构建配置。
+
 ### 11.3 反向代理（nginx 示例）
 
 后端不提供静态文件（`GET /` 只返回 JSON），生产环境由 Web 服务器托管 `dist` 并转发 `/api`：
@@ -844,6 +884,7 @@ server {
 - 前后端必须**同源**部署（后端没有 CORS 中间件）；同上 nginx 方案即满足。
 - MCDR 插件的 WS 是环回地址，不需要也不应该代理到公网。
 - 若用 `npm run preview` 代替 nginx，注意它默认监听 `0.0.0.0:5173`（局域网可见）。
+- 维基与全站 Markdown 编辑器支持视频上传（单个上限 50MB），请确认 nginx `client_max_body_size` 足够（建议 ≥55m）；否则上传会先被 nginx 以 413 拦截，后端无日志。
 
 ### 11.4 端口一览
 
@@ -904,6 +945,10 @@ python SMTP/mail_server.py
 - **数据库**：无外键、无跨语句事务；部分业务（注册、注销、关注）中途失败可能留下部分写入。
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
 - **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
+- **Markdown 渲染**：LaTeX / mermaid / 代码高亮全部在浏览器端按需加载（`katex` / `mermaid` / `highlight.js` 均在首次出现对应内容时下载分块），不参与首屏；超大 mermaid 图或超长代码块的高亮可能有可感知延迟。mermaid 使用 `securityLevel: strict`，语法错误只在图表位置显示原始源码，不向页面追加错误图、不执行图表脚本。
+- **Markdown 多语言**：通用编辑器已支持 `multilingual`（v-model 为 `{zh,en}` 对象，编辑 / 预览按所选语言、展示跟随站点语言）；系统消息的标题与正文已启用双语（缺失语言回退），个人简介 / 反馈 / 试卷说明等其余字段仍为单语言；维基仍按 `lang` 列在数据库内存双份。
+- **消息双语**：`messages` 表新增 `title_en` / `content_en` 两列，旧库启动时自动迁移、旧消息英文为空（展示回退中文）；定向消息（考试重审 / 通过通知）同样写入双语内容。管理员可在发布 / 编辑对话框补齐英文版本。
+- **Markdown 上传**：全站 Markdown 编辑器上传要求登录（不检查 permission 等级），文件存 `data/markdown_upload/`；维基上传仍要求 permission ≥ 2，文件存 `data/wiki_upload/`；两处共用同一套类型 / 大小白名单，但不校验文件真实内容。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
 - **在线地图（`/map`）**：页面本身不含地图数据，由服务器上的 BlueMap 网页端提供 3D 透视视图。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。

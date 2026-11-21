@@ -1,11 +1,12 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Plus, Trash2, X, Check, Pencil, BrushCleaning, Eye } from 'lucide-vue-next'
+import { Plus, Trash2, X, Check, Pencil, BrushCleaning } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
-import MarkdownIt from 'markdown-it'
-import { colorCodesPlugin } from '../composables/markdown/colorCodes'
+import { resolveMarkdownContent } from '../composables/markdown/renderer'
+import MarkdownEditer from './markdown_editer.vue'
+import Tabs from './tabs.vue'
 
 const { t, locale } = useI18n()
 const props = defineProps({
@@ -26,14 +27,15 @@ const isLoggedIn = computed(() => !!authState.token)
 const showPublish = ref(false)
 // 正在编辑的消息对象（非 null 表示处于编辑模式，复用发布对话框）
 const editingMessage = ref(null)
-const publishTitle = ref('')
-const publishContent = ref('')
+// 标题 / 正文均为 { zh, en }；语言切换同时作用于两者
+const publishTitle = ref({ zh: '', en: '' })
+const publishContent = ref({ zh: '', en: '' })
+const publishLang = ref(locale.value === 'en' ? 'en' : 'zh')
+const publishLangs = [
+  { key: 'zh', label: '中文' },
+  { key: 'en', label: 'English' },
+]
 const publishing = ref(false)
-// 发布预览：与消息详情使用同一套 markdown-it 配置（含 § 颜色代码），保证预览即最终效果
-const previewing = ref(false)
-const previewMd = new MarkdownIt({ html: false, linkify: true, breaks: true })
-colorCodesPlugin(previewMd)
-const previewHtml = computed(() => previewMd.render(publishContent.value || ''))
 // 进行中的消息操作（删除/标为已读）：记录消息 id，用于禁用对应按钮并显示圆环
 const busyMessageId = ref(null)
 
@@ -44,6 +46,38 @@ function localMessage(data) {
   const m = data && data.message
   if (!m) return t('auth.request_failed')
   return m[locale.value] || m.zh || m.en || ''
+}
+
+// 双语消息字段：兼容旧接口的字符串 / 新接口的 { zh, en }
+function toLocalized(value) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return { zh: String(value.zh || ''), en: String(value.en || '') }
+  }
+  return { zh: typeof value === 'string' ? value : '', en: '' }
+}
+
+function hasLocalizedText(value) {
+  const v = toLocalized(value)
+  return !!(v.zh.trim() || v.en.trim())
+}
+
+// 列表标题按站点语言取，缺失语言回退另一种
+function titleOf(m) {
+  return resolveMarkdownContent(m.title, locale.value) || t('message.untitled')
+}
+
+// 编辑时优先打开有内容的语言；都为空则用站点语言
+function pickEditLang(title, content) {
+  const site = locale.value === 'en' ? 'en' : 'zh'
+  const other = site === 'en' ? 'zh' : 'en'
+  const has = (value) => !!toLocalized(value)[site].trim()
+  return has(title) || has(content) ? site : other
+}
+
+function resetDraft() {
+  publishTitle.value = { zh: '', en: '' }
+  publishContent.value = { zh: '', en: '' }
+  publishLang.value = locale.value === 'en' ? 'en' : 'zh'
 }
 
 function authHeaders(extra = {}) {
@@ -145,11 +179,11 @@ async function markAllRead() {
 }
 
 async function publish() {
-  if (!publishTitle.value.trim()) {
+  if (!hasLocalizedText(publishTitle.value)) {
     showTip('warning', t('message.titleEmpty'))
     return
   }
-  if (!publishContent.value.trim()) {
+  if (!hasLocalizedText(publishContent.value)) {
     showTip('warning', t('message.contentEmpty'))
     return
   }
@@ -162,7 +196,7 @@ async function publish() {
         method: 'PUT',
         headers: authHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify({
-          title: publishTitle.value.trim(),
+          title: publishTitle.value,
           content: publishContent.value,
         }),
       })
@@ -190,13 +224,12 @@ async function publish() {
     const res = await fetch('/api/admin/messages', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ title: publishTitle.value.trim(), content: publishContent.value }),
+      body: JSON.stringify({ title: publishTitle.value, content: publishContent.value }),
     })
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('message.published'))
-      publishTitle.value = ''
-      publishContent.value = ''
+      resetDraft()
       showPublish.value = false
       fetchMessages()
     } else {
@@ -210,32 +243,25 @@ async function publish() {
   }
 }
 
-// 打开发布对话框（重置预览态）
+// 打开发布对话框
 function openPublish() {
-  previewing.value = false
+  resetDraft()
   showPublish.value = true
 }
 
-// 切换「编辑 / 预览」
-function togglePreview() {
-  previewing.value = !previewing.value
-}
-
-// 打开编辑对话框：预填当前标题与内容
+// 打开编辑对话框：预填双语标题与内容
 function startEdit(m) {
   editingMessage.value = m
-  publishTitle.value = m.title || ''
-  publishContent.value = m.content || ''
-  previewing.value = false
+  publishTitle.value = toLocalized(m.title)
+  publishContent.value = toLocalized(m.content)
+  publishLang.value = pickEditLang(m.title, m.content)
 }
 
 // 关闭发布/编辑对话框并清空表单
 function closeDialog() {
   showPublish.value = false
   editingMessage.value = null
-  publishTitle.value = ''
-  publishContent.value = ''
-  previewing.value = false
+  resetDraft()
 }
 
 // 点击标题行：未读则先发送已读请求，再关闭消息盒并打开详情窗口
@@ -360,7 +386,7 @@ defineExpose({ close })
             <li v-for="m in messages" :key="m.id" class="message-item">
               <!-- 标题行：点击打开详情窗口 -->
               <div class="message-head-row" @click="openDetail(m)">
-                <span class="message-title">{{ m.title || t('message.untitled') }}</span>
+                <span class="message-title">{{ titleOf(m) }}</span>
                 <div class="message-meta">
                   <!-- 发布者 -->
                   <span v-if="m.author_name" class="message-author">{{ m.author_name }}</span>
@@ -424,31 +450,25 @@ defineExpose({ close })
           <h3 class="publish-title">
             {{ editingMessage ? t('message.editTitle') : t('message.publish') }}
           </h3>
+          <Tabs v-model="publishLang" :items="publishLangs" class="publish-lang-tabs" />
           <input
-            v-model="publishTitle"
+            v-model="publishTitle[publishLang]"
             type="text"
             class="publish-title-input"
+            maxlength="100"
             :placeholder="t('message.titlePlaceholder')"
           />
-          <textarea
-            v-if="!previewing"
+          <MarkdownEditer
             v-model="publishContent"
-            class="publish-input"
+            class="publish-editor"
+            multilingual
+            :lang="publishLang"
+            :show-lang-switch="false"
             :placeholder="t('message.publishPlaceholder')"
-          ></textarea>
-          <div v-else class="publish-preview md-content" v-html="previewHtml"></div>
+            :min-height="200"
+            :disabled="publishing"
+          />
           <div class="publish-actions">
-            <button
-              type="button"
-              class="btn preview-toggle"
-              :class="{ active: previewing }"
-              :disabled="publishing"
-              @click="togglePreview"
-            >
-              <Eye v-if="!previewing" :size="16" />
-              <Pencil v-else :size="16" />
-              {{ previewing ? t('message.edit') : t('message.preview') }}
-            </button>
             <span class="publish-spacer"></span>
             <button type="button" class="btn cancel" :disabled="publishing" @click="closeDialog">
               {{ t('admin.cancel') }}
@@ -780,6 +800,12 @@ defineExpose({ close })
   font-weight: 700;
 }
 
+/* 语言切换：同时作用于标题输入与正文编辑器 */
+.publish-lang-tabs {
+  flex-shrink: 0;
+  margin-bottom: 10px;
+}
+
 .publish-title-input {
   flex-shrink: 0;
   width: 100%;
@@ -800,36 +826,30 @@ defineExpose({ close })
   border-color: var(--text-color);
 }
 
-.publish-input {
+/* 发布对话框内嵌 Markdown 编辑器：撑满标题栏与操作栏之间的剩余高度 */
+.publish-editor {
   flex: 1 1 auto;
-  width: 100%;
   min-height: 0;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  line-height: 1.6;
+  display: flex;
+  flex-direction: column;
+}
+
+.publish-editor :deep(.md-editor-body) {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.publish-editor :deep(.md-textarea) {
+  flex: 1 1 auto;
+  height: 100%;
   resize: none;
-  outline: none;
-  transition: border-color 0.2s ease;
 }
 
-.publish-input:focus {
-  border-color: var(--text-color);
-}
-
-/* 预览：与编辑区同尺寸，内容多时内部滚动 */
-.publish-preview {
+.publish-editor :deep(.md-preview) {
   flex: 1 1 auto;
-  min-height: 0;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border-radius: 12px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  overflow-y: auto;
+  max-height: none;
 }
 
 /* 按钮靠左：取消在前，发布在后 */
@@ -869,22 +889,6 @@ defineExpose({ close })
   border: none;
   background: var(--text-color);
   color: var(--bg-color);
-}
-
-/* 预览切换按钮：轻量描边样式，预览态高亮 */
-.btn.preview-toggle {
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  background: transparent;
-  color: var(--links-color);
-}
-
-.btn.preview-toggle:hover,
-.btn.preview-toggle.active {
-  color: var(--text-color);
-}
-
-.btn.preview-toggle.active {
-  background: var(--float-bg);
 }
 
 /* 手机端：发布/编辑对话框保持底部弹层，但高度加大到 70vh 便于编辑与预览 */
