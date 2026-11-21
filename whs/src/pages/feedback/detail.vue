@@ -1,4 +1,4 @@
-﻿<script setup>
+<script setup>
 /**
  * 反馈详情页（/feedback/:id）。
  *
@@ -19,6 +19,7 @@ import {
 import Top_navbar from '../../components/top_navbar.vue'
 import Page_footer from '../../components/page_footer.vue'
 import MarkdownView from '../../components/markdown_view.vue'
+import MarkdownEditer from '../../components/markdown_editer.vue'
 import FeedbackEditor from '../../components/feedback_editor.vue'
 import StatusDropdown from '../../components/status_dropdown.vue'
 import { useAuth } from '../../composables/useAuth'
@@ -299,12 +300,13 @@ watch(() => route.params.id, fetchDetail, { immediate: true })
           </ul>
 
           <div v-if="isLoggedIn" class="fbd-composer">
-            <textarea
+            <MarkdownEditer
               v-model="commentText"
-              class="fbd-comment-input"
+              class="fbd-comment-editor"
               :placeholder="t('feedback.commentPlaceholder')"
-              spellcheck="false"
-            ></textarea>
+              :min-height="140"
+              :disabled="submittingComment"
+            />
             <div class="fbd-composer-actions">
               <button type="button" class="fbd-submit" :disabled="submittingComment" @click="submitComment">
                 <span v-if="submittingComment" class="spinner"></span>
@@ -606,25 +608,8 @@ watch(() => route.params.id, fetchDetail, { immediate: true })
   gap: 10px;
 }
 
-.fbd-comment-input {
+.fbd-comment-editor {
   width: 100%;
-  min-height: 96px;
-  box-sizing: border-box;
-  padding: 12px 14px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  font-size: 14px;
-  line-height: 1.7;
-  resize: vertical;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.fbd-comment-input:focus {
-  border-color: var(--text-color);
 }
 
 .fbd-composer-actions {

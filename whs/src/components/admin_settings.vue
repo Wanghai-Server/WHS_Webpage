@@ -93,6 +93,64 @@ function onOverlayWheel(e) {
   panel.scrollTop += delta
 }
 
+// 手机端触摸滚动：表格 / 卡片等横向滚动容器会吞掉纵向手势，
+// 这里把纵向滑动转发给主对话框；横向滑动仍交给表格自身。
+let overlayTouch = null
+
+function onOverlayTouchStart(e) {
+  if (e.touches.length !== 1) {
+    overlayTouch = null
+    return
+  }
+  const t = e.touches[0]
+  overlayTouch = {
+    x: t.clientX,
+    y: t.clientY,
+    lastY: t.clientY,
+    axis: null,
+    panel: e.currentTarget.querySelector('.panel'),
+  }
+}
+
+function onOverlayTouchMove(e) {
+  const state = overlayTouch
+  if (!state || !state.panel || e.touches.length !== 1) return
+  const touch = e.touches[0]
+  const dx = touch.clientX - state.x
+  const dy = touch.clientY - state.y
+  if (!state.axis) {
+    if (Math.abs(dx) < 5 && Math.abs(dy) < 5) return
+    state.axis = Math.abs(dx) > Math.abs(dy) ? 'x' : 'y'
+  }
+  if (state.axis !== 'y') return
+
+  // 指针下有真正能纵向滚动的小容器（如代码块）时交给它
+  let el = e.target instanceof Element ? e.target : null
+  while (el && el !== state.panel) {
+    const style = getComputedStyle(el)
+    if (/(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight + 1) {
+      const down = touch.clientY < state.lastY
+      const canMove = down
+        ? el.scrollTop + el.clientHeight < el.scrollHeight - 1
+        : el.scrollTop > 0
+      if (canMove) {
+        state.lastY = touch.clientY
+        return
+      }
+    }
+    el = el.parentElement
+  }
+
+  const panel = state.panel
+  const delta = state.lastY - touch.clientY
+  state.lastY = touch.clientY
+  const atTop = panel.scrollTop <= 0
+  const atBottom = panel.scrollTop + panel.clientHeight >= panel.scrollHeight - 1
+  if ((delta < 0 && atTop) || (delta > 0 && atBottom)) return
+  panel.scrollTop += delta
+  e.preventDefault()
+}
+
 // ------------------------------------------------------------------
 // 用户管理（原表格逻辑迁入悬浮框）
 // ------------------------------------------------------------------
@@ -689,7 +747,13 @@ onUnmounted(() => {
     <!-- 用户管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showUserPanel" class="panel-overlay" @wheel="onOverlayWheel">
+        <div
+          v-if="showUserPanel"
+          class="panel-overlay"
+          @wheel="onOverlayWheel"
+          @touchstart="onOverlayTouchStart"
+          @touchmove="onOverlayTouchMove"
+        >
           <div class="panel">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.userEntry') }}</h2>
@@ -802,7 +866,13 @@ onUnmounted(() => {
     <!-- 考试管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showExamPanel" class="panel-overlay" @wheel="onOverlayWheel">
+        <div
+          v-if="showExamPanel"
+          class="panel-overlay"
+          @wheel="onOverlayWheel"
+          @touchstart="onOverlayTouchStart"
+          @touchmove="onOverlayTouchMove"
+        >
           <div class="panel">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examEntry') }}</h2>
@@ -885,7 +955,13 @@ onUnmounted(() => {
     <!-- 答题卡审阅悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showAnswerSheet" class="panel-overlay" @wheel="onOverlayWheel">
+        <div
+          v-if="showAnswerSheet"
+          class="panel-overlay"
+          @wheel="onOverlayWheel"
+          @touchstart="onOverlayTouchStart"
+          @touchmove="onOverlayTouchMove"
+        >
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examSheetTitle') }}</h2>
@@ -929,7 +1005,13 @@ onUnmounted(() => {
     <!-- 试卷管理悬浮框（在线编辑考试试卷） -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showExamConfigPanel" class="panel-overlay" @wheel="onOverlayWheel">
+        <div
+          v-if="showExamConfigPanel"
+          class="panel-overlay"
+          @wheel="onOverlayWheel"
+          @touchstart="onOverlayTouchStart"
+          @touchmove="onOverlayTouchMove"
+        >
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.examConfigEntry') }}</h2>
@@ -948,7 +1030,13 @@ onUnmounted(() => {
     <!-- 反馈管理悬浮框 -->
     <Teleport to="body">
       <Transition name="dialog-fade">
-        <div v-if="showFeedbackPanel" class="panel-overlay" @wheel="onOverlayWheel">
+        <div
+          v-if="showFeedbackPanel"
+          class="panel-overlay"
+          @wheel="onOverlayWheel"
+          @touchstart="onOverlayTouchStart"
+          @touchmove="onOverlayTouchMove"
+        >
           <div class="panel panel-wide">
             <header class="panel-head">
               <h2 class="panel-title">{{ t('admin.feedbackEntry') }}</h2>
@@ -1260,7 +1348,8 @@ onUnmounted(() => {
 }
 
 .panel-body {
-  flex: 1 0 auto;
+  /* 不参与拉伸：内容少时对话框跟随内容收缩，内容超高时由 .panel 统一滚动 */
+  flex: 0 0 auto;
   padding: 16px 20px;
 }
 
