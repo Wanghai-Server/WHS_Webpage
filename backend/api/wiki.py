@@ -9,12 +9,17 @@
 数据层抛出的 :class:`WikiDatabaseError`（如 slug 冲突、乐观锁冲突、子页删除）
 由 main.py 注册的全局异常处理器统一翻译为结构化 + 双语错误响应。
 """
+import io
+import re
+
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, UploadFile
 
 from api.media_upload import (
     ALLOWED_EXTS,
+    IMAGE_EXTS,
+    MAX_IMAGE_SIZE,
     file_ext,
     media_type,
     original_name,
@@ -467,3 +472,183 @@ async def wiki_upload(
 def wiki_upload_file(filename: str):
     """读取已上传的维基媒体文件（公开，供页面渲染播放）。"""
     return serve_upload(WIKI_UPLOAD_DIR, filename, "wiki_upload_not_found")
+
+
+# ---------------------------------------------------------------------------
+# 文档导入（Word / Excel -> Markdown）
+#
+# 作者上传 .docx / .xlsx，服务端转成 Markdown 正文返回，前端插进编辑器，
+# 由作者确认后再保存，避免格式问题直接写进词条。
+# 依赖 python-docx / openpyxl，未安装时返回 wiki_import_unavailable。
+# ---------------------------------------------------------------------------
+IMPORT_EXTS = {"docx", "xlsx"}
+IMPORT_MAX_SIZE = 10 * 1024 * 1024
+# 表格单元格总数上限，防止超大表把响应撑爆
+IMPORT_MAX_CELLS = 20000
+
+_HEADING_RE = re.compile(r"^(?:Heading|标题)\s*([1-6])$", re.IGNORECASE)
+_DOCX_BLIP = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+_DOCX_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+
+
+def _md_cell(value) -> str:
+    """表格单元格转义：竖线、反斜杠和换行都要处理，否则表格会散架。"""
+    text = "" if value is None else str(value)
+    return text.replace("\\", "\\\\").replace("|", "\\|").replace("\r", " ").replace("\n", " ").strip()
+
+
+def _rows_to_md(rows: list[list[str]]) -> str:
+    """二维表转 Markdown 表格；首行当表头，空表返回空串。"""
+    grid = [[_md_cell(c) for c in row] for row in rows if any(str(c or "").strip() for c in row)]
+    if not grid:
+        return ""
+    width = max(len(r) for r in grid)
+    grid = [r + [""] * (width - len(r)) for r in grid]
+    head = "| " + " | ".join(grid[0]) + " |"
+    sep = "| " + " | ".join(["---"] * width) + " |"
+    body = ["| " + " | ".join(r) + " |" for r in grid[1:]]
+    return "\n".join([head, sep] + body)
+
+
+def _save_import_image(blob: bytes, ext: str) -> str:
+    """把 Word 里的图片存进维基上传目录，返回可直接写进 Markdown 的地址。"""
+    if ext not in IMAGE_EXTS or len(blob) > MAX_IMAGE_SIZE:
+        return ""
+    name = save_upload(WIKI_UPLOAD_DIR, blob, ext)
+    return f"/api/wiki/upload/{name}"
+
+
+def _docx_runs_md(paragraph, doc) -> str:
+    """段落内按 run 拼 Markdown：保留粗体、斜体和图片。"""
+    parts = []
+    for run in paragraph.runs:
+        for blip in run._element.findall(f".//{_DOCX_BLIP}"):
+            rid = blip.get(_DOCX_EMBED)
+            part = doc.part.related_parts.get(rid) if rid else None
+            if part is None:
+                continue
+            url = _save_import_image(part.blob, (part.partname.ext or "png").lower())
+            if url:
+                parts.append(f"![]({url})")
+        text = run.text
+        if not text:
+            continue
+        core = text.strip()
+        if not core:
+            parts.append(text)
+            continue
+        if run.bold and run.italic:
+            core = f"***{core}***"
+        elif run.bold:
+            core = f"**{core}**"
+        elif run.italic:
+            core = f"*{core}*"
+        lead = text[: len(text) - len(text.lstrip())]
+        trail = text[len(text.rstrip()):]
+        parts.append(f"{lead}{core}{trail}")
+    return "".join(parts)
+
+
+def _docx_paragraph_md(paragraph, doc) -> str:
+    """单个段落 -> Markdown 块（标题 / 列表 / 引用 / 普通段落）。"""
+    style = (paragraph.style.name if paragraph.style is not None else "") or ""
+    body = _docx_runs_md(paragraph, doc).strip()
+    if not body:
+        return ""
+    heading = _HEADING_RE.match(style)
+    if heading:
+        return "#" * int(heading.group(1)) + " " + body
+    if style in ("Title", "标题"):
+        return "# " + body
+    low = style.lower()
+    if "list bullet" in low or "列表段落" in style:
+        return "- " + body
+    if "list number" in low or "列表编号" in style:
+        return "1. " + body
+    if "quote" in low or "引用" in style:
+        return "> " + body
+    return body
+
+
+def _docx_to_markdown(raw: bytes) -> str:
+    """Word 正文按原始顺序转 Markdown，表格和内嵌图片一并带过来。"""
+    from docx import Document
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+
+    doc = Document(io.BytesIO(raw))
+    blocks = []
+    for child in doc.element.body.iterchildren():
+        if child.tag.endswith("}p"):
+            md = _docx_paragraph_md(Paragraph(child, doc), doc)
+            if md:
+                blocks.append(md)
+        elif child.tag.endswith("}tbl"):
+            rows = [[cell.text for cell in row.cells] for row in Table(child, doc).rows]
+            md = _rows_to_md(rows)
+            if md:
+                blocks.append(md)
+    return "\n\n".join(blocks)
+
+
+def _xlsx_to_markdown(raw: bytes) -> str:
+    """每个工作表转一张 Markdown 表，多表时用二级标题分开。"""
+    from openpyxl import load_workbook
+
+    wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+    try:
+        sections = []
+        cells = 0
+        for ws in wb.worksheets:
+            rows = []
+            for row in ws.iter_rows(values_only=True):
+                cells += len(row)
+                if cells > IMPORT_MAX_CELLS:
+                    raise ValueError("too_many_cells")
+                values = ["" if v is None else str(v) for v in row]
+                if any(v.strip() for v in values):
+                    rows.append(values)
+            table = _rows_to_md(rows)
+            if table:
+                sections.append(f"## {ws.title}\n\n{table}")
+        return "\n\n".join(sections)
+    finally:
+        wb.close()
+
+
+@router.post("/api/wiki/import")
+async def wiki_import(
+    file: UploadFile = File(...),
+    user: dict | None = Depends(get_current_user),
+):
+    """把 Word / Excel 转成 Markdown 正文（不落库，由前端插入后再保存）。
+
+    - 仅接受 .docx / .xlsx，单文件上限 10MB；
+    - 表格单元格总数超过 20000 时拒绝；
+    - Word 内嵌图片会存进 ``data/wiki_upload/``，正文里替换为图片地址。
+    """
+    if user is None:
+        return _error_response("unauthorized", 401)
+    if (user.get("permission") or 0) < 2:
+        return _error_response("permission_denied", 403)
+    original = original_name(file.filename)
+    ext = file_ext(file.filename)
+    if ext not in IMPORT_EXTS:
+        return _error_response("wiki_import_unsupported", 400)
+    data = await read_upload(file, IMPORT_MAX_SIZE)
+    if data is None:
+        return _error_response("wiki_import_too_large", 413)
+    if not data:
+        return _error_response("wiki_import_unsupported", 400)
+    try:
+        markdown = _docx_to_markdown(data) if ext == "docx" else _xlsx_to_markdown(data)
+    except ImportError:
+        return _error_response("wiki_import_unavailable", 503)
+    except ValueError as exc:
+        if str(exc) == "too_many_cells":
+            return _error_response("wiki_import_too_many_cells", 413)
+        return _error_response("wiki_import_failed", 400)
+    except Exception:
+        # 损坏的压缩包、非 Office 文件等都会在这里被挡住
+        return _error_response("wiki_import_failed", 400)
+    return {"success": True, "markdown": markdown, "original": original}

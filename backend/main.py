@@ -378,6 +378,26 @@ def _clear_failures(uid: int) -> None:
 ERROR_MESSAGES = {
     **USER_DB_ERROR_MESSAGES,
     **WIKI_DB_ERROR_MESSAGES,
+    "wiki_import_unsupported": {
+        "zh": "只支持 .docx 和 .xlsx 文件",
+        "en": "Only .docx and .xlsx files are supported",
+    },
+    "wiki_import_too_large": {
+        "zh": "文件不能超过 10MB",
+        "en": "File must not exceed 10MB",
+    },
+    "wiki_import_too_many_cells": {
+        "zh": "表格内容过多，请拆分后再导入",
+        "en": "The spreadsheet has too many cells; please split it and try again",
+    },
+    "wiki_import_failed": {
+        "zh": "无法解析该文件，请确认它是正常的 Word / Excel 文档",
+        "en": "Could not parse the file; please make sure it is a valid Word or Excel document",
+    },
+    "wiki_import_unavailable": {
+        "zh": "服务器未安装文档转换组件，请联系管理员",
+        "en": "Document conversion is not available on the server; please contact the admin",
+    },
     "avatar_too_large": {
         "zh": "头像大小不能超过 2MB",
         "en": "Avatar must not exceed 2MB",
@@ -758,6 +778,11 @@ ERROR_STATUS: dict[str, int] = {
     "markdown_upload_unsupported": 400,
     "markdown_upload_too_large": 413,
     "markdown_upload_not_found": 404,
+    "wiki_import_unsupported": 400,
+    "wiki_import_too_large": 413,
+    "wiki_import_too_many_cells": 413,
+    "wiki_import_failed": 400,
+    "wiki_import_unavailable": 503,
     "wiki_redirect_invalid": 400,
     "wiki_redirect_not_found": 404,
     "feedback_not_found": 404,
