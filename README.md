@@ -589,7 +589,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | POST | `/api/wiki/disambig/rebuild` | ≥3 | 手动触发系统消歧义页重建 |
 | POST | `/api/wiki/upload` | 登录且 permission≥2 | 上传媒体（图片≤5MB / 视频≤50MB / 音频≤20MB） |
 | GET | `/api/wiki/upload/{filename}` | 公开 | 读取已上传媒体文件 |
-| POST | `/api/wiki/import` | 登录且 permission≥2 | 上传 `.docx` / `.xlsx`（≤10MB），返回转换后的 Markdown，不落库 |
+| POST | `/api/wiki/import` | 登录且 permission≥2 | 上传 `.docx` / `.xlsx`（≤30MB），返回转换后的 Markdown，不落库 |
 
 ### 6.12 在线地图（3 条）
 
