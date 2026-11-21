@@ -19,7 +19,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 97 条）
+6. HTTP API（共 98 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -123,6 +123,7 @@
 - 媒体上传：图片（≤5MB）/ 视频（≤50MB）/ 音频（≤20MB），插入 Markdown 后渲染为图片、`<video>`、`<audio>` 播放器；编辑器支持点击上传、粘贴文件与**全屏拖拽**上传，上传规则与全站 Markdown 编辑器共用同一套白名单 / 大小限制。
 - 颜色 / 格式代码：支持 MC 风格的 `§` 代码（全站 Markdown 通用，包括维基、反馈、消息、考试提示与用户简介）——`§0`–`§f` 为 MC 官方 16 色，`§#RRGGBB` 支持任意 HEX；`§l` 粗体、`§o` 斜体、`§n` 下划线、`§m` 删除线、`§r` 复位。代码块与行内代码内不解析；编辑器工具栏提供颜色下拉（选中文字上色并自动加 `§r`，光标处插入则按 MC 规则持续生效）；页面标题 / 搜索与列表摘要会自动剥离 `§` 代码。注意：颜色代码会重置格式，需要「颜色 + 粗体」时先写颜色再写格式（如 `§e§l文字`）。
 - 编辑器：保留双栏实时预览、语言切换、附件上传、拖拽分栏、未保存离开确认；语法插入 / 撤销 / 上传片段生成复用全站共享工具（`composables/markdown/insert.js`），预览使用统一渲染组件。
+- 文档导入：编辑器工具栏可直接选 `.docx` / `.xlsx`，服务端转成 Markdown 插到光标处，作者确认后再保存。Word 的标题层级、粗体斜体、项目符号/编号列表、引用、表格和内嵌图片都会保留（图片存进 `data/wiki_upload/`，正文替换为图片地址）；Excel 每个工作表转一张表，多表用二级标题分开。限制：单文件 ≤10MB、表格单元格总数 ≤20000。转换失败或文件损坏会提示，不会写坏现有正文。
 
 ### 全站搜索
 
@@ -199,7 +200,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 97 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 98 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -411,7 +412,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 97 条）
+## 6. HTTP API（共 98 条）
 
 ### 6.1 约定
 
@@ -568,7 +569,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 错误码：写接口字段类型不合法 → 400 `feedback_invalid_field`；`page` 超出范围 → 400 `feedback_page_invalid`；非法分类 / 状态 → 400 `feedback_category_invalid` / `feedback_status_invalid`。
 
-### 6.11 维基（16 条）
+### 6.11 维基（17 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
@@ -588,6 +589,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | POST | `/api/wiki/disambig/rebuild` | ≥3 | 手动触发系统消歧义页重建 |
 | POST | `/api/wiki/upload` | 登录且 permission≥2 | 上传媒体（图片≤5MB / 视频≤50MB / 音频≤20MB） |
 | GET | `/api/wiki/upload/{filename}` | 公开 | 读取已上传媒体文件 |
+| POST | `/api/wiki/import` | 登录且 permission≥2 | 上传 `.docx` / `.xlsx`（≤10MB），返回转换后的 Markdown，不落库 |
 
 ### 6.12 在线地图（3 条）
 
@@ -827,6 +829,7 @@ CREATE VIRTUAL TABLE wiki_fts USING fts5(
 | Markdown 编辑器媒体 | `data/markdown_upload/` | 图片 5MB / 视频 50MB / 音频 20MB | 与维基媒体相同（共用 `backend/api/media_upload.py` 的白名单与大小限制；上传需登录） |
 
 - 文件名使用随机 uuid，服务端保存时按声明的 Content-Type / 扩展名白名单校验，**不检查文件真实内容**。
+- 维基文档导入（`.docx` / `.xlsx`）不会写进上表目录，只有 Word 里内嵌的图片会落到 `data/wiki_upload/`，正文里替换成 `/api/wiki/upload/<uuid>.<ext>`。
 - 以上目录均被 `.gitignore` 忽略，部署与备份时需单独处理。
 
 ---
@@ -893,6 +896,7 @@ server {
 | 7777 | 后端 HTTP API | `127.0.0.1`（经反代对外） |
 | 5173 | 前端开发 / 预览服务器 | dev 默认 localhost；preview 为 `0.0.0.0` |
 | 8765 | 后端 ↔ MCDR 的 WS | `127.0.0.1`（由 `ws_port` 配置） |
+| 8100 | BlueMap 网页端（启用在线地图时） | `127.0.0.1`（由 nginx 反代 `/map3d/`） |
 
 ---
 

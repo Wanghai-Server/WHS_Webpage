@@ -115,6 +115,13 @@ export const wikiApi = {
     return request('/upload', { method: 'POST', body: form })
   },
 
+  // 把 Word / Excel 转成 Markdown 正文，返回 {markdown, original}
+  importDoc: (file) => {
+    const form = new FormData()
+    form.append('file', file)
+    return request('/import', { method: 'POST', body: form })
+  },
+
   deletePage: (slug) => request(`/page/${encodePath(slug)}`, { method: 'DELETE' }),
 
   restoreRevision: (revId) => request(`/revision/${revId}/restore`, { method: 'POST' }),
