@@ -8,6 +8,7 @@ import { useTips } from '../composables/useTips'
 import { useHcaptchaSiteKey } from '../composables/useHcaptchaSiteKey'
 import { sha256 } from '../composables/sha256'
 import { useEmailCode } from '../composables/useEmailCode'
+import { usePasswordStrength } from '../composables/usePasswordStrength'
 
 const props = defineProps({
   uid: { type: Number, required: true },
@@ -38,6 +39,21 @@ const step = ref('verify') // 'verify' | 'new'
 const loading = ref(false)
 const { sending: sendingCode, cooldown: sendCooldown, send: sendEmailCode } = useEmailCode()
 const visible = ref(true) // 控制进入/离开动画；关闭时先播放离开动画再通知父组件
+
+// 新密码强度：与注册页同一套规则（三条硬性要求 + 可选特殊字符）
+const {
+  rules: passwordRules,
+  hardRules: passwordHardRules,
+  level: passwordLevel,
+  percent: strengthPercent,
+  touch: touchPasswordStrength,
+} = usePasswordStrength(newPassword)
+
+const strengthClass = computed(() => passwordLevel.value || 'none')
+const strengthText = computed(() => {
+  if (!passwordLevel.value) return '—'
+  return t(`register.strength_${passwordLevel.value}`)
+})
 
 const CLOSE_MS = 260 // 略大于 dialog-fade 离开动画时长(250ms)，保证动画播完再卸载
 
@@ -120,9 +136,15 @@ async function goNext() {
 
 // 第二页 -> 提交新密码，成功后关闭组件
 async function changePassword() {
+  touchPasswordStrength()
   if (!newPassword.value) { showTip('warning', t('auth.password_required')); return }
-  if (newPassword.value !== confirmPassword.value) { showTip('warning', t('auth.password_mismatch')); return }
   if (!PASSWORD_ASCII_RE.test(newPassword.value)) { showTip('warning', t('auth.password_ascii')); return }
+  // 与注册一致：后端只能看到哈希，强度必须由前端校验（三条硬性要求都满足才允许提交）
+  if (!passwordHardRules.value.every((rule) => rule.ok)) {
+    showTip('warning', t('register.password_weak'))
+    return
+  }
+  if (newPassword.value !== confirmPassword.value) { showTip('warning', t('auth.password_mismatch')); return }
   loading.value = true
   try {
     const newHash = await sha256(newPassword.value)
@@ -249,6 +271,7 @@ onUnmounted(() => {
                 :type="showNewPasswords ? 'text' : 'password'"
                 placeholder=" "
                 autocomplete="new-password"
+                @blur="touchPasswordStrength"
               />
               <span class="float-label">{{ t('settings.newPassword') }}</span>
             </label>
@@ -261,6 +284,7 @@ onUnmounted(() => {
                 :type="showNewPasswords ? 'text' : 'password'"
                 placeholder=" "
                 autocomplete="new-password"
+                @blur="touchPasswordStrength"
               />
               <span class="float-label">{{ t('settings.confirmPassword') }}</span>
             </label>
@@ -276,6 +300,25 @@ onUnmounted(() => {
               <Eye v-else :size="18" />
             </button>
           </div>
+
+          <!-- 密码强度：与注册页一致的进度条 + 低/中/高三条硬性要求 -->
+          <div class="pwd-strength" :class="`strength-${strengthClass}`">
+            <div class="pwd-strength-track">
+              <span class="pwd-strength-fill" :style="{ width: `${strengthPercent}%` }"></span>
+            </div>
+            <span class="pwd-strength-label">{{ strengthText }}</span>
+          </div>
+
+          <ul class="pwd-rules">
+            <li
+              v-for="rule in passwordRules"
+              :key="rule.key"
+              :class="[`rule-${rule.state}`, { 'rule-optional': rule.optional }]"
+            >
+              <span class="rule-dot" aria-hidden="true"></span>
+              <span>{{ t(`register.rule_${rule.key}`) }}</span>
+            </li>
+          </ul>
 
           <div class="actions">
             <button class="btn primary" :disabled="loading" @click="changePassword">
@@ -393,5 +436,101 @@ onUnmounted(() => {
 .btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+/* 密码强度：短进度条 + 等级文字（与注册页一致） */
+.pwd-strength {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: -2px 0 10px;
+}
+
+.pwd-strength-track {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--float-bg);
+  overflow: hidden;
+}
+
+.pwd-strength-fill {
+  display: block;
+  height: 100%;
+  width: 0;
+  border-radius: 999px;
+  background: var(--links-color);
+  transition: width 0.2s ease, background-color 0.2s ease;
+}
+
+.pwd-strength-label {
+  min-width: 2.5em;
+  font-size: 12px;
+  line-height: 1;
+  text-align: right;
+  color: var(--links-color);
+}
+
+.strength-low .pwd-strength-fill {
+  background: #e5484d;
+}
+
+.strength-low .pwd-strength-label {
+  color: #e5484d;
+}
+
+.strength-middle .pwd-strength-fill {
+  background: #f59e0b;
+}
+
+.strength-middle .pwd-strength-label {
+  color: #f59e0b;
+}
+
+.strength-high .pwd-strength-fill {
+  background: #22c55e;
+}
+
+.strength-high .pwd-strength-label {
+  color: #22c55e;
+}
+
+/* 三条硬性要求 + 可选特殊字符 */
+.pwd-rules {
+  list-style: none;
+  margin: 0 0 16px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--links-color);
+}
+
+.pwd-rules li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.2s ease;
+}
+
+.rule-dot {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.rule-ok {
+  color: #22c55e;
+}
+
+.rule-error {
+  color: #e5484d;
+}
+
+.rule-optional {
+  opacity: 0.85;
 }
 </style>

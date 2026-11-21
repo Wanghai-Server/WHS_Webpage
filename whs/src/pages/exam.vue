@@ -2,13 +2,12 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import MarkdownIt from 'markdown-it'
-import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 import { FileText, TriangleAlert } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import ExamQuestion from '../components/exam_question.vue'
 import DocViewer from '../components/doc_viewer.vue'
+import MarkdownView from '../components/markdown_view.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { Copy } from 'lucide-vue-next'
@@ -19,13 +18,6 @@ const router = useRouter()
 const { t, locale } = useI18n()
 const { state: authState, fetchMe } = useAuth()
 const { showTip } = useTips()
-
-// Markdown 渲染（试卷说明 tips；html: false 防 XSS）
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-colorCodesPlugin(md)
-function renderTips(content) {
-  return md.render(content || '')
-}
 
 // 阶段：notice（试卷说明）-> profile（个人信息）-> answering（答题）-> done（完成）
 const stage = ref('notice')
@@ -355,7 +347,9 @@ onUnmounted(() => {
     <template v-else-if="stage === 'notice'">
       <section class="exam-card load-in">
         <h1 class="exam-title">{{ t('exam.noticeTitle') }}</h1>
-        <div v-if="examConfig?.tips" class="notice-content" v-html="renderTips(examConfig.tips)"></div>
+        <div v-if="examConfig?.tips" class="notice-content">
+          <MarkdownView :content="examConfig.tips" />
+        </div>
         <p v-else class="notice-empty">{{ t('exam.noticeEmpty') }}</p>
         <button
           v-if="examConfig?.tips_doc"

@@ -9,7 +9,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
-import WikiMarkdown from './wiki/wiki_markdown.vue'
+import MarkdownEditer from './markdown_editer.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 
@@ -30,7 +30,6 @@ const CATEGORIES = ['bug', 'suggestion', 'other']
 const title = ref('')
 const category = ref('other')
 const content = ref('')
-const preview = ref(false)
 const submitting = ref(false)
 
 const isEdit = computed(() => !!props.feedback)
@@ -65,7 +64,6 @@ function resetForm() {
     category.value = 'other'
     content.value = ''
   }
-  preview.value = false
   submitting.value = false
 }
 
@@ -150,21 +148,13 @@ async function submit() {
 
             <div class="fe-content-label">
               <span class="fe-label">{{ t('feedback.contentLabel') }}</span>
-              <button type="button" class="fe-preview-toggle" @click="preview = !preview">
-                {{ preview ? t('feedback.backToEdit') : t('feedback.preview') }}
-              </button>
             </div>
 
-            <textarea
-              v-if="!preview"
+            <MarkdownEditer
               v-model="content"
-              class="fe-textarea"
               :placeholder="t('feedback.contentPlaceholder')"
-              spellcheck="false"
-            ></textarea>
-            <div v-else class="fe-preview">
-              <WikiMarkdown :content="content" />
-            </div>
+              :min-height="200"
+            />
           </div>
 
           <footer class="fe-foot">
@@ -305,48 +295,6 @@ async function submit() {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-}
-
-.fe-preview-toggle {
-  border: none;
-  background: none;
-  color: var(--links-color);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
-
-.fe-preview-toggle:hover {
-  color: var(--text-color);
-}
-
-.fe-textarea {
-  width: 100%;
-  min-height: 200px;
-  box-sizing: border-box;
-  padding: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 12px;
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  line-height: 1.7;
-  resize: vertical;
-  outline: none;
-  transition: border-color 0.15s ease;
-}
-
-.fe-textarea:focus {
-  border-color: var(--text-color);
-}
-
-.fe-preview {
-  max-height: 300px;
-  overflow-y: auto;
-  padding: 14px;
-  border: 1px dashed rgba(148, 163, 184, 0.25);
-  border-radius: 12px;
 }
 
 .fe-foot {

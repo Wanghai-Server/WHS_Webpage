@@ -419,16 +419,29 @@ def exam_review(user: dict | None = Depends(get_current_user)):
     admins = [u for u in user_db.list_users() if (u.get("permission") or 0) >= 3]
 
     title = "答题卡重审申请"
+    title_en = "Answer Sheet Review Request"
     content = (
         f"用户 {target['username']}（UID {user['uid']}）申请重审答题卡。\n"
         f"游戏名称：{profile.get('player_name', '')}\n"
         f"当前得分：{obtained} / {cfg['total_score']}\n"
         f"请管理员前往「考试管理」查看该用户的答题卡。"
     )
+    content_en = (
+        f"User {target['username']} (UID {user['uid']}) has requested a review of their answer sheet.\n"
+        f"Game name: {profile.get('player_name', '')}\n"
+        f"Current score: {obtained} / {cfg['total_score']}\n"
+        f"Please open Exam Management to review this user's answer sheet."
+    )
     sent = 0
     for admin in admins:
         message_db.create_message(
-            title, content, user["uid"], scope="user", target_uid=admin["uid"]
+            title,
+            content,
+            user["uid"],
+            scope="user",
+            target_uid=admin["uid"],
+            title_en=title_en,
+            content_en=content_en,
         )
         _send_email(
             admin["email"],

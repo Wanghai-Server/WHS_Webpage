@@ -6,6 +6,7 @@ import { Pencil, UserRound, Trash2, LogOut } from 'lucide-vue-next'
 import ChangePassword from './change_password.vue'
 import CancelAccount from './cancel_account.vue'
 import ManageAccounts from './manage_accounts.vue'
+import MarkdownEditer from './markdown_editer.vue'
 import HcaptchaBox from './hcaptcha_box.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
@@ -40,16 +41,28 @@ async function logout() {
 
 // 基本资料（username / player_name 注册与加入时固定，不可修改）
 const fullname = ref(props.user.fullname || '')
-const gender = ref(props.user.gender ?? null)
-const year = ref(props.user.birthday_year ?? null)
-const month = ref(props.user.birthday_month ?? null)
-const day = ref(props.user.birthday_day ?? null)
+const gender = ref(props.user.gender ?? 'none') // 'none' | 'male' | 'female'
+const birthYear = ref('')
+const birthMonth = ref('')
+const birthDay = ref('')
+const yearInput = ref(null)
+const monthInput = ref(null)
+const dayInput = ref(null)
+
+const genderOptions = computed(() => [
+  { value: 'none', label: t('settings.none') },
+  { value: 'male', label: t('settings.male') },
+  { value: 'female', label: t('settings.female') },
+])
 
 // 简介
 const profile = ref(props.user.profile || '')
-const profileTextarea = ref(null)
+const profileEditorRef = ref(null)
 
-// 对话框开关（头像 / 邮箱 / 密码）
+// 对话框开关（简介 / 基本资料 / 游戏账户 / 头像 / 邮箱 / 密码）
+const showProfileDialog = ref(false)
+const showBasicDialog = ref(false)
+const showAccountsDialog = ref(false)
 const showAvatarDialog = ref(false)
 const showEmailDialog = ref(false)
 const showPasswordDialog = ref(false)
@@ -77,15 +90,6 @@ const savingBasic = ref(false)
 const savingProfile = ref(false)
 const { sending: emailSendingCode, cooldown: emailCooldown, send: sendEmailCodeRequest } = useEmailCode()
 
-const currentYear = new Date().getFullYear()
-const years = computed(() => {
-  const arr = []
-  for (let y = currentYear; y >= 1920; y--) arr.push(y)
-  return arr
-})
-const months = Array.from({ length: 12 }, (_, i) => i + 1)
-const days = Array.from({ length: 31 }, (_, i) => i + 1)
-
 // hCaptcha 主题跟随站点亮/暗色
 const captchaTheme = computed(() => {
   const html = document.documentElement
@@ -107,25 +111,153 @@ function authHeaders(extra = {}) {
   }
 }
 
-// 生日级联
-function onYearChange() {
-  if (year.value === null) {
-    month.value = null
-    day.value = null
-  } else if (month.value === null) {
-    day.value = null
+// ---------- 生日输入（与注册表单 full_user_info.vue 一致） ----------
+
+function pad2(n) {
+  return n == null ? '' : String(n).padStart(2, '0')
+}
+
+function focusBirth(kind) {
+  const map = { year: yearInput, month: monthInput, day: dayInput }
+  const el = map[kind] && map[kind].value
+  if (el) el.focus()
+}
+
+// 只保留数字；输入满 4/2/2 位后自动跳到下一个输入框
+function onBirthInput(kind, event) {
+  const max = kind === 'year' ? 4 : 2
+  const el = event.target
+  const digits = String(el.value || '').replace(/\D/g, '').slice(0, max)
+  if (el.value !== digits) el.value = digits
+  if (kind === 'year') birthYear.value = digits
+  else if (kind === 'month') birthMonth.value = digits
+  else birthDay.value = digits
+  if (digits.length === max) {
+    if (kind === 'year') focusBirth('month')
+    else if (kind === 'month') focusBirth('day')
   }
 }
 
-function onMonthChange() {
-  if (month.value === null) day.value = null
+// 非数字不键入；在空框按 Backspace 回到上一个框
+function onBirthKeydown(kind, event) {
+  if (event.ctrlKey || event.metaKey || event.altKey) return
+  if (event.key.length === 1 && !/[0-9]/.test(event.key)) {
+    event.preventDefault()
+    return
+  }
+  if (event.key === 'Backspace' && !event.target.value) {
+    if (kind === 'month') {
+      focusBirth('year')
+      event.preventDefault()
+    } else if (kind === 'day') {
+      focusBirth('month')
+      event.preventDefault()
+    }
+  }
+}
+
+// 粘贴：去掉非数字后按位数拆分（4=年，5/6=年月，7/8=年月日；7 位时给日补前导 0）
+function onBirthPaste(kind, event) {
+  event.preventDefault()
+  const digits = String(event.clipboardData?.getData('text') || '').replace(/\D/g, '')
+  if (!digits) return
+
+  if (kind === 'year') {
+    const year = digits.slice(0, 4)
+    let rest = digits.slice(4)
+    let month = ''
+    let day = ''
+    if (rest.length >= 2) {
+      month = rest.slice(0, 2)
+      rest = rest.slice(2)
+    } else if (rest.length === 1) {
+      month = `0${rest}`
+      rest = ''
+    }
+    if (rest.length >= 1) day = rest.slice(0, 2).padStart(2, '0')
+    birthYear.value = year
+    birthMonth.value = month
+    birthDay.value = day
+    nextTick(() => {
+      if (year.length < 4) focusBirth('year')
+      else if (day) focusBirth('day')
+      else if (month) focusBirth('day')
+      else focusBirth('month')
+    })
+    return
+  }
+
+  if (kind === 'month') {
+    birthMonth.value = digits.slice(0, 2)
+    const rest = digits.slice(2)
+    if (rest) birthDay.value = rest.slice(0, 2).padStart(2, '0')
+    nextTick(() => focusBirth('day'))
+    return
+  }
+
+  birthDay.value = digits.slice(0, 2)
+}
+
+// 级联：年空→整体不透露；年填月空→只存年；年月填日空→只存年月。
+// 年/月/日都填时校验真实日期，且不能是未来日期。
+function parseBirthday() {
+  let year = birthYear.value ? Number(birthYear.value) : null
+  let month = birthMonth.value ? Number(birthMonth.value) : null
+  let day = birthDay.value ? Number(birthDay.value) : null
+
+  if (year === null) {
+    month = null
+    day = null
+  }
+  if (month === null) day = null
+
+  if (year !== null) {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    if (year < 1900 || year > today.getFullYear()) return { error: 'invalid' }
+    if (month !== null && (month < 1 || month > 12)) return { error: 'invalid' }
+    if (month !== null && day !== null) {
+      const birthday = new Date(year, month - 1, day)
+      if (
+        birthday.getFullYear() !== year ||
+        birthday.getMonth() !== month - 1 ||
+        birthday.getDate() !== day
+      ) {
+        return { error: 'invalid' }
+      }
+      if (birthday.getTime() > today.getTime()) return { error: 'future' }
+    }
+  }
+  return { birthday_year: year, birthday_month: month, birthday_day: day }
+}
+
+// 按服务器当前值重置基本资料表单（打开悬浮窗、撤销时使用）
+function resetBasicFromUser() {
+  fullname.value = props.user.fullname || ''
+  gender.value = props.user.gender ?? 'none'
+  birthYear.value = props.user.birthday_year ? String(props.user.birthday_year) : ''
+  birthMonth.value = pad2(props.user.birthday_month)
+  birthDay.value = pad2(props.user.birthday_day)
+}
+
+function openBasicDialog() {
+  resetBasicFromUser()
+  showBasicDialog.value = true
+}
+
+// 简介悬浮窗（"Edit Profile" 也走这里：打开弹窗并聚焦输入框）
+function openProfileDialog() {
+  profile.value = props.user.profile || ''
+  showProfileDialog.value = true
+  nextTick(() => profileEditorRef.value?.focus())
+}
+
+function openAccountsDialog() {
+  showAccountsDialog.value = true
 }
 
 function focusProfile() {
-  nextTick(() => {
-    profileTextarea.value?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    profileTextarea.value?.focus()
-  })
+  openProfileDialog()
 }
 
 watch(
@@ -141,6 +273,12 @@ function handleKeydown(e) {
     showAvatarDialog.value = false
   } else if (showEmailDialog.value) {
     showEmailDialog.value = false
+  } else if (showProfileDialog.value) {
+    showProfileDialog.value = false
+  } else if (showBasicDialog.value) {
+    showBasicDialog.value = false
+  } else if (showAccountsDialog.value) {
+    showAccountsDialog.value = false
   }
 }
 
@@ -151,11 +289,7 @@ onMounted(() => {
 
 // 撤销基本资料修改（恢复为服务器当前值）
 function revertBasic() {
-  fullname.value = props.user.fullname || ''
-  gender.value = props.user.gender ?? null
-  year.value = props.user.birthday_year ?? null
-  month.value = props.user.birthday_month ?? null
-  day.value = props.user.birthday_day ?? null
+  resetBasicFromUser()
   showTip('info', t('settings.undone'))
 }
 
@@ -168,16 +302,29 @@ function revertProfile() {
 // 是否有未保存的更改（决定撤销按钮是否渲染）
 const profileDirty = computed(() => profile.value !== (props.user.profile || ''))
 
-const basicDirty = computed(() =>
-  fullname.value !== (props.user.fullname || '') ||
-  gender.value !== (props.user.gender ?? null) ||
-  year.value !== (props.user.birthday_year ?? null) ||
-  month.value !== (props.user.birthday_month ?? null) ||
-  day.value !== (props.user.birthday_day ?? null)
-)
+const basicDirty = computed(() => {
+  const birthday = parseBirthday()
+  if (birthday.error) return true
+  return (
+    fullname.value !== (props.user.fullname || '') ||
+    (gender.value === 'none' ? null : gender.value) !== (props.user.gender ?? null) ||
+    birthday.birthday_year !== (props.user.birthday_year ?? null) ||
+    birthday.birthday_month !== (props.user.birthday_month ?? null) ||
+    birthday.birthday_day !== (props.user.birthday_day ?? null)
+  )
+})
 
 // 保存基本资料
 async function saveBasic() {
+  const birthday = parseBirthday()
+  if (birthday.error === 'invalid') {
+    showTip('warning', t('register.birthday_invalid'))
+    return
+  }
+  if (birthday.error === 'future') {
+    showTip('warning', t('register.birthday_future'))
+    return
+  }
   savingBasic.value = true
   try {
     const res = await fetch(`/api/user/${props.user.uid}/info`, {
@@ -185,17 +332,19 @@ async function saveBasic() {
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({
         fullname: fullname.value.trim(),
-        gender: gender.value,
-        birthday_year: year.value,
-        birthday_month: month.value,
-        birthday_day: day.value,
+        gender: gender.value === 'none' ? null : gender.value,
+        birthday_year: birthday.birthday_year,
+        birthday_month: birthday.birthday_month,
+        birthday_day: birthday.birthday_day,
       }),
     })
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.basicSaved'))
+      showBasicDialog.value = false
       fetchMe() // 基本资料变更：刷新公共用户数据
       emit('saved')
+      resetBasicFromUser()
     } else {
       showTip('error', localMessage(data))
     }
@@ -219,6 +368,7 @@ async function saveProfile() {
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       showTip('info', t('settings.profileSaved'))
+      showProfileDialog.value = false
       fetchMe() // 简介变更：刷新公共用户数据
       emit('saved')
     } else {
@@ -355,71 +505,38 @@ onUnmounted(() => {
 
 <template>
   <section class="user-settings">
-    <!-- 个人简介 -->
+    <!-- 个人简介：一行式入口 + 悬浮窗编辑 -->
     <div class="settings-card load-in">
-      <h2 class="card-title">{{ t('settings.profile') }}</h2>
-      <textarea
-        ref="profileTextarea"
-        v-model="profile"
-        class="profile-input"
-        :placeholder="t('settings.profilePlaceholder')"
-      ></textarea>
-      <div class="card-actions">
-        <button v-if="profileDirty" class="btn ghost" :disabled="savingProfile" @click="revertProfile">
-          {{ t('settings.undo') }}
-        </button>
-        <button class="btn primary" :disabled="savingProfile" @click="saveProfile">
-          <span v-if="savingProfile" class="spinner"></span>
-          {{ t('settings.saveProfile') }}
+      <div class="setting-row">
+        <span class="row-title">{{ t('settings.profile') }}</span>
+        <button class="btn modify" @click="openProfileDialog">
+          <Pencil :size="16" />
+          <span>{{ t('settings.modify') }}</span>
         </button>
       </div>
     </div>
 
-    <!-- 基本资料（username / player_name 固定不可改） -->
+    <!-- 基本资料（username / player_name 固定不可改）：悬浮窗编辑，性别 / 生日与注册表单一致 -->
     <div class="settings-card load-in" style="--load-delay: 80ms">
-      <h2 class="card-title">{{ t('settings.basic') }}</h2>
-      <div class="field">
-        <label class="label">{{ t('settings.fullname') }}</label>
-        <input v-model="fullname" type="text" :placeholder="t('settings.fullname')" />
-      </div>
-      <div class="field">
-        <label class="label">{{ t('settings.gender') }}</label>
-        <select v-model="gender">
-          <option :value="null">{{ t('settings.none') }}</option>
-          <option value="male">{{ t('settings.male') }}</option>
-          <option value="female">{{ t('settings.female') }}</option>
-        </select>
-      </div>
-      <div class="field">
-        <label class="label">{{ t('settings.birthday') }}</label>
-        <div class="birthday-row">
-          <select v-model="year" @change="onYearChange">
-            <option :value="null">{{ t('settings.none') }}</option>
-            <option v-for="y in years" :key="y" :value="y">{{ y }}</option>
-          </select>
-          <select v-model="month" :disabled="year === null" @change="onMonthChange">
-            <option :value="null">{{ t('settings.none') }}</option>
-            <option v-for="m in months" :key="m" :value="m">{{ m }}</option>
-          </select>
-          <select v-model="day" :disabled="year === null || month === null">
-            <option :value="null">{{ t('settings.none') }}</option>
-            <option v-for="d in days" :key="d" :value="d">{{ d }}</option>
-          </select>
-        </div>
-      </div>
-      <div class="card-actions">
-        <button v-if="basicDirty" class="btn ghost" :disabled="savingBasic" @click="revertBasic">
-          {{ t('settings.undo') }}
-        </button>
-        <button class="btn primary" :disabled="savingBasic" @click="saveBasic">
-          <span v-if="savingBasic" class="spinner"></span>
-          {{ t('settings.saveBasic') }}
+      <div class="setting-row">
+        <span class="row-title">{{ t('settings.basic') }}</span>
+        <button class="btn modify" @click="openBasicDialog">
+          <Pencil :size="16" />
+          <span>{{ t('settings.modify') }}</span>
         </button>
       </div>
     </div>
 
-    <!-- 管理游戏账户（主账号 + 小号 + 正版标签） -->
-    <ManageAccounts :user="user" />
+    <!-- 管理游戏账户（主账号 + 小号 + 正版标签）：悬浮窗编辑 -->
+    <div class="settings-card load-in" style="--load-delay: 120ms">
+      <div class="setting-row">
+        <span class="row-title">{{ t('settings.manageAccounts') }}</span>
+        <button class="btn modify" @click="openAccountsDialog">
+          <Pencil :size="16" />
+          <span>{{ t('settings.modify') }}</span>
+        </button>
+      </div>
+    </div>
 
     <!-- 行式修改模块：头像 / 邮箱 / 密码 -->
     <div class="settings-card load-in" style="--load-delay: 160ms">
@@ -474,6 +591,139 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <!-- 个人简介悬浮窗 -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showProfileDialog" class="dialog-overlay">
+          <div class="dialog dialog-editor">
+            <h3 class="dialog-title">{{ t('settings.profile') }}</h3>
+            <MarkdownEditer
+              ref="profileEditorRef"
+              v-model="profile"
+              :placeholder="t('settings.profilePlaceholder')"
+              :min-height="180"
+            />
+            <div class="dialog-actions">
+              <button class="btn cancel" :disabled="savingProfile" @click="showProfileDialog = false">
+                {{ t('admin.cancel') }}
+              </button>
+              <button v-if="profileDirty" class="btn cancel" :disabled="savingProfile" @click="revertProfile">
+                {{ t('settings.undo') }}
+              </button>
+              <button class="btn primary" :disabled="savingProfile" @click="saveProfile">
+                <span v-if="savingProfile" class="spinner"></span>
+                {{ t('settings.saveProfile') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 基本资料悬浮窗（性别 / 生日与注册表单一致） -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showBasicDialog" class="dialog-overlay">
+          <div class="dialog">
+            <h3 class="dialog-title">{{ t('settings.basic') }}</h3>
+            <div class="field">
+              <label class="label">{{ t('settings.fullname') }}</label>
+              <input v-model="fullname" type="text" :placeholder="t('settings.fullname')" />
+            </div>
+            <div class="field">
+              <span class="label">{{ t('settings.gender') }}</span>
+              <div class="radio-row" role="radiogroup" :aria-label="t('settings.gender')">
+                <label
+                  v-for="opt in genderOptions"
+                  :key="opt.value"
+                  class="radio-item"
+                  :class="{ active: gender === opt.value }"
+                >
+                  <input v-model="gender" type="radio" name="settings-gender" :value="opt.value" />
+                  <span class="radio-dot" aria-hidden="true"></span>
+                  <span>{{ opt.label }}</span>
+                </label>
+              </div>
+            </div>
+            <div class="field">
+              <span class="label">{{ t('settings.birthday') }}</span>
+              <div class="birthday-row">
+                <input
+                  ref="yearInput"
+                  :value="birthYear"
+                  class="birth-input"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="4"
+                  placeholder="YYYY"
+                  aria-label="YYYY"
+                  @input="onBirthInput('year', $event)"
+                  @keydown="onBirthKeydown('year', $event)"
+                  @paste="onBirthPaste('year', $event)"
+                />
+                <span class="birth-sep" aria-hidden="true">/</span>
+                <input
+                  ref="monthInput"
+                  :value="birthMonth"
+                  class="birth-input"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="2"
+                  placeholder="MM"
+                  aria-label="MM"
+                  @input="onBirthInput('month', $event)"
+                  @keydown="onBirthKeydown('month', $event)"
+                  @paste="onBirthPaste('month', $event)"
+                />
+                <span class="birth-sep" aria-hidden="true">/</span>
+                <input
+                  ref="dayInput"
+                  :value="birthDay"
+                  class="birth-input"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="2"
+                  placeholder="DD"
+                  aria-label="DD"
+                  @input="onBirthInput('day', $event)"
+                  @keydown="onBirthKeydown('day', $event)"
+                  @paste="onBirthPaste('day', $event)"
+                />
+              </div>
+              <p class="birth-hint">{{ t('register.birthday_hint') }}</p>
+            </div>
+            <div class="dialog-actions">
+              <button class="btn cancel" :disabled="savingBasic" @click="showBasicDialog = false">
+                {{ t('admin.cancel') }}
+              </button>
+              <button v-if="basicDirty" class="btn cancel" :disabled="savingBasic" @click="revertBasic">
+                {{ t('settings.undo') }}
+              </button>
+              <button class="btn primary" :disabled="savingBasic" @click="saveBasic">
+                <span v-if="savingBasic" class="spinner"></span>
+                {{ t('settings.saveBasic') }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 管理游戏账户悬浮窗 -->
+    <Teleport to="body">
+      <Transition name="dialog-fade">
+        <div v-if="showAccountsDialog" class="dialog-overlay">
+          <div class="dialog dialog-wide">
+            <h3 class="dialog-title">{{ t('settings.manageAccounts') }}</h3>
+            <ManageAccounts :user="user" frameless />
+            <div class="dialog-actions">
+              <button class="btn cancel" @click="showAccountsDialog = false">{{ t('admin.cancel') }}</button>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- 头像对话框 -->
     <Teleport to="body">
@@ -580,13 +830,6 @@ onUnmounted(() => {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 
-.card-title {
-  margin: 0 0 16px;
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--text-color);
-}
-
 /* 行式修改模块：左标题 / 右修改按钮 */
 .setting-row {
   display: flex;
@@ -613,9 +856,7 @@ onUnmounted(() => {
   color: var(--links-color);
 }
 
-.field > input,
-.field select,
-.profile-input {
+.field input {
   width: 100%;
   box-sizing: border-box;
   padding: 12px 14px;
@@ -628,53 +869,98 @@ onUnmounted(() => {
   transition: border-color 0.2s ease;
 }
 
-.field select {
-  background: var(--card-color);
-  cursor: pointer;
-}
-
-.field select option {
-  background: var(--card-color);
-  color: var(--text-color);
-}
-
-.field select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.field > input:focus,
-.field select:focus,
-.profile-input:focus {
+.field input:focus {
   border-color: var(--text-color);
 }
 
-.profile-input {
-  min-height: 180px;
-  resize: vertical;
-  line-height: 1.6;
-}
-
-.birthday-row {
+/* 性别单选（与注册表单 full_user_info.vue 一致） */
+.radio-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
-.birthday-row select {
+.radio-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: var(--card-color);
+  color: var(--text-color);
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 0.2s ease;
+}
+
+.radio-item input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.radio-item:focus-within {
+  border-color: var(--text-color);
+}
+
+.radio-dot {
+  flex-shrink: 0;
+  position: relative;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid currentColor;
+  opacity: 0.6;
+}
+
+.radio-item.active .radio-dot {
+  border-color: var(--links-color);
+  opacity: 1;
+}
+
+.radio-item.active .radio-dot::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 50%;
+  background: var(--links-color);
+}
+
+.radio-item.active {
+  border-color: var(--links-color);
+}
+
+/* 生日输入（与注册表单 full_user_info.vue 一致） */
+.birthday-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.birth-input {
   flex: 1;
   min-width: 0;
+  text-align: center;
+}
+
+.birth-sep {
+  flex-shrink: 0;
+  color: var(--links-color);
+}
+
+.birth-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--links-color);
 }
 
 .code-row {
   display: flex;
   gap: 10px;
-}
-
-.card-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: 4px;
 }
 
 .h-captcha {
@@ -824,6 +1110,16 @@ onUnmounted(() => {
   margin: 0 0 16px;
   font-size: 18px;
   font-weight: 700;
+}
+
+/* 管理游戏账户悬浮窗：内容比普通表单宽 */
+.dialog-wide {
+  width: min(520px, 100%);
+}
+
+/* Markdown 编辑器弹窗：宽度足够放下标签 + 语法工具条，避免工具条换行导致高度跳动 */
+.dialog-editor {
+  width: min(760px, 100%);
 }
 
 /* 按钮靠左：取消在前，主操作在后 */

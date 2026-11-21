@@ -2,31 +2,21 @@
 /**
  * 维基 Markdown 渲染组件。
  *
- * - 输入 Markdown 原文，输出渲染后的 HTML（html:false 防 XSS）；
- * - 渲染时自动为标题生成 id 并解析目录，通过 outline 事件抛出；
- * - 统一承载维基正文的排版样式（标题/表格/代码块/引用/图片等）。
+ * - 渲染逻辑统一走 markdown_view.vue（全站共享管线：colorCodes / LaTeX /
+ *   mermaid / 代码高亮 / 媒体渲染 / 标题 id + 目录）；
+ * - 本组件只负责维基正文的排版样式层（.wiki-md）；
+ * - 渲染时自动为标题生成 id 并解析目录，通过 outline 事件抛出（Wiki 大纲复用）。
  */
-import { ref, watch } from 'vue'
-import { wikiMarkdown } from '../../composables/wiki/markdown.js'
+import MarkdownView from '../markdown_view.vue'
 
-const props = defineProps({
+defineProps({
   content: { type: String, default: '' },
 })
 const emit = defineEmits(['outline'])
-
-const html = ref('')
-
-function renderContent() {
-  const { html: rendered, outline } = wikiMarkdown.render(props.content)
-  html.value = rendered
-  emit('outline', outline)
-}
-
-watch(() => props.content, renderContent, { immediate: true })
 </script>
 
 <template>
-  <div class="wiki-md" v-html="html"></div>
+  <MarkdownView class="wiki-md" :content="content" @outline="emit('outline', $event)" />
 </template>
 
 <style scoped>
@@ -178,8 +168,8 @@ watch(() => props.content, renderContent, { immediate: true })
   margin: 0.5em 0;
 }
 
-/* 视频 / 音频（由上传媒体渲染规则生成） */
-.wiki-md :deep(video.wiki-media) {
+/* 视频 / 音频（由共享渲染管线的媒体渲染规则生成） */
+.wiki-md :deep(video.md-media) {
   display: block;
   max-width: 100%;
   max-height: 70vh;
@@ -188,13 +178,13 @@ watch(() => props.content, renderContent, { immediate: true })
   background: var(--float-bg);
 }
 
-.wiki-md :deep(audio.wiki-media) {
+.wiki-md :deep(audio.md-media) {
   display: block;
   width: 100%;
   margin: 0.5em 0;
 }
 
-.wiki-md :deep(.wiki-media-caption) {
+.wiki-md :deep(.md-media-caption) {
   margin: 4px 0 0.8em;
   font-size: 13px;
   color: var(--links-color);

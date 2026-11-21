@@ -20,6 +20,7 @@ import { useDialogBox } from '../../composables/useDialogBox'
 import { wikiApi, WikiApiError } from '../../composables/wiki/api.js'
 import { useWikiLocale } from '../../composables/wiki/locale.js'
 import { MC_COLORS } from '../../composables/markdown/colorCodes'
+import { buildMediaMarkdown, useMarkdownInsert } from '../../composables/markdown/insert'
 import WikiMarkdown from '../../components/wiki/wiki_markdown.vue'
 
 const { t } = useI18n()
@@ -136,11 +137,20 @@ onMounted(() => {
   }
   window.addEventListener('beforeunload', handleBeforeUnload)
   document.addEventListener('click', onToolbarDocClick)
+  // 全屏拖拽上传（Wiki 拖拽范围为整页）
+  window.addEventListener('dragenter', onWindowDragEnter)
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('dragleave', onWindowDragLeave)
+  window.addEventListener('drop', onWindowDrop)
 })
 
 onUnmounted(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
   document.removeEventListener('click', onToolbarDocClick)
+  window.removeEventListener('dragenter', onWindowDragEnter)
+  window.removeEventListener('dragover', onWindowDragOver)
+  window.removeEventListener('dragleave', onWindowDragLeave)
+  window.removeEventListener('drop', onWindowDrop)
   // 拖拽中途卸载时清理监听与全局样式
   dragging.value = false
   draggingH.value = false
@@ -207,82 +217,22 @@ function markEditorStable() {
   lastInputValue = text.value
 }
 
-function wrapSelection(before, after, placeholder) {
-  const ta = taRef.value
-  if (!ta) return
-  pushUndo()
-  const scrollTop = ta.scrollTop
-  const { selectionStart: s, selectionEnd: e } = ta
-  const selected = text.value.slice(s, e) || placeholder || ''
-  text.value = text.value.slice(0, s) + before + selected + after + text.value.slice(e)
-  markEditorStable()
-  requestAnimationFrame(() => {
-    ta.focus()
-    ta.setSelectionRange(s + before.length, s + before.length + selected.length)
-    // 程序化改值会重置滚动位置：DOM 更新后恢复，避免跳回顶部
-    ta.scrollTop = scrollTop
-  })
-}
-
-function insertLine(line, extraNewline = true) {
-  const ta = taRef.value
-  if (!ta) return
-  pushUndo()
-  const scrollTop = ta.scrollTop
-  const s = ta.selectionStart
-  const before = text.value.slice(0, s)
-  const nl = before.length && !before.endsWith('\n') ? '\n' : ''
-  const suffix = extraNewline ? '\n' : ''
-  text.value = before + nl + line + suffix + text.value.slice(s)
-  markEditorStable()
-  requestAnimationFrame(() => {
-    ta.focus()
-    ta.setSelectionRange(s + nl.length + line.length, s + nl.length + line.length)
-    ta.scrollTop = scrollTop
-  })
-}
-
 const taRef = ref(null)
 
-function insertLink() {
-  const ta = taRef.value
-  if (!ta) return
-  const scrollTop = ta.scrollTop
-  const s = ta.selectionStart
-  const e = ta.selectionEnd
-  pushUndo()
-  const sel = text.value.slice(s, e)
-  const markdown = sel ? `[${sel}](https://)` : '[链接](https://)'
-  text.value = text.value.slice(0, s) + markdown + text.value.slice(e)
-  markEditorStable()
-  requestAnimationFrame(() => {
-    ta.focus()
-    ta.setSelectionRange(s, s + markdown.length)
-    ta.scrollTop = scrollTop
-  })
-}
-
-function insertImage() {
-  const ta = taRef.value
-  if (!ta) return
-  const scrollTop = ta.scrollTop
-  const s = ta.selectionStart
-  const e = ta.selectionEnd
-  pushUndo()
-  const sel = text.value.slice(s, e)
-  const markdown = sel ? `![${sel}](https://)` : '![图片描述](https://)'
-  text.value = text.value.slice(0, s) + markdown + text.value.slice(e)
-  markEditorStable()
-  requestAnimationFrame(() => {
-    ta.focus()
-    ta.setSelectionRange(s, s + markdown.length)
-    ta.scrollTop = scrollTop
-  })
-}
-
-function insertTable() {
-  insertLine('| 列1 | 列2 | 列3 |\n| --- | --- | --- |\n|  |  |  |', false)
-}
+// 语法插入操作复用全站共享工具（与 Markdown 编辑器组件同一套实现）
+const {
+  wrapSelection,
+  insertLine,
+  insertBlock,
+  insertTable,
+  insertLink,
+  insertImage,
+  insertHeading: insertHeadingLine,
+  insertColorCode: insertColorMarkdown,
+} = useMarkdownInsert(text, taRef, {
+  beforeChange: pushUndo,
+  afterChange: markEditorStable,
+})
 
 // H 下拉：H1-H6 标题
 const headingsOpen = ref(false)
@@ -290,9 +240,9 @@ function toggleHeadings() {
   colorsOpen.value = false
   headingsOpen.value = !headingsOpen.value
 }
-function insertHeading(n) {
+function pickHeading(n) {
   headingsOpen.value = false
-  insertLine('#'.repeat(n) + ' ')
+  insertHeadingLine(n)
 }
 
 // § 颜色 / 格式代码下拉（MC 官方 16 色 + §r 复位）
@@ -302,26 +252,9 @@ function toggleColors() {
   headingsOpen.value = false
   colorsOpen.value = !colorsOpen.value
 }
-function insertColorCode(code) {
+function pickColor(code) {
   colorsOpen.value = false
-  const ta = taRef.value
-  if (!ta) return
-  pushUndo()
-  const scrollTop = ta.scrollTop
-  const s = ta.selectionStart
-  const e = ta.selectionEnd
-  const selected = text.value.slice(s, e)
-  const prefix = `§${code}`
-  // 有选中：§code + 选中文字 + §r（只作用于选中部分）；无选中：仅插入代码，后续输入按 MC 规则继续生效
-  const insert = selected ? `${prefix}${selected}§r` : prefix
-  text.value = text.value.slice(0, s) + insert + text.value.slice(e)
-  markEditorStable()
-  requestAnimationFrame(() => {
-    ta.focus()
-    ta.setSelectionRange(s + prefix.length, s + prefix.length + selected.length)
-    // 程序化改值会重置滚动位置：DOM 更新后恢复，避免跳回顶部
-    ta.scrollTop = scrollTop
-  })
+  insertColorMarkdown(code)
 }
 
 // 点击工具条外部时关闭 H / 颜色下拉
@@ -333,48 +266,73 @@ function onToolbarDocClick(e) {
   }
 }
 
-// ---------------- 媒体上传 ----------------
+// ---------------- 媒体上传（点击 / 粘贴 / 拖拽） ----------------
 
 const fileInputRef = ref(null)
 const uploading = ref(false)
 
-// 在光标处插入一段 Markdown（用于上传结果）
-function insertMarkdownAtCursor(markdown) {
-  const ta = taRef.value
-  if (!ta) return
-  const scrollTop = ta.scrollTop
-  const s = ta.selectionStart
-  const e = ta.selectionEnd
-  pushUndo()
-  text.value = text.value.slice(0, s) + markdown + text.value.slice(e)
-  markEditorStable()
-  requestAnimationFrame(() => {
-    ta.focus()
-    ta.setSelectionRange(s + markdown.length, s + markdown.length)
-    ta.scrollTop = scrollTop
-  })
-}
-
-async function onFileChange(e) {
-  const file = e.target.files && e.target.files[0]
-  e.target.value = '' // 允许重复选择同一文件
-  if (!file || uploading.value) return
+// 依次上传并插入媒体 Markdown（复用共享片段生成：图片 / 视频 / 音频）
+async function uploadFiles(fileList) {
+  const files = Array.from(fileList || [])
+  if (!files.length || uploading.value || denied.value) return
   uploading.value = true
   try {
-    const data = await wikiApi.upload(file)
-    if (!data || !data.url) throw new Error(t('pages.wiki.loadError'))
-    const snippet =
-      data.type === 'image'
-        ? `![图片描述](${data.url})`
-        : data.type === 'video'
-          ? `![视频](${data.url})`
-          : `![音频](${data.url})`
-    insertMarkdownAtCursor(snippet)
+    for (const file of files) {
+      const data = await wikiApi.upload(file)
+      if (!data || !data.url) throw new Error(t('pages.wiki.loadError'))
+      insertBlock(buildMediaMarkdown(data.url, data.type))
+    }
   } catch (err) {
     await showSaveError(err)
   } finally {
     uploading.value = false
   }
+}
+
+async function onFileChange(e) {
+  const files = e.target.files ? Array.from(e.target.files) : []
+  e.target.value = '' // 允许重复选择同一文件
+  await uploadFiles(files)
+}
+
+// 编辑器内粘贴文件：直接上传并插入
+function onEditorPaste(e) {
+  const files = e.clipboardData && e.clipboardData.files
+  if (files && files.length) {
+    e.preventDefault()
+    uploadFiles(files)
+  }
+}
+
+// 全屏拖拽上传：拖入文件时显示整页蒙层
+const dragOverEditor = ref(false)
+let editorDragDepth = 0
+function hasFileDrag(e) {
+  const types = e.dataTransfer && e.dataTransfer.types
+  return !!types && Array.from(types).includes('Files')
+}
+function onWindowDragEnter(e) {
+  if (!hasFileDrag(e) || denied.value) return
+  e.preventDefault()
+  editorDragDepth += 1
+  dragOverEditor.value = true
+}
+function onWindowDragOver(e) {
+  if (!hasFileDrag(e)) return
+  e.preventDefault()
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+}
+function onWindowDragLeave(e) {
+  if (!hasFileDrag(e)) return
+  editorDragDepth = Math.max(0, editorDragDepth - 1)
+  if (editorDragDepth === 0) dragOverEditor.value = false
+}
+function onWindowDrop(e) {
+  if (!hasFileDrag(e)) return
+  e.preventDefault()
+  editorDragDepth = 0
+  dragOverEditor.value = false
+  uploadFiles(e.dataTransfer && e.dataTransfer.files)
 }
 
 // ---------------- 双栏拖拽调整大小 ----------------
@@ -718,7 +676,7 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
               :key="n"
               type="button"
               class="dd-item"
-              @click="insertHeading(n)"
+              @click="pickHeading(n)"
             >
               <span class="dd-h" :class="`is-h${n}`">H{{ n }}</span>
             </button>
@@ -766,9 +724,9 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
               :style="{ backgroundColor: c.hex }"
               :title="`§${c.code} ${t('pages.wiki.editor.colors.' + c.name)}`"
               :aria-label="`§${c.code} ${t('pages.wiki.editor.colors.' + c.name)}`"
-              @click="insertColorCode(c.code)"
+              @click="pickColor(c.code)"
             ></button>
-            <button type="button" class="color-reset" @click="insertColorCode('r')">
+            <button type="button" class="color-reset" @click="pickColor('r')">
               §r {{ t('pages.wiki.editor.colorReset') }}
             </button>
           </div>
@@ -809,6 +767,7 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
         ref="fileInputRef"
         type="file"
         class="file-input"
+        multiple
         accept=".png,.jpg,.jpeg,.webp,.gif,.mp4,.webm,.mov,.mp3,.wav,.ogg,.m4a,.aac,.flac"
         @change="onFileChange"
       />
@@ -841,6 +800,7 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
           :placeholder="t('pages.wiki.editor.contentPlaceholder')"
           spellcheck="false"
           @input="onTextareaInput"
+          @paste="onEditorPaste"
           @scroll="syncScroll"
         ></textarea>
       </div>
@@ -874,6 +834,12 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
       @pointerdown="onHeightPointerDown"
     >
       <GripHorizontal :size="16" />
+    </div>
+
+    <!-- 全屏拖拽上传蒙层（Wiki 拖拽范围为整页） -->
+    <div v-if="dragOverEditor" class="drag-mask" aria-hidden="true">
+      <Upload :size="32" />
+      <span>{{ t('pages.wiki.editor.dropHint') }}</span>
     </div>
 
     <!-- 冲突弹窗 -->
@@ -1371,9 +1337,25 @@ const charCount = computed(() => text.value.replace(/\s/g, '').length)
   box-sizing: border-box;
 }
 
-/* 冲突弹窗 */
-.conflict-mask {
+/* 全屏拖拽上传蒙层 */
+.drag-mask {
   position: fixed;
+  inset: 0;
+  z-index: 2500;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border: 3px dashed var(--notice-color);
+  background: rgba(11, 29, 58, 0.6);
+  color: #f5f5f5;
+  font-size: 16px;
+  pointer-events: none;
+}
+
+/* 冲突弹窗 */
+.conflict-mask {  position: fixed;
   inset: 0;
   z-index: 3000;
   display: flex;

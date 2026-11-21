@@ -12,6 +12,8 @@ import { useTips } from '../composables/useTips'
 //   与小号列表（可添加/注销，最多两个，正版标签在创建时选择）。
 const props = defineProps({
   user: { type: Object, required: true }, // { uid, permission, ... }
+  // 嵌入悬浮窗时使用：去掉外层卡片样式与标题，由宿主对话框提供容器
+  frameless: { type: Boolean, default: false },
 })
 
 const { t, locale } = useI18n()
@@ -186,8 +188,8 @@ async function saveMainPremium() {
 </script>
 
 <template>
-  <div class="settings-card load-in" style="--load-delay: 120ms">
-    <h2 class="card-title">{{ t('settings.manageAccounts') }}</h2>
+  <div :class="frameless ? 'accounts-frameless' : 'settings-card load-in'" :style="frameless ? null : '--load-delay: 120ms'">
+    <h2 v-if="!frameless" class="card-title">{{ t('settings.manageAccounts') }}</h2>
 
     <!-- 非正式成员：引导参加入服考试 -->
     <button v-if="!isMember" type="button" class="btn primary" @click="goExam">
@@ -338,6 +340,13 @@ async function saveMainPremium() {
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
 }
 
+/* 悬浮窗内嵌：去掉卡片外壳，只保留内容间距 */
+.accounts-frameless {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .card-title {
   margin: 0;
   font-size: 18px;
@@ -471,10 +480,11 @@ async function saveMainPremium() {
 }
 
 /* 弹窗（与全站毛玻璃惯例一致：遮罩半透明+轻模糊，面板 navbar 半透明底+12px 模糊） */
+/* z-index 高于设置页的悬浮窗（9500），作为悬浮窗内的二级弹窗时不会被遮住 */
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  z-index: 5000;
+  z-index: 9600;
   display: flex;
   align-items: center;
   justify-content: center;

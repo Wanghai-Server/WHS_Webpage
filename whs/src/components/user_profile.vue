@@ -1,20 +1,13 @@
 <script setup>
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import MarkdownIt from 'markdown-it'
-import { colorCodesPlugin } from '../composables/markdown/colorCodes'
+import MarkdownView from './markdown_view.vue'
 
 const props = defineProps({
   user: { type: Object, required: true },
 })
 
 const { t } = useI18n()
-
-// html: false —— 源文本中的 HTML 会被转义，防止 XSS；linkify/breaks 提升阅读体验
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-colorCodesPlugin(md)
-
-const renderedProfile = computed(() => md.render(props.user.profile || ''))
 
 const genderLabel = computed(() => {
   if (props.user.gender === 'male') return t('user.male')
@@ -51,7 +44,7 @@ const birthdayLabel = computed(() => {
 
     <!-- 真正的个人简介（Markdown 渲染） -->
     <div class="profile-body load-in" style="--load-delay: 160ms">
-      <div v-if="props.user.profile" class="markdown" v-html="renderedProfile"></div>
+      <MarkdownView v-if="props.user.profile" class="markdown" :content="props.user.profile" />
       <p v-else class="empty">{{ t('user.noProfile') }}</p>
     </div>
   </section>
@@ -72,7 +65,9 @@ const birthdayLabel = computed(() => {
 
 .fact {
   display: inline-flex;
-  align-items: center;
+  /* 中文标签（CJK 字形）与数字/拉丁文字的行框高度不同，居中会让两者视觉错位；
+     按基线对齐后中英文标签都与右侧数值对齐 */
+  align-items: baseline;
   gap: 10px;
   padding: 10px 16px;
   border-radius: 12px;

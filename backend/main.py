@@ -666,6 +666,18 @@ ERROR_MESSAGES = {
         "zh": "评论内容过长（最多 20000 字符）",
         "en": "Comment content is too long (max 20000 characters)",
     },
+    "markdown_upload_unsupported": {
+        "zh": "该文件类型不支持上传",
+        "en": "This file type cannot be uploaded",
+    },
+    "markdown_upload_too_large": {
+        "zh": "文件超过大小限制（图片 5MB / 视频 50MB / 音频 20MB）",
+        "en": "File exceeds the size limit (image 5MB / video 50MB / audio 20MB)",
+    },
+    "markdown_upload_not_found": {
+        "zh": "文件不存在",
+        "en": "File not found",
+    },
 }
 
 # 错误码 -> HTTP 状态码。
@@ -743,6 +755,9 @@ ERROR_STATUS: dict[str, int] = {
     "wiki_upload_unsupported": 400,
     "wiki_upload_too_large": 413,
     "wiki_upload_not_found": 404,
+    "markdown_upload_unsupported": 400,
+    "markdown_upload_too_large": 413,
+    "markdown_upload_not_found": 404,
     "wiki_redirect_invalid": 400,
     "wiki_redirect_not_found": 404,
     "feedback_not_found": 404,
@@ -1157,11 +1172,25 @@ def _notify_exam_passed(uid: int, admin_uid: int) -> None:
     if target is None:
         return
     title = "入服考试通过通知"
+    title_en = "Exam Passed Notification"
     content = (
         f"恭喜 {target['username']}！经管理员复审，你已通过"
         f"《望海服务器二周目审核问卷》，正式加入望海服务器，祝你游戏愉快！"
     )
-    message_db.create_message(title, content, admin_uid, scope="user", target_uid=uid)
+    content_en = (
+        f"Congratulations {target['username']}! After an administrator review, you have passed "
+        f"the Wanghai Server review questionnaire and officially joined the Wanghai Server. "
+        f"Have fun!"
+    )
+    message_db.create_message(
+        title,
+        content,
+        admin_uid,
+        scope="user",
+        target_uid=uid,
+        title_en=title_en,
+        content_en=content_en,
+    )
     _send_email(
         target["email"],
         f"[望海服务器] 入服考试通过 - {target['username']}",
@@ -1183,6 +1212,7 @@ from api.avatar import router as avatar_router
 from api.exam import router as exam_router
 from api.feedback import router as feedback_router
 from api.map import router as map_router
+from api.markdown import router as markdown_router
 from api.message import router as message_router
 from api.search import router as search_router
 from api.server import router as server_router
@@ -1201,3 +1231,4 @@ app.include_router(server_router)
 app.include_router(map_router)
 app.include_router(search_router)
 app.include_router(wiki_router)
+app.include_router(markdown_router)

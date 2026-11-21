@@ -9,14 +9,20 @@
 数据层抛出的 :class:`WikiDatabaseError`（如 slug 冲突、乐观锁冲突、子页删除）
 由 main.py 注册的全局异常处理器统一翻译为结构化 + 双语错误响应。
 """
-import mimetypes
-import re
-import uuid
 from pathlib import Path
 
 from fastapi import APIRouter, Body, Depends, File, UploadFile
-from fastapi.responses import FileResponse
 
+from api.media_upload import (
+    ALLOWED_EXTS,
+    file_ext,
+    media_type,
+    original_name,
+    read_upload,
+    save_upload,
+    serve_upload,
+    size_limit,
+)
 from data.main.database.wiki_database import (
     DEFAULT_MIN_PERMISSION,
     LANGS,
@@ -37,15 +43,6 @@ PERMISSION_ADMIN = 3
 # 媒体上传：文件保存到 data/wiki_upload/（已加入 .gitignore）
 # ---------------------------------------------------------------------------
 WIKI_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "data" / "wiki_upload"
-
-IMAGE_EXTS = {"png", "jpg", "jpeg", "webp", "gif"}
-VIDEO_EXTS = {"mp4", "webm", "mov"}
-AUDIO_EXTS = {"mp3", "wav", "ogg", "m4a", "aac", "flac"}
-ALLOWED_EXTS = IMAGE_EXTS | VIDEO_EXTS | AUDIO_EXTS
-
-# 各类型大小上限（字节）：图片 5MB / 视频 50MB / 音频 20MB
-MAX_UPLOAD_SIZE = 5 * 1024 * 1024
-_UPLOAD_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,119}$")
 
 
 def _normalize_lang(lang: str) -> str:
@@ -428,16 +425,10 @@ def wiki_rebuild_disambig(user: dict | None = Depends(get_current_user)):
 
 # ---------------------------------------------------------------------------
 # 媒体上传（编辑时插入图片 / 视频 / 音频）
+#
+# 白名单 / 大小限制 / 落盘与读取逻辑与全站 Markdown 编辑器共用
+# （api/media_upload.py），仅存储目录与权限要求不同。
 # ---------------------------------------------------------------------------
-
-
-def _upload_media_type(ext: str) -> str:
-    """扩展名 -> 媒体类型（image / video / audio）。"""
-    if ext in IMAGE_EXTS:
-        return "image"
-    if ext in VIDEO_EXTS:
-        return "video"
-    return "audio"
 
 
 @router.post("/api/wiki/upload")
@@ -455,42 +446,24 @@ async def wiki_upload(
         return _error_response("unauthorized", 401)
     if (user.get("permission") or 0) < 2:
         return _error_response("permission_denied", 403)
-    original = (file.filename or "").replace("\\", "/").rsplit("/", 1)[-1]
-    ext = (original.rsplit(".", 1)[-1] if "." in original else "").lower()
+    ext = file_ext(file.filename)
     if ext not in ALLOWED_EXTS:
         return _error_response("wiki_upload_unsupported", 400)
-    # 流式读取并限制大小（1MB 分块）
-    limit = MAX_UPLOAD_SIZE if ext in IMAGE_EXTS else (
-        50 * 1024 * 1024 if ext in VIDEO_EXTS else 20 * 1024 * 1024
-    )
-    data = bytearray()
-    while True:
-        chunk = await file.read(1024 * 1024)
-        if not chunk:
-            break
-        data.extend(chunk)
-        if len(data) > limit:
-            return _error_response("wiki_upload_too_large", 413)
+    data = await read_upload(file, size_limit(ext))
+    if data is None:
+        return _error_response("wiki_upload_too_large", 413)
     if not data:
         return _error_response("wiki_upload_unsupported", 400)
-    WIKI_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}.{ext}"
-    (WIKI_UPLOAD_DIR / name).write_bytes(bytes(data))
+    name = save_upload(WIKI_UPLOAD_DIR, data, ext)
     return {
         "success": True,
         "url": f"/api/wiki/upload/{name}",
-        "type": _upload_media_type(ext),
-        "original": original,
+        "type": media_type(ext),
+        "original": original_name(file.filename),
     }
 
 
 @router.get("/api/wiki/upload/{filename}")
 def wiki_upload_file(filename: str):
     """读取已上传的维基媒体文件（公开，供页面渲染播放）。"""
-    if _UPLOAD_NAME_RE.fullmatch(filename or "") is None:
-        return _error_response("wiki_upload_not_found", 404)
-    path = WIKI_UPLOAD_DIR / filename
-    if not path.is_file():
-        return _error_response("wiki_upload_not_found", 404)
-    media_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=media_type)
+    return serve_upload(WIKI_UPLOAD_DIR, filename, "wiki_upload_not_found")

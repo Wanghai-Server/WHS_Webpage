@@ -212,14 +212,19 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 | `clipboard.js` | `copyText(text)` | 复制到剪贴板（Clipboard API 不可用时回退 textarea） |
 | `wiki/api.js` | `wikiApi`、`WikiApiError` | 维基 API 封装：自动附 token、自动带 `lang`，异常统一带 `code` |
 | `wiki/locale.js` | `useWikiLocale()` → `{ lang }` | 维基内容语言（跟随全局 i18n），内容接口按 `lang` 实时请求 |
-| `wiki/markdown.js` | `wikiMarkdown.render(content)` → `{ html, outline }`、`buildOutlineTree(items)` | 维基 Markdown 渲染管线（标题 id、目录、音视频媒体） |
-| `markdown/colorCodes.js` | `colorCodesPlugin(md)`、`MC_COLORS` | 全站 `§` 颜色 / 格式代码插件，与其他 markdown-it 实例组合使用 |
+| `wiki/markdown.js` | `wikiMarkdown.render(content)` → `{ html, outline }`、`buildOutlineTree(items)` | 维基 Markdown 兼容层：`wikiMarkdown` 即统一 `siteMarkdown`，只额外保留目录树组装函数 |
+| `markdown/renderer.js` | `siteMarkdown`、`renderMarkdown(content, locale)`、`resolveMarkdownContent`、`displayLanguage`、`COPY_ICON` / `CHECK_ICON` | 全站唯一 Markdown 渲染管线：`§` 颜色、LaTeX、mermaid、代码块占位、媒体、标题 id / 目录、外链；**不要在组件里再 `new MarkdownIt(...)`** |
+| `markdown/insert.js` | `useMarkdownInsert(textRef, taRef, hooks)`、`buildMediaMarkdown(url, type)` | 语法提示插入 / 包裹选区 / 插入表格 / 链接 / 图片 / `§` 颜色；编辑器与维基编辑器共用（维基通过 hooks 接撤销栈） |
+| `markdown/upload.js` | `uploadMarkdownFile(file)`、`MARKDOWN_UPLOAD_ACCEPT`、`MARKDOWN_UPLOAD_LIMITS`、`mediaKindOf` | 通用 Markdown 编辑器上传（`/api/markdown/upload`）；类型 / 大小常量与后端、维基保持一致 |
+| `markdown/colorCodes.js` | `colorCodesPlugin(md)`、`MC_COLORS` | 全站 `§` 颜色 / 格式代码插件；只由统一渲染管线注册，不要单独组合到自建实例 |
 
 #### 6.1.2 Markdown 与颜色代码
 
-- 全站 Markdown 统一配置：`new MarkdownIt({ html: false, linkify: true, breaks: true })` + `colorCodesPlugin(md)`；**不要开启 `html: true`**，否则会有存储型 XSS 风险。
-- 消息详情、发布预览、个人简介、考试说明等处各自创建实例（可参考 `message_detail.vue` / `message_box.vue`）；维基正文走 `wikiMarkdown`（额外提供标题 id / 目录 / 媒体渲染）。
-- 渲染容器可加 `class="md-content"` 复用全局 `.md-content` 排版样式（表格、代码、引用、图片等），样式定义在 `whs/src/style.css`；维基正文使用 `wiki_markdown.vue` 的 scoped 样式。
+- **渲染**：一律使用 `components/markdown_view.vue`（内部走 `markdown/renderer.js`）。它负责 `§` 颜色、LaTeX（KaTeX）、mermaid、代码块语法高亮、媒体、标题 id / 目录、外链与复制按钮。**不要在任何组件里再 `new MarkdownIt(...)`**，也不要另写渲染 HTML 的管线；`html: true` 一律禁止（存储型 XSS）。
+- **编辑器**：一律使用 `components/markdown_editer.vue`（编辑 / 预览标签页、语法工具条、上传 / 粘贴 / 拖拽、代码块语言栏与复制、mermaid 复制）。属性：`modelValue`、`multilingual`（默认 `false`；传 `true` 时 v-model 为 `{zh,en}` 对象）、`lang`（受控编辑语言，配合 `showLangSwitch=false` 由外层统一切换）、`placeholder`、`minHeight`、`disabled`、`ariaLabel`；`ref.focus()` 可聚焦输入框。新增 Markdown 输入位置时不要再用裸 `<textarea>` 自己拼预览。
+- **上传**：编辑器媒体走 `markdown/upload.js` → `POST /api/markdown/upload`，文件存 `data/markdown_upload/`；类型 / 大小与维基相同（图片 5MB / 视频 50MB / 音频 20MB），后端规则集中在 `backend/api/media_upload.py`。
+- **维基**：正文渲染用 `wiki_markdown.vue`（内部就是 `markdown_view.vue`，只额外提供 `.wiki-md` 排版与 `outline` 事件）；维基编辑器保留自己的双栏 / 保存 / 撤销逻辑，但语法插入复用 `markdown/insert.js`，上传片段复用 `buildMediaMarkdown()`，不要复制一套。
+- **样式**：统一正文样式在 `whs/src/style.css` 的 `.md-body`（标题、表格、代码块、公式 / mermaid 容器、高亮配色、复制按钮）；维基排版在 `wiki_markdown.vue` 的 scoped `.wiki-md` 中覆盖。新增 Markdown 位置直接套用这两种，不要另写一套排版。
 - `§` 语法：`§0`–`§f`、`§#RRGGBB`、`§l/§o/§n/§m`、`§r`；颜色代码会重置格式（与 MC 语义一致），纯文本场景（标题 / 摘要 / 搜索片段）用后端 `strip_mc_color_codes` 剥离。修改语法时需同时改前端 `colorCodes.js` 与后端 `data/main/database/text_utils.py`。
 
 #### 6.1.3 全局组件与组件目录（`whs/src/components/`）
@@ -228,9 +233,10 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - 导航与公共：`top_navbar`（导航、用户下拉、消息悬浮按钮）、`page_footer`、`global_search`、`user_dropdown`、`tabs`、`status_dropdown`、`hcaptcha_box`。
 - **hCaptcha 统一使用 `hcaptcha_box.vue`**：它负责跨域 iframe 的宽度适配（够宽居中、更窄等比缩放）并提供 `reset()`（`ref.reset()`）；新增人机验证时不要再直接使用 `@hcaptcha/vue3-hcaptcha`，也不要再写 `iframe { width: 100% }`。
 - 账号：`login` / `register` / `forgot_password` / `full_user_info` / `username_suggestion` / `change_password` / `cancel_account` / `user_settings` / `manage_accounts` / `user_profile` / `basic_user_info` / `follow_list` / `player_info`。
-- 消息：`message_box`（消息中心 + 发布 / 编辑 / 预览）、`message_detail`（Markdown 详情）。
-- 反馈：`feedback_editor`（Markdown 编辑 + 预览）。
-- 考试：`exam_question`（答题 / 附件上传）、`exam_editor`（管理端编辑 + 预览）、`doc_viewer`（DOCX 文档渲染）。
+- Markdown：`markdown_editer`（通用编辑器，所有 Markdown 输入统一使用）、`markdown_view`（统一渲染 + KaTeX / mermaid / 高亮增强 + 复制按钮）。两者是 Markdown 功能的唯一入口，不要在页面里重复实现。
+- 消息：`message_box`（消息中心 + 发布 / 编辑，正文用 `markdown_editer`，标题 / 正文均为双语对象）、`message_detail`（Markdown 详情，用 `markdown_view`，标题按站点语言解析）。
+- 反馈：`feedback_editor`（新建 / 编辑，正文用 `markdown_editer`）。
+- 考试：`exam_question`（答题 / 附件上传）、`exam_editor`（管理端编辑；试卷说明用 `markdown_editer`）、`doc_viewer`（DOCX 文档渲染）。
 - 维基：`wiki_markdown` / `wiki_outline` / `wiki_outline_node` / `wiki_search` / `wiki_page_404`。
 - 管理：`admin_settings` / `admin_user_panel` / `joinus_tips`。
 
@@ -240,6 +246,8 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 
 - `whs/src/style.css` 定义主题 CSS 变量（`--bg-color`、`--card-color`、`--text-color`、`--links-color`、`--notice-color`、`--float-bg` 及 `*-rgb` 版本），深色模式由 `html.dark` 与系统 `prefers-color-scheme` 共同控制。
 - **不要硬编码颜色**，使用现有变量以保证深 / 浅色主题一致；新增变量需同时补齐 `:root`、`html.dark` 与 `prefers-color-scheme` 三处。
+- Markdown 正文样式统一在 `style.css` 的 `.md-body`（含代码块 / 语言栏 / 复制按钮 / 公式 / mermaid / 高亮配色），维基在 `wiki_markdown.vue` 的 `.wiki-md` 覆盖；新增 Markdown 展示位置不要再复制一套排版。
+- 管理端悬浮框（`admin_settings.vue`）约定为单滚动容器：`.panel` 自身滚动，头部与翻页栏随内容滚动、不吸顶、不叠加背景色；打开时锁定背景页面滚动。新增弹窗不要恢复成 `.panel` + `.panel-body` 双层滚动。
 - 移动端约定：底部弹层使用 20px 顶部圆角、`min-height: 20vh` / `max-height: 80vh` 或类似范围、`overscroll-behavior: contain`；弹层层级参考现有 z-index（消息层 3000、发布层 9500、悬浮按钮 2500）。
 - 动画优先使用已有 `.load-in` 等类，并尊重 `prefers-reduced-motion`。
 
@@ -309,6 +317,21 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - `backend/ws_server.py` 的 `WsCommandServer`：`register("命令名")` 注册 `async handler(data) -> Any`，`start()` / `stop()` 由 FastAPI lifespan 管理，服务端主动请求用 `await ws_server.request(...)`（同步上下文用 `main.ws_request_sync`）。
 - 协议：请求 `{request_id, command, data}`，响应 `{request_id, success, data}`；新增指令需**前后端 + MCDR 插件同时改**，并更新 README §7。
 
+#### 6.2.5 媒体上传（`backend/api/media_upload.py`）
+
+- 白名单、大小限制（图片 5MB / 视频 50MB / 音频 20MB）、流式读取、随机 UUID 文件名、读取时文件名校验与 MIME 推断统一在 `media_upload.py`；`wiki.py`（`data/wiki_upload/`，permission≥2）与 `markdown.py`（`data/markdown_upload/`，登录即可）都复用它。
+- 新增上传接口时**不要复制常量或另写落盘逻辑**；路由只需指定目录、权限与错误码前缀。
+- 错误码统一为 `*_upload_unsupported`（400）/ `*_upload_too_large`（413）/ `*_upload_not_found`（404），新增错误码必须同时登记 `ERROR_MESSAGES` / `ERROR_STATUS`。
+- 上传只校验声明的类型 / 大小与扩展名，**不校验文件真实内容**（与现有头像 / 维基上传一致）。
+
+#### 6.2.6 消息双语（系统消息 + 定向消息）
+
+- `messages` 表：`title` / `content` 为中文（主语言），`title_en` / `content_en` 为英文；旧库启动时自动补列，旧消息英文为空、展示时回退中文。
+- API 响应由 `backend/api/message.py` 的 `_serialize_message()` 统一输出 `{zh, en}` 对象；发布 / 编辑接受 `{title:{zh,en}, content:{zh,en}}`，同时兼容旧版字符串（按中文处理）。
+- 校验：每个语言标题 ≤100、正文 ≤20000 字符；至少一种语言非空，错误码沿用 `message_title_empty` / `message_content_empty`。
+- **新增定向消息**（考试通知等）必须同时提供中英文：`message_db.create_message(..., title_en=..., content_en=...)`，不要只写中文；前端展示统一用 `resolveMarkdownContent(value, locale)` 做语言回退。
+- 管理端编辑器使用 `MarkdownEditer` 的 `multilingual` + 受控 `lang` + `:show-lang-switch="false"`，由外层语言切换同时控制标题输入与正文编辑器。
+
 ### 6.3 数据层（`data/`）
 
 #### 6.3.1 基类与连接模型
@@ -369,7 +392,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - **后端**：PEP 8、4 空格缩进、类型注解与中文 docstring（与现有代码一致）；路由函数默认同步（FastAPI 线程池），仅在需要异步 IO 时使用 `async def`。
 - **数据层**：手写参数化 SQL（无 ORM）；连接 / 迁移逻辑复用基类；错误码集中在异常类与 `main.py` 的错误码表。
 - **注释**：解释「为什么」而不是「是什么」；不要提交调试输出、临时测试数据、被注释掉的大段代码。
-- **依赖**：后端追加依赖写入 `backend/requirements.txt`（保持版本下限风格）；前端仅在后端无现成能力或生态必要的时候新增依赖，并在 PR 中说明理由。
+- **依赖**：后端追加依赖写入 `backend/requirements.txt`（保持版本下限风格）；前端仅在后端无现成能力或生态必要的时候新增依赖，并在 PR 中说明理由。Markdown 渲染增强已引入 `highlight.js` / `katex` / `mermaid`（均按需懒加载），新增 Markdown 相关功能优先复用现有管线，不要重复引入同类高亮 / 公式 / 图表库。
 
 ---
 
@@ -378,7 +401,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 以下路径已被 `.gitignore` 忽略，**不要**用 `git add -f` 强行提交：
 
 - `backend/venv/`、`whs/node_modules/`、`whs/dist/`、`__pycache__/`
-- `data/config.json`、`data/whs_config.json`、`data/exam.yml`、`data/database/`、`data/avatar/`、`data/exam_image/`、`data/exam_upload/`、`data/wiki_upload/`
+- `data/config.json`、`data/whs_config.json`、`data/exam.yml`、`data/database/`、`data/avatar/`、`data/exam_image/`、`data/exam_upload/`、`data/wiki_upload/`、`data/markdown_upload/`
 - `logs/`、`*.mcdr`、`*.zip`
 - `SMTP/`、`pseudo_mcdr/`、`mcdr_connecter_plugin/whitelist_api/`、`mcdr_connecter_plugin/online_player_api/`
 - 本地工具 / 截图 / 报告产物目录（不要提交）
@@ -396,6 +419,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 | 新增 / 修改 HTTP 接口 | README §6（含鉴权列、错误码） |
 | WebSocket 协议 / MCDR 指令 | README §7、§8 |
 | 数据表 / 字段 / 迁移 | README §9 |
+| 消息双语结构 / 编辑器多语言 | README §2「Markdown 体系」「消息中心」、§6.6、§9 |
 | 配置项 | README §5.2 |
 | 上传目录 / 大小限制 | README §10 |
 | 部署方式 / 端口 / 依赖 | README §11 |

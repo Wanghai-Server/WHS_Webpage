@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Maximize2, Minimize2, Users, Map as MapIcon } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
+import StatusDropdown from '../components/status_dropdown.vue'
 import { useAuth } from '../composables/useAuth'
 
 const { t } = useI18n()
@@ -40,6 +41,9 @@ const viewerSrc = computed(() => {
   const y = startY.value + 20
   return `${viewer.value}#${activeMap.value}:${x}:${y}:${z}:150:0:1.1:0:0:perspective`
 })
+
+// 站点通用下拉组件（status_dropdown.vue）的选项格式
+const mapOptions = computed(() => maps.value.map((m) => ({ value: m.id, label: m.name })))
 
 function authHeaders() {
   return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
@@ -242,17 +246,19 @@ onBeforeUnmount(() => {
           <strong>{{ playerCount }}</strong>
         </span>
 
-        <label v-if="maps.length > 1" class="map-select-wrap">
-          <MapIcon :size="15" class="map-select-icon" aria-hidden="true" />
-          <select
-            v-model="activeMap"
-            class="map-select"
-            :aria-label="t('map.title')"
-            @change="onMapChange"
-          >
-            <option v-for="m in maps" :key="m.id" :value="m.id">{{ m.name }}</option>
-          </select>
-        </label>
+        <StatusDropdown
+          v-if="maps.length > 1"
+          v-model="activeMap"
+          :options="mapOptions"
+          variant="select"
+          class="map-select"
+          :aria-label="t('map.title')"
+          @update:model-value="onMapChange"
+        >
+          <template #prefix>
+            <MapIcon :size="15" class="map-select-icon" aria-hidden="true" />
+          </template>
+        </StatusDropdown>
 
         <button
           v-if="available && loaded && !immersive"
@@ -329,7 +335,6 @@ onBeforeUnmount(() => {
 .map-page {
   position: relative;
   isolation: isolate;
-  max-width: 1500px;
   margin: 0 auto;
   padding: 88px 28px 56px;
   box-sizing: border-box;
@@ -341,9 +346,6 @@ onBeforeUnmount(() => {
   z-index: -1;
   inset: 0;
   pointer-events: none;
-  background:
-    radial-gradient(circle at 86% 2%, rgba(235, 170, 40, 0.12), transparent 30%),
-    radial-gradient(circle at 8% 6%, rgba(124, 139, 158, 0.09), transparent 26%);
 }
 
 .map-head {
@@ -432,49 +434,18 @@ onBeforeUnmount(() => {
   font-weight: 800;
 }
 
-.map-select-wrap {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  border: 1px solid var(--float-bg);
-  border-radius: 12px;
-  background: var(--card-color);
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.04);
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+/* 地图选择：使用站点通用下拉组件（status_dropdown.vue，variant=select） */
+.map-select {
+  max-width: 100%;
 }
 
-.map-select-wrap:focus-within {
-  border-color: rgba(235, 170, 40, 0.55);
-  box-shadow: 0 0 0 3px rgba(235, 170, 40, 0.12);
+.map-select :deep(.sd-btn) {
+  max-width: 260px;
 }
 
 .map-select-icon {
-  position: absolute;
-  left: 12px;
-  z-index: 1;
+  flex-shrink: 0;
   color: var(--links-color);
-  pointer-events: none;
-}
-
-.map-select {
-  height: 38px;
-  max-width: 220px;
-  padding: 0 30px 0 34px;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text-color);
-  font: inherit;
-  font-size: 13px;
-  cursor: pointer;
-  appearance: none;
-}
-
-.map-select:focus-visible {
-  outline: 2px solid var(--text-color);
-  outline-offset: -2px;
-  border-radius: 12px;
 }
 
 .map-fullscreen {
@@ -812,9 +783,12 @@ onBeforeUnmount(() => {
   }
 
   .map-live,
-  .map-fullscreen,
-  .map-select-wrap {
+  .map-fullscreen {
     min-height: 38px;
+  }
+
+  .map-select :deep(.sd-btn) {
+    height: 38px;
   }
 
   .map-fullscreen {

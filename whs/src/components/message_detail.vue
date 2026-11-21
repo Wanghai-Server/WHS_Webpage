@@ -1,29 +1,23 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import MarkdownIt from 'markdown-it'
-import { colorCodesPlugin } from '../composables/markdown/colorCodes'
 import { ArrowLeft, X } from 'lucide-vue-next'
+import { resolveMarkdownContent } from '../composables/markdown/renderer'
+import MarkdownView from './markdown_view.vue'
 
 const props = defineProps({
   message: { type: Object, required: true },
 })
 const emit = defineEmits(['close', 'back'])
 
-const { t } = useI18n()
-
-// Markdown 渲染（html: false 防 XSS）
-const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
-colorCodesPlugin(md)
+const { t, locale } = useI18n()
 
 const visible = ref(true) // 控制进入/离开动画
 const CLOSE_MS = 260
 
-const title = computed(() => props.message.title || t('message.untitled'))
-
-function renderContent(content) {
-  return md.render(content || '')
-}
+const title = computed(
+  () => resolveMarkdownContent(props.message.title, locale.value) || t('message.untitled')
+)
 
 function formatTime(iso) {
   if (!iso) return ''
@@ -92,7 +86,7 @@ onUnmounted(() => {
           </div>
 
           <div class="detail-body">
-            <div class="detail-content md-content" v-html="renderContent(props.message.content)"></div>
+            <MarkdownView class="detail-content md-content" :content="props.message.content" />
           </div>
         </div>
       </div>
