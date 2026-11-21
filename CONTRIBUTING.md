@@ -235,7 +235,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - 账号：`login` / `register` / `forgot_password` / `full_user_info` / `username_suggestion` / `change_password` / `cancel_account` / `user_settings` / `manage_accounts` / `user_profile` / `basic_user_info` / `follow_list` / `player_info`。
 - Markdown：`markdown_editer`（通用编辑器，所有 Markdown 输入统一使用）、`markdown_view`（统一渲染 + KaTeX / mermaid / 高亮增强 + 复制按钮）。两者是 Markdown 功能的唯一入口，不要在页面里重复实现。
 - 消息：`message_box`（消息中心 + 发布 / 编辑，正文用 `markdown_editer`，标题 / 正文均为双语对象）、`message_detail`（Markdown 详情，用 `markdown_view`，标题按站点语言解析）。
-- 反馈：`feedback_editor`（新建 / 编辑，正文用 `markdown_editer`）。
+- 反馈：`feedback_editor`（新建 / 编辑，正文用 `markdown_editer`）；反馈详情页的评论回复同样使用 `markdown_editer`，评论内容用 `markdown_view` 渲染。
 - 考试：`exam_question`（答题 / 附件上传）、`exam_editor`（管理端编辑；试卷说明用 `markdown_editer`）、`doc_viewer`（DOCX 文档渲染）。
 - 维基：`wiki_markdown` / `wiki_outline` / `wiki_outline_node` / `wiki_search` / `wiki_page_404`。
 - 管理：`admin_settings` / `admin_user_panel` / `joinus_tips`。
@@ -247,7 +247,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - `whs/src/style.css` 定义主题 CSS 变量（`--bg-color`、`--card-color`、`--text-color`、`--links-color`、`--notice-color`、`--float-bg` 及 `*-rgb` 版本），深色模式由 `html.dark` 与系统 `prefers-color-scheme` 共同控制。
 - **不要硬编码颜色**，使用现有变量以保证深 / 浅色主题一致；新增变量需同时补齐 `:root`、`html.dark` 与 `prefers-color-scheme` 三处。
 - Markdown 正文样式统一在 `style.css` 的 `.md-body`（含代码块 / 语言栏 / 复制按钮 / 公式 / mermaid / 高亮配色），维基在 `wiki_markdown.vue` 的 `.wiki-md` 覆盖；新增 Markdown 展示位置不要再复制一套排版。
-- 管理端悬浮框（`admin_settings.vue`）约定为单滚动容器：`.panel` 自身滚动，头部与翻页栏随内容滚动、不吸顶、不叠加背景色；打开时锁定背景页面滚动。新增弹窗不要恢复成 `.panel` + `.panel-body` 双层滚动。
+- 管理端悬浮框（`admin_settings.vue`）约定为单滚动容器：`.panel` 自身滚动，`.panel-body` 不参与拉伸（内容少时高度跟随内容，内容超高才滚动），头部与翻页栏随内容滚动、不吸顶、不叠加背景色；打开时锁定背景页面滚动。手机端在表格等横向滚动容器内的纵向滑动由 `onOverlayTouchMove` 转发给主对话框，横向滑动保留给容器自身；新增弹窗不要恢复成 `.panel` + `.panel-body` 双层滚动。
 - 移动端约定：底部弹层使用 20px 顶部圆角、`min-height: 20vh` / `max-height: 80vh` 或类似范围、`overscroll-behavior: contain`；弹层层级参考现有 z-index（消息层 3000、发布层 9500、悬浮按钮 2500）。
 - 动画优先使用已有 `.load-in` 等类，并尊重 `prefers-reduced-motion`。
 
