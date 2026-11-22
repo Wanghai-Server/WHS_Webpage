@@ -711,6 +711,7 @@ onBeforeUnmount(() => {
         <p class="preview-hint">{{ t('transit.edit.previewHint') }}</p>
       </section>
 
+      <Transition name="sheet">
       <aside v-if="showPanel" class="panel panel-detail" :class="{ 'is-sheet': isMobile }">
         <header class="detail-head">
           <h2>{{ selectedLine ? t('transit.edit.line') : selectedStation ? t('transit.edit.station') : t('transit.edit.create') }}</h2>
@@ -878,11 +879,12 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </aside>
+      </Transition>
     </div>
 
-    <Transition name="modal-fade">
+    <Transition name="dialog-fade">
     <div v-if="showHistory" class="modal-overlay is-glass" @click.self="showHistory = false">
-      <section class="modal">
+      <section class="modal dialog">
         <header class="modal-head">
           <h2>{{ t('transit.edit.historyTitle') }}</h2>
           <button type="button" class="icon-btn" @click="showHistory = false"><X :size="16" /></button>
@@ -909,9 +911,9 @@ onBeforeUnmount(() => {
     </div>
     </Transition>
 
-    <Transition name="modal-fade">
+    <Transition name="dialog-fade">
     <div v-if="conflict" class="modal-overlay is-glass">
-      <section class="modal">
+      <section class="modal dialog">
         <header class="modal-head">
           <h2>{{ t('transit.edit.conflictTitle') }}</h2>
           <button type="button" class="icon-btn" :aria-label="t('transit.edit.cancel')" @click="closeConflict"><X :size="16" /></button>
@@ -940,9 +942,9 @@ onBeforeUnmount(() => {
     </div>
     </Transition>
 
-    <Transition name="modal-fade">
+    <Transition name="dialog-fade">
     <div v-if="addStationOpen" class="modal-overlay is-glass" @click.self="addStationOpen = false">
-      <section class="modal">
+      <section class="modal dialog">
         <header class="modal-head">
           <h2>{{ t('transit.edit.addStationTitle') }}</h2>
           <button type="button" class="icon-btn" :aria-label="t('transit.edit.cancel')" @click="addStationOpen = false"><X :size="16" /></button>
@@ -1018,10 +1020,21 @@ onBeforeUnmount(() => {
 }
 
 .back-btn {
-  height: 32px;
-  padding: 0 11px;
+  height: 34px;
+  padding: 0 12px;
   font-size: 12px;
   text-decoration: none;
+}
+
+.head-actions .btn-ghost,
+.head-actions .btn-primary {
+  height: 34px;
+  padding: 0 12px;
+}
+
+.summary-input {
+  height: 34px;
+  box-sizing: border-box;
 }
 
 .edit-head h1 {
@@ -1496,10 +1509,11 @@ onBeforeUnmount(() => {
   max-height: 84vh;
   padding: 16px;
   overflow: auto;
-  background: rgba(var(--card-color-rgb), 0.78);
-  -webkit-backdrop-filter: blur(18px) saturate(1.15);
-  backdrop-filter: blur(18px) saturate(1.15);
-  border: 1px solid rgba(var(--text-color-rgb), 0.14);
+  /* 与全站 dialog_box 同款背景 / 毛玻璃 */
+  background: var(--navbar-bg);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(148, 163, 184, 0.15);
   border-radius: 14px;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
 }
@@ -1617,30 +1631,6 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
-/* 与全站 dialog-fade 一致的弹窗动画 */
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.2s ease;
-}
-
-.modal-fade-enter-active .modal,
-.modal-fade-leave-active .modal {
-  transition:
-    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
-    opacity 0.25s ease;
-}
-
-.modal-fade-enter-from,
-.modal-fade-leave-to {
-  opacity: 0;
-}
-
-.modal-fade-enter-from .modal,
-.modal-fade-leave-to .modal {
-  opacity: 0;
-  transform: translateY(12px) scale(0.96);
-}
-
 .search-field {
   display: flex;
   align-items: center;
@@ -1693,9 +1683,9 @@ onBeforeUnmount(() => {
 
 /* 通用弹窗的毛玻璃版本 */
 .modal-overlay.is-glass {
-  background: rgba(0, 0, 0, 0.32);
-  -webkit-backdrop-filter: blur(6px);
-  backdrop-filter: blur(6px);
+  background: rgba(0, 0, 0, 0.4);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
 }
 
 .is-glass .modal {
@@ -1775,9 +1765,36 @@ onBeforeUnmount(() => {
     bottom: 0;
     left: 0;
     z-index: 65;
-    max-height: 82vh;
-    border-radius: 18px 18px 0 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    /* 与全站弹窗 / 导航同款背景与毛玻璃 */
+    background: var(--navbar-bg);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    border-radius: 20px 20px 0 0;
     box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.3);
+  }
+
+  /* 底部抽屉滑入 / 滑出（曲线与时长对齐全站 dialog-fade） */
+  .sheet-enter-active,
+  .sheet-leave-active {
+    transition:
+      transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.2s ease;
+  }
+
+  .sheet-enter-from,
+  .sheet-leave-to {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sheet-enter-active,
+    .sheet-leave-active {
+      transition: none;
+    }
   }
 }
 </style>
