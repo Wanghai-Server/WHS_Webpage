@@ -683,6 +683,23 @@ def check_transit() -> None:
             fail("非法线路数据未被拒绝")
         check(path.stat().st_size == size_before, "非法提交没有写入文件")
 
+        # 11b. 坐标 / 颜色 / 缺字段：校验器都要拒绝
+        bad_cases = [
+            ("坐标是小数", lambda d: d["stations"][0].__setitem__("pos", [0.5, 0])),
+            ("坐标越界", lambda d: d["stations"][0].__setitem__("pos", [10 ** 9, 0])),
+            ("颜色不是 HEX", lambda d: d["lines"][0].__setitem__("color", "blue")),
+            ("车站缺名称", lambda d: d["stations"][0].pop("name")),
+        ]
+        for name, mutate in bad_cases:
+            case = make_data()
+            mutate(case)
+            try:
+                validate_data(case, require_lines=True)
+            except TransitConfigError:
+                ok(f"非法数据被拒绝：{name}")
+            else:
+                fail(f"非法数据未被拒绝：{name}")
+
         # 12. 单版本过大：拒绝且不写盘（避免每次提交都触发全量重写）
         huge = make_data()
         huge["note"] = {"zh": "x" * (MAX_BYTES // 4 + 64), "en": "x"}
