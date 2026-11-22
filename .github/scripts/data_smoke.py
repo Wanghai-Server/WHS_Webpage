@@ -501,6 +501,7 @@ def check_transit() -> None:
         ensure_transit_file,
         load_current,
         merge_three_way,
+        recover_transit_file,
         read_store,
         repair_transit_file,
         rollback,
@@ -724,6 +725,45 @@ def check_transit() -> None:
         check(repaired_data["lines"][0]["id"] == "l1", "修复后仍能读到种子线路")
         ok_repaired, _ = repair_transit_file(broken)
         check(ok_repaired is False, "已修复的文件再次检查不会重复改动")
+
+        # 13b. 完全损坏的文件：启动兜底会备份坏文件并重建种子
+        corrupt = Path(tmp) / "corrupt.yml"
+        corrupt.write_text("这不是 YAML：: : [", encoding="utf-8")
+        try:
+            ensure_transit_file(corrupt)
+        except TransitConfigError:
+            ok("完全损坏的文件会抛出 TransitConfigError（交给兜底处理）")
+        else:
+            fail("完全损坏的文件没有被识别")
+        rebuilt, backup_name = recover_transit_file(corrupt)
+        check(rebuilt is True, "兜底重建了种子数据")
+        check(bool(backup_name) and (Path(tmp) / backup_name).exists(), "损坏文件被备份而不是直接删除")
+        rebuilt_data, _, _ = load_current(corrupt)
+        check(len(rebuilt_data["lines"]) == 3, "重建后的种子数据可读")
+
+        # 13c. 非有限 / 越界 y 必须被拒绝（曾让公开接口 500）
+        for bad_y in (float("nan"), float("inf"), 99999):
+            case = make_data()
+            case["stations"][1]["y"] = bad_y
+            try:
+                validate_data(case, require_lines=True)
+            except TransitConfigError:
+                ok(f"y={bad_y} 被拒绝")
+            else:
+                fail(f"y={bad_y} 没被拒绝")
+
+        # 13d. 手动 compact 在字节超限时也会继续收紧，不只是数量
+        import data.transit as transit_mod
+        old_max = transit_mod.MAX_BYTES
+        transit_mod.MAX_BYTES = 1200
+        try:
+            many = [make_data(f"乙{i}") for i in range(30)]
+            keep = transit_mod._shrink_keep_count(
+                [dict(id=str(i), data=make_data(f"乙{i}")) for i in range(30)], 30
+            )
+        finally:
+            transit_mod.MAX_BYTES = old_max
+        check(keep < 30, "compact 会按字节继续收紧保留数量")
 
         # 14. 校验器默认值
         normalized, _ = validate_data(make_data())

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
 import re
 import shutil
@@ -205,6 +206,10 @@ def validate_data(raw, *, require_lines: bool = False) -> tuple[dict, list[str]]
             y = item["y"]
             if isinstance(y, bool) or not isinstance(y, (int, float)):
                 _fail(where, "y 必须是数字")
+            if not math.isfinite(y):
+                _fail(where, "y 必须是有限数字（不能是 NaN/Infinity）")
+            if not -512 <= y <= 2048:
+                _fail(where, "y 超出范围（-512 ~ 2048）")
             entry["y"] = y
             source = item.get("y_source") or "explicit"
             if source not in Y_SOURCES:
@@ -472,6 +477,25 @@ def seed_version() -> dict:
     }
 
 
+def recover_transit_file(path: Path | None = None) -> tuple[bool, str]:
+    """启动兜底：文件完全损坏时备份坏文件、重建种子，保证服务能起来。
+
+    返回 (是否创建/重建, 备份文件名)；备份为空字符串表示没有发生重建。
+    """
+    target = Path(path) if path else TRANSIT_PATH
+    try:
+        return ensure_transit_file(target), ""
+    except TransitConfigError:
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        backup = target.with_name(f"{target.name}.corrupt-{stamp}")
+        try:
+            shutil.move(str(target), backup)
+        except OSError:
+            target.unlink(missing_ok=True)
+        ensure_transit_file(target)
+        return True, backup.name
+
+
 def ensure_transit_file(path: Path | None = None) -> bool:
     """启动时检查：文件不存在或为空则用种子创建，返回是否新建。"""
     target = Path(path) if path else TRANSIT_PATH
@@ -662,12 +686,8 @@ def _maybe_compact(path: Path, store: dict) -> bool:
     versions = store.get("versions") or []
     if len(versions) <= MAX_VERSIONS and path.stat().st_size <= MAX_BYTES:
         return False
-    keep_count = min(MAX_VERSIONS, len(versions))
+    keep_count = _shrink_keep_count(versions, MAX_VERSIONS)
     keep = versions[-keep_count:]
-    # 版本数达标但文件仍超限时继续减半，最少保留最新一版
-    while keep_count > 1 and _estimate_versions_bytes(keep) > MAX_BYTES:
-        keep_count = max(1, keep_count // 2)
-        keep = versions[-keep_count:]
     backup = path.with_name(path.name + ".bak")
     try:
         shutil.copyfile(path, backup)
@@ -775,21 +795,30 @@ def rollback(target_id: str, *, author: dict, summary: str | None = None,
     return result
 
 
+def _shrink_keep_count(versions: list[dict], keep: int) -> int:
+    """版本数达标后若字节仍超限，继续减半保留，最少保留最新 1 版。"""
+    keep = max(1, min(int(keep), len(versions)))
+    while keep > 1 and _estimate_versions_bytes(versions[-keep:]) > MAX_BYTES:
+        keep = max(1, keep // 2)
+    return keep
+
+
 def compact(path: Path | None = None, keep: int = MAX_VERSIONS) -> dict:
     target = Path(path) if path else TRANSIT_PATH
     with _LOCK:
         store = read_store(target)
         versions = store.get("versions") or []
         before = len(versions)
-        if before <= keep:
+        target_keep = _shrink_keep_count(versions, keep)
+        if before <= target_keep:
             return {"compacted": False, "versions": before}
         backup = target.with_name(target.name + ".bak")
         try:
             shutil.copyfile(target, backup)
         except OSError:
             pass
-        _write_all(versions[-keep:], target)
-        return {"compacted": True, "before": before, "after": keep}
+        _write_all(versions[-target_keep:], target)
+        return {"compacted": True, "before": before, "after": target_keep}
 
 
 

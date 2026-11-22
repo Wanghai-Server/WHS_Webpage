@@ -28,7 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from data import read_config, read_whs_config
-from data.transit import ensure_transit_file
+from data.transit import recover_transit_file
 from data.exam import (
     ExamConfigError,
     fill_blank_blanks,
@@ -914,9 +914,16 @@ async def lifespan(app: FastAPI):
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 轨交路线图数据是运行时文件（不入库），首次启动时用种子创建
-    if ensure_transit_file():
-        print("[transit] 已创建 data/transit.yml（种子数据）", flush=True)
+    # 轨交路线图数据是运行时文件（不入库），首次启动时用种子创建；
+    # 文件完全损坏时备份坏文件并重建，绝不让一个数据文件拖垮整个网站启动
+    try:
+        created, backup = recover_transit_file()
+        if backup:
+            print(f"[transit] data/transit.yml 损坏，已备份为 {backup} 并重建种子数据", flush=True)
+        elif created:
+            print("[transit] 已创建 data/transit.yml（种子数据）", flush=True)
+    except Exception as exc:  # noqa: BLE001 - 启动阶段任何异常都不应阻断其他接口
+        print(f"[transit] 初始化失败，轨交接口将返回 503：{exc}", flush=True)
 
     # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）
     await ws_server.start()

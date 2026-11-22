@@ -7,7 +7,7 @@
  * hash 里就是当前相机 `mapId:x:y:z:...`，编辑器直接读它作为候选坐标；
  * 读不到（iframe 未就绪 / BlueMap 没部署）就提示手动填写。
  */
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MapPin, X } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
@@ -26,19 +26,33 @@ const frameEl = ref(null)
 const candidate = ref(null)
 const failed = ref(false)
 const loaded = ref(false)
+const frameReady = ref(false)
+const viewerReady = ref(false)
 let timer = null
 let failTimer = null
+let probeTimer = null
+let probeTries = 0
 let initialHash = ''
 
 async function loadViewer() {
+  const headers = authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
   try {
-    const headers = authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
     const res = await fetch('/api/map/config', { headers })
     const body = await res.json().catch(() => ({}))
     if (body.viewer) viewerPath.value = body.viewer
   } catch {
     // 拿不到就退回默认入口
   }
+  // 先确认入口可用再塞进 iframe：502/401 错误页也会触发 load，
+  // 之前无条件清定时器导致失败提示永远不出现
+  try {
+    const probe = await fetch(viewerPath.value, { method: 'HEAD', headers, cache: 'no-store' })
+    if (!probe.ok) return false
+  } catch {
+    return false
+  }
+  viewerReady.value = true
+  return true
 }
 
 const src = computed(() => {
@@ -86,17 +100,59 @@ function stopPolling() {
   timer = null
 }
 
-function onLoad() {
+function frameHasCanvas() {
+  try {
+    const doc = frameEl.value?.contentDocument
+    if (!doc) return null // 跨域：无法探测
+    return !!doc.querySelector('canvas')
+  } catch {
+    return null
+  }
+}
+
+function confirmReady() {
   loaded.value = true
+  frameReady.value = true
   if (failTimer) clearTimeout(failTimer)
+  if (probeTimer) clearTimeout(probeTimer)
   initialHash = readHash().replace(/^#/, '')
   startPolling()
 }
 
-function onError() {
+function fail() {
   failed.value = true
   loaded.value = true
   stopPolling()
+  if (failTimer) clearTimeout(failTimer)
+  if (probeTimer) clearTimeout(probeTimer)
+}
+
+function probeCanvas() {
+  const hasCanvas = frameHasCanvas()
+  if (hasCanvas === null || hasCanvas === true) {
+    // 跨域无法探测，或 BlueMap 已经画出 canvas：按就绪处理
+    confirmReady()
+    return
+  }
+  probeTries += 1
+  if (probeTries >= 8) {
+    // 同源但没有 canvas：多半是 502/401 错误页
+    fail()
+    return
+  }
+  probeTimer = setTimeout(probeCanvas, 400)
+}
+
+function onLoad() {
+  // load 事件错误页也会触发：不直接判定成功，先探测 canvas
+  initialHash = readHash().replace(/^#/, '')
+  probeTries = 0
+  if (probeTimer) clearTimeout(probeTimer)
+  probeTimer = setTimeout(probeCanvas, 300)
+}
+
+function onError() {
+  fail()
 }
 
 function confirm() {
@@ -104,24 +160,39 @@ function confirm() {
   emit('pick', { ...candidate.value })
 }
 
-watch(() => props.open, (open) => {
+watch(() => props.open, async (open) => {
   if (open) {
     candidate.value = null
     failed.value = false
     loaded.value = false
+    frameReady.value = false
+    viewerReady.value = false
     initialHash = ''
-    loadViewer()
-    // 12 秒还没加载出地图，就按“地图不可用”处理，提示手填
+    // 12 秒还没确认地图可用，就提示手动填写
     failTimer = setTimeout(() => {
-      if (!loaded.value) failed.value = true
+      if (!frameReady.value) fail()
     }, 12000)
+    const ok = await loadViewer()
+    if (!ok) {
+      fail()
+      return
+    }
+    await nextTick()
+    // iframe 的 src 在 loadViewer 之后才设置：先写 /api/map/config 的鉴权 Cookie，
+    // 避免首帧请求 /map3d/ 时 401
+    frameReady.value = true
   } else {
     stopPolling()
     if (failTimer) clearTimeout(failTimer)
+    if (probeTimer) clearTimeout(probeTimer)
   }
 })
 
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  stopPolling()
+  if (failTimer) clearTimeout(failTimer)
+  if (probeTimer) clearTimeout(probeTimer)
+})
 </script>
 
 <template>
@@ -138,6 +209,7 @@ onBeforeUnmount(stopPolling)
 
       <div class="picker-frame-wrap">
         <iframe
+          v-if="frameReady"
           ref="frameEl"
           class="picker-frame"
           :src="src"

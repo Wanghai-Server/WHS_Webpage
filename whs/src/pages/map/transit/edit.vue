@@ -12,13 +12,14 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave } from 'vue-router'
 import {
-  ArrowDown, ArrowUp, History, MapPin, Plus, RotateCcw, Save, Trash2, X,
+  ArrowDown, ArrowLeft, ArrowUp, History, MapPin, Plus, RotateCcw, Save, Search, Trash2, X,
 } from 'lucide-vue-next'
 import Top_navbar from '../../../components/top_navbar.vue'
 import Page_footer from '../../../components/page_footer.vue'
 import TransitDiagram from '../../../components/transit_diagram.vue'
 import TransitPicker from '../../../components/transit_picker.vue'
 import Markdown_editer from '../../../components/markdown_editer.vue'
+import Status_dropdown from '../../../components/status_dropdown.vue'
 import { useAuth } from '../../../composables/useAuth'
 import { useDialogBox } from '../../../composables/useDialogBox'
 import { useTips } from '../../../composables/useTips'
@@ -46,6 +47,7 @@ const activeTab = ref('lines')
 const creating = ref('')
 const draft = ref(null)
 const conflict = ref(null)
+const conflictBackup = ref(null)
 const resolved = ref([])
 const resolvedChoices = ref([])
 const showHistory = ref(false)
@@ -53,10 +55,23 @@ const versions = ref([])
 const historyLoading = ref(false)
 const pickerOpen = ref(false)
 const pickTarget = ref('station')
+const addStationOpen = ref(false)
+const addStationQuery = ref('')
+const addStationPicked = ref([])
 const isMobile = ref(false)
 const colorFamily = ref(0)
 
 const canForce = computed(() => !!payload.value?.can_force)
+const typeOptions = computed(() => [
+  { value: 'metro', label: t('transit.edit.typeMetro') },
+  { value: 'rail', label: t('transit.edit.typeRail') },
+  { value: 'bus', label: t('transit.edit.typeBus') },
+])
+const statusOptions = computed(() => [
+  { value: 'open', label: t('transit.edit.statusOpen') },
+  { value: 'building', label: t('transit.edit.statusBuilding') },
+  { value: 'planned', label: t('transit.edit.statusPlanned') },
+])
 const lines = computed(() => doc.value?.lines || [])
 const stations = computed(() => doc.value?.stations || [])
 const schematic = computed(() => (doc.value ? buildSchematic(doc.value, { locale: locale.value }) : null))
@@ -71,6 +86,12 @@ const dirty = computed(() => (doc.value ? snapshot(doc.value) !== savedSnapshot.
 const addableStations = computed(() => (selectedLine.value
   ? stations.value.filter((station) => !selectedLine.value.stations.includes(station.id))
   : []))
+const filteredAddable = computed(() => addableStations.value.filter((station) => {
+  const needle = addStationQuery.value.trim().toLowerCase()
+  if (!needle) return true
+  return `${station.id} ${stationName(station, locale.value)}`.toLowerCase().includes(needle)
+}))
+const activeColor = computed(() => selectedLine.value?.color || draft.value?.color || '#2f7fe0')
 const allResolved = computed(() => (conflict.value?.conflicts || []).length === 0
   || resolved.value.every(Boolean))
 const pickerInitial = computed(() => {
@@ -268,10 +289,26 @@ function moveStationInLine(line, index, delta) {
   line.stations.splice(next, 0, id)
 }
 
-function addStationToLine(line, event) {
-  const id = event.target.value
-  if (id && !line.stations.includes(id)) line.stations.push(id)
-  event.target.value = ''
+function openAddStation() {
+  addStationQuery.value = ''
+  addStationPicked.value = []
+  addStationOpen.value = true
+}
+
+function toggleAddStation(id) {
+  const index = addStationPicked.value.indexOf(id)
+  if (index >= 0) addStationPicked.value.splice(index, 1)
+  else addStationPicked.value.push(id)
+}
+
+function confirmAddStations() {
+  const line = selectedLine.value
+  if (!line || !addStationPicked.value.length) return
+  for (const id of addStationPicked.value) {
+    if (!line.stations.includes(id)) line.stations.push(id)
+  }
+  addStationOpen.value = false
+  addStationPicked.value = []
 }
 
 function removeStationFromLine(line, id) {
@@ -368,6 +405,7 @@ async function save(options = {}) {
     const body = await res.json().catch(() => ({}))
     if (res.status === 409) {
       const detail = body.detail || {}
+      conflictBackup.value = JSON.parse(JSON.stringify(doc.value))
       conflict.value = {
         ...detail,
         current: detail.current ? normalizeDoc(toSendable(detail.current)) : null,
@@ -382,6 +420,7 @@ async function save(options = {}) {
     }
     await reload(body.version)
     conflict.value = null
+    conflictBackup.value = null
     showTip('info', t('transit.edit.saved'))
   } catch {
     error.value = t('transit.edit.saveFailed')
@@ -456,7 +495,12 @@ async function submitResolved() {
 }
 
 function closeConflict() {
+  // 取消冲突面板时，把已经点过「用线上」而应用的改动回滚掉
+  if (conflictBackup.value && resolved.value.some(Boolean)) {
+    doc.value = JSON.parse(JSON.stringify(conflictBackup.value))
+  }
   conflict.value = null
+  conflictBackup.value = null
   resolved.value = []
   resolvedChoices.value = []
 }
@@ -562,7 +606,9 @@ onBeforeUnmount(() => {
   <main class="edit-page">
     <header class="edit-head">
       <div class="head-left">
-        <RouterLink to="/map/transit" class="back-link">← {{ t('transit.edit.back') }}</RouterLink>
+        <RouterLink to="/map/transit" class="btn-ghost back-btn">
+          <ArrowLeft :size="14" /> {{ t('transit.edit.back') }}
+        </RouterLink>
         <h1>{{ t('transit.edit.title') }}</h1>
         <span v-if="baseVersion" class="version-badge">v{{ baseVersion }}</span>
       </div>
@@ -610,23 +656,6 @@ onBeforeUnmount(() => {
           <button type="button" class="add-btn" @click="startCreate('line')">
             <Plus :size="14" /> {{ t('transit.edit.newLine') }}
           </button>
-          <form v-if="creating === 'line' && !isMobile" class="inline-form" @submit.prevent="confirmCreate">
-            <input v-model="draft.id" class="input" :placeholder="t('transit.edit.id')" />
-            <input v-model="draft.name.zh" class="input" :placeholder="t('transit.edit.nameZh')" />
-            <input v-model="draft.name.en" class="input" :placeholder="t('transit.edit.nameEn')" />
-            <div class="inline-row">
-              <input v-model="draft.color" class="input input-color" />
-              <select v-model="draft.status" class="input">
-                <option value="open">{{ t('transit.edit.statusOpen') }}</option>
-                <option value="building">{{ t('transit.edit.statusBuilding') }}</option>
-                <option value="planned">{{ t('transit.edit.statusPlanned') }}</option>
-              </select>
-            </div>
-            <div class="inline-actions">
-              <button type="button" class="btn-ghost" @click="cancelCreate">{{ t('transit.edit.cancel') }}</button>
-              <button type="submit" class="btn-primary">{{ t('transit.edit.create') }}</button>
-            </div>
-          </form>
           <ul class="element-list">
             <li
               v-for="line in lines"
@@ -645,20 +674,6 @@ onBeforeUnmount(() => {
           <button type="button" class="add-btn" @click="startCreate('station')">
             <Plus :size="14" /> {{ t('transit.edit.newStation') }}
           </button>
-          <form v-if="creating === 'station' && !isMobile" class="inline-form" @submit.prevent="confirmCreate">
-            <input v-model="draft.id" class="input" :placeholder="t('transit.edit.id')" />
-            <input v-model="draft.name.zh" class="input" :placeholder="t('transit.edit.nameZh')" />
-            <input v-model="draft.name.en" class="input" :placeholder="t('transit.edit.nameEn')" />
-            <div class="inline-row">
-              <input v-model.number="draft.pos[0]" class="input" type="number" :placeholder="t('transit.edit.posX')" />
-              <input v-model.number="draft.pos[1]" class="input" type="number" :placeholder="t('transit.edit.posZ')" />
-              <button type="button" class="btn-ghost" @click="openPicker('new')"><MapPin :size="13" /></button>
-            </div>
-            <div class="inline-actions">
-              <button type="button" class="btn-ghost" @click="cancelCreate">{{ t('transit.edit.cancel') }}</button>
-              <button type="submit" class="btn-primary">{{ t('transit.edit.create') }}</button>
-            </div>
-          </form>
           <ul class="element-list">
             <li
               v-for="station in stations"
@@ -689,19 +704,50 @@ onBeforeUnmount(() => {
           <button type="button" class="icon-btn" @click="selection = null; cancelCreate()"><X :size="16" /></button>
         </header>
 
-        <div v-if="creating && isMobile" class="detail-body">
+        <div v-if="creating" class="detail-body">
           <label class="field"><span>{{ t('transit.edit.id') }}</span><input v-model="draft.id" class="input" /></label>
           <label class="field"><span>{{ t('transit.edit.nameZh') }}</span><input v-model="draft.name.zh" class="input" /></label>
           <label class="field"><span>{{ t('transit.edit.nameEn') }}</span><input v-model="draft.name.en" class="input" /></label>
           <template v-if="creating === 'line'">
-            <label class="field"><span>{{ t('transit.edit.status') }}</span>
-              <select v-model="draft.status" class="input">
-                <option value="open">{{ t('transit.edit.statusOpen') }}</option>
-                <option value="building">{{ t('transit.edit.statusBuilding') }}</option>
-                <option value="planned">{{ t('transit.edit.statusPlanned') }}</option>
-              </select>
-            </label>
-            <label class="field"><span>{{ t('transit.edit.color') }}</span><input v-model="draft.color" class="input input-color" /></label>
+            <div class="field-row">
+              <label class="field"><span>{{ t('transit.edit.type') }}</span>
+                <Status_dropdown v-model="draft.type" :options="typeOptions" variant="select" />
+              </label>
+              <label class="field"><span>{{ t('transit.edit.status') }}</span>
+                <Status_dropdown v-model="draft.status" :options="statusOptions" variant="select" />
+              </label>
+            </div>
+            <div class="field"><span>{{ t('transit.edit.color') }}</span>
+              <div class="palette">
+                <div class="palette-tabs">
+                  <button
+                    v-for="(family, index) in PALETTE_FAMILIES"
+                    :key="family.key"
+                    type="button"
+                    class="palette-tab"
+                    :class="{ active: colorFamily === index }"
+                    @click="colorFamily = index"
+                  >{{ familyLabel(family, locale) }}</button>
+                </div>
+                <div class="palette-colors">
+                  <button
+                    v-for="(color, index) in PALETTE_FAMILIES[colorFamily].colors"
+                    :key="color"
+                    type="button"
+                    class="swatch"
+                    :class="{ active: activeColor.toLowerCase() === color.toLowerCase() }"
+                    :style="{ background: color }"
+                    :title="dyeLabel(index, locale)"
+                    @click="setColor(color)"
+                  ></button>
+                </div>
+                <input v-model="draft.color" class="input input-color" :placeholder="t('transit.edit.customColor')" />
+              </div>
+            </div>
+            <div class="field note-field">
+              <span>{{ t('transit.edit.note') }}</span>
+              <Markdown_editer v-model="draft.note" multilingual :min-height="120" :placeholder="t('transit.edit.notePlaceholder')" />
+            </div>
           </template>
           <template v-else>
             <div class="field-row">
@@ -709,7 +755,17 @@ onBeforeUnmount(() => {
               <label class="field"><span>{{ t('transit.edit.posZ') }}</span><input v-model.number="draft.pos[1]" class="input" type="number" /></label>
             </div>
             <button type="button" class="btn-ghost full" @click="openPicker('new')"><MapPin :size="14" /> {{ t('transit.edit.pick') }}</button>
+            <div class="field-row">
+              <label class="field"><span>{{ t('transit.edit.y') }}</span>
+                <input v-model.number="draft.y" class="input" type="number" :placeholder="t('transit.edit.yAuto')" />
+              </label>
+              <button type="button" class="btn-ghost self-end" @click="draft.y = null">{{ t('transit.edit.yClear') }}</button>
+            </div>
             <label class="field"><span>{{ t('transit.edit.tags') }}</span><input v-model="draft.tags" class="input" :placeholder="t('transit.edit.tagHint')" /></label>
+            <div class="field note-field">
+              <span>{{ t('transit.edit.note') }}</span>
+              <Markdown_editer v-model="draft.note" multilingual :min-height="120" :placeholder="t('transit.edit.notePlaceholder')" />
+            </div>
           </template>
           <div class="detail-actions">
             <button type="button" class="btn-ghost" @click="cancelCreate">{{ t('transit.edit.cancel') }}</button>
@@ -722,18 +778,10 @@ onBeforeUnmount(() => {
           <label class="field"><span>{{ t('transit.edit.nameEn') }}</span><input v-model="selectedLine.name.en" class="input" /></label>
           <div class="field-row">
             <label class="field"><span>{{ t('transit.edit.type') }}</span>
-              <select v-model="selectedLine.type" class="input">
-                <option value="metro">{{ t('transit.edit.typeMetro') }}</option>
-                <option value="rail">{{ t('transit.edit.typeRail') }}</option>
-                <option value="bus">{{ t('transit.edit.typeBus') }}</option>
-              </select>
+              <Status_dropdown v-model="selectedLine.type" :options="typeOptions" variant="select" />
             </label>
             <label class="field"><span>{{ t('transit.edit.status') }}</span>
-              <select v-model="selectedLine.status" class="input">
-                <option value="open">{{ t('transit.edit.statusOpen') }}</option>
-                <option value="building">{{ t('transit.edit.statusBuilding') }}</option>
-                <option value="planned">{{ t('transit.edit.statusPlanned') }}</option>
-              </select>
+              <Status_dropdown v-model="selectedLine.status" :options="statusOptions" variant="select" />
             </label>
           </div>
           <div class="field"><span>{{ t('transit.edit.color') }}</span>
@@ -754,7 +802,7 @@ onBeforeUnmount(() => {
                   :key="color"
                   type="button"
                   class="swatch"
-                  :class="{ active: selectedLine.color.toLowerCase() === color.toLowerCase() }"
+                  :class="{ active: activeColor.toLowerCase() === color.toLowerCase() }"
                   :style="{ background: color }"
                   :title="dyeLabel(index, locale)"
                   @click="setColor(color)"
@@ -773,10 +821,9 @@ onBeforeUnmount(() => {
                 <button type="button" class="icon-btn danger" @click="removeStationFromLine(selectedLine, id)"><Trash2 :size="13" /></button>
               </li>
             </ol>
-            <select class="input" :disabled="!addableStations.length" @change="addStationToLine(selectedLine, $event)">
-              <option value="">{{ addableStations.length ? t('transit.edit.addStation') : t('transit.edit.noStationLeft') }}</option>
-              <option v-for="station in addableStations" :key="station.id" :value="station.id">{{ stationName(station, locale) }}</option>
-            </select>
+            <button type="button" class="btn-ghost full" :disabled="!addableStations.length" @click="openAddStation">
+              <Plus :size="14" /> {{ addableStations.length ? t('transit.edit.addStationBtn') : t('transit.edit.noStationLeft') }}
+            </button>
           </div>
           <div class="field note-field">
             <span>{{ t('transit.edit.note') }}</span>
@@ -820,6 +867,7 @@ onBeforeUnmount(() => {
       </aside>
     </div>
 
+    <Transition name="modal-fade">
     <div v-if="showHistory" class="modal-overlay is-glass" @click.self="showHistory = false">
       <section class="modal">
         <header class="modal-head">
@@ -828,9 +876,10 @@ onBeforeUnmount(() => {
         </header>
         <div v-if="historyLoading" class="modal-state">{{ t('transit.loading') }}</div>
         <ul v-else class="version-list">
-          <li v-for="version in versions" :key="version.id">
+          <li v-for="(version, index) in versions" :key="version.id">
             <div class="version-main">
               <span class="version-id">{{ version.id }}</span>
+              <span v-if="index === 0" class="version-current">{{ t('transit.edit.currentVersion') }}</span>
               <span class="version-summary">{{ version.summary }}</span>
             </div>
             <div class="version-meta">
@@ -845,7 +894,9 @@ onBeforeUnmount(() => {
         </ul>
       </section>
     </div>
+    </Transition>
 
+    <Transition name="modal-fade">
     <div v-if="conflict" class="modal-overlay is-glass">
       <section class="modal">
         <header class="modal-head">
@@ -874,6 +925,43 @@ onBeforeUnmount(() => {
         </footer>
       </section>
     </div>
+    </Transition>
+
+    <Transition name="modal-fade">
+    <div v-if="addStationOpen" class="modal-overlay is-glass" @click.self="addStationOpen = false">
+      <section class="modal">
+        <header class="modal-head">
+          <h2>{{ t('transit.edit.addStationTitle') }}</h2>
+          <button type="button" class="icon-btn" :aria-label="t('transit.edit.cancel')" @click="addStationOpen = false"><X :size="16" /></button>
+        </header>
+        <p class="hint-text">{{ t('transit.edit.addStationHint') }}</p>
+        <label class="search-field">
+          <Search :size="14" aria-hidden="true" />
+          <input v-model="addStationQuery" :placeholder="t('transit.edit.addStationSearch')" />
+        </label>
+        <ul v-if="filteredAddable.length" class="add-station-list">
+          <li v-for="station in filteredAddable" :key="station.id">
+            <label>
+              <input
+                type="checkbox"
+                :checked="addStationPicked.includes(station.id)"
+                @change="toggleAddStation(station.id)"
+              />
+              <span>{{ stationName(station, locale) }}</span>
+              <code>{{ station.id }}</code>
+            </label>
+          </li>
+        </ul>
+        <p v-else class="hint-text">{{ t('transit.edit.noStationLeft') }}</p>
+        <footer class="modal-actions">
+          <button type="button" class="btn-ghost" @click="addStationOpen = false">{{ t('transit.edit.cancel') }}</button>
+          <button type="button" class="btn-primary" :disabled="!addStationPicked.length" @click="confirmAddStations">
+            {{ t('transit.edit.addStationConfirm', { count: addStationPicked.length }) }}
+          </button>
+        </footer>
+      </section>
+    </div>
+    </Transition>
 
     <TransitPicker
       :open="pickerOpen"
@@ -913,6 +1001,13 @@ onBeforeUnmount(() => {
 .back-link {
   font-size: 13px;
   color: var(--links-color);
+  text-decoration: none;
+}
+
+.back-btn {
+  height: 32px;
+  padding: 0 11px;
+  font-size: 12px;
   text-decoration: none;
 }
 
@@ -968,6 +1063,9 @@ onBeforeUnmount(() => {
   display: grid;
   grid-template-columns: minmax(230px, 300px) 1fr minmax(280px, 360px);
   gap: 14px;
+  /* 三块面板等高：网格行高固定，子元素拉伸填满 */
+  align-items: stretch;
+  height: min(74vh, 760px);
 }
 
 .edit-grid.no-detail {
@@ -975,17 +1073,22 @@ onBeforeUnmount(() => {
 }
 
 .panel {
+  display: flex;
+  flex-direction: column;
   min-height: 0;
+  height: 100%;
   overflow: hidden;
-  background: var(--card-color);
-  border: 1px solid rgba(var(--text-color-rgb), 0.1);
+  /* 与全站导航/弹窗同款毛玻璃 */
+  background: rgba(var(--card-color-rgb), 0.72);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
+  border: 1px solid rgba(var(--text-color-rgb), 0.12);
   border-radius: 14px;
 }
 
 .panel-list {
   display: flex;
   flex-direction: column;
-  max-height: 72vh;
 }
 
 .panel-preview {
@@ -1131,7 +1234,6 @@ onBeforeUnmount(() => {
 .panel-detail {
   display: flex;
   flex-direction: column;
-  max-height: 72vh;
 }
 
 .detail-head {
@@ -1372,8 +1474,12 @@ onBeforeUnmount(() => {
   max-height: 84vh;
   padding: 16px;
   overflow: auto;
-  background: var(--card-color);
+  background: rgba(var(--card-color-rgb), 0.78);
+  -webkit-backdrop-filter: blur(18px) saturate(1.15);
+  backdrop-filter: blur(18px) saturate(1.15);
+  border: 1px solid rgba(var(--text-color-rgb), 0.14);
   border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
 }
 
 .modal-head {
@@ -1419,6 +1525,15 @@ onBeforeUnmount(() => {
 .version-id {
   font-family: ui-monospace, Menlo, monospace;
   font-size: 12px;
+}
+
+.version-current {
+  align-self: flex-start;
+  padding: 1px 6px;
+  font-size: 10px;
+  color: var(--notice-color);
+  border: 1px solid var(--notice-color);
+  border-radius: 999px;
 }
 
 .version-summary {
@@ -1480,6 +1595,80 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
+/* 与全站 dialog-fade 一致的弹窗动画 */
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-active .modal,
+.modal-fade-leave-active .modal {
+  transition:
+    transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.25s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
+}
+
+.modal-fade-enter-from .modal,
+.modal-fade-leave-to .modal {
+  opacity: 0;
+  transform: translateY(12px) scale(0.96);
+}
+
+.search-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  margin-bottom: 8px;
+  color: var(--links-color);
+  background: var(--bg-color);
+  border: 1px solid rgba(var(--text-color-rgb), 0.14);
+  border-radius: 9px;
+}
+
+.search-field input {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text-color);
+  background: transparent;
+  border: 0;
+  outline: none;
+}
+
+.add-station-list {
+  max-height: 46vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.add-station-list li label {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.add-station-list li label:hover {
+  background: var(--float-bg);
+}
+
+.add-station-list code {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--links-color);
+}
+
 /* 通用弹窗的毛玻璃版本 */
 .modal-overlay.is-glass {
   background: rgba(0, 0, 0, 0.32);
@@ -1499,7 +1688,7 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
-.note-field :deep(.markdown-editer) {
+.note-field :deep(.md-editor) {
   margin-top: 6px;
 }
 
@@ -1521,6 +1710,7 @@ onBeforeUnmount(() => {
   .edit-grid.no-detail {
     display: flex;
     flex-direction: column;
+    height: auto;
   }
 
   .panel-preview {
@@ -1550,6 +1740,11 @@ onBeforeUnmount(() => {
 
   .element-meta {
     display: none;
+  }
+
+  .panel-detail.is-sheet .detail-body {
+    /* 底部留出悬浮邮件按钮的高度，避免压住备注编辑区 */
+    padding-bottom: 72px;
   }
 
   .panel-detail.is-sheet {

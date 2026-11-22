@@ -14,7 +14,7 @@ from fastapi.responses import JSONResponse
 
 from data import read_config
 from data.transit import (
-    MAX_BYTES,
+    MAX_VERSION_BYTES,
     TRANSIT_PATH,
     _LOCK,
     TransitConflictError,
@@ -205,6 +205,12 @@ def transit_validate(payload: dict = Body(...), authorization: str = Header(None
     if _permission(user) < _EDIT_PERMISSION:
         return _error("permission_denied", 403)
     try:
+        size = len(json.dumps(payload.get("data"), ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError):
+        size = 0
+    if size > MAX_VERSION_BYTES:
+        return _error("transit_invalid", 400, f"数据过大（{size} 字节，上限 {MAX_VERSION_BYTES}）")
+    try:
         _, warnings = validate_data(payload.get("data"), require_lines=True)
     except TransitConfigError as exc:
         return _error("transit_invalid", 400, str(exc))
@@ -224,8 +230,8 @@ def transit_submit(payload: dict = Body(...), authorization: str = Header(None))
         size = len(json.dumps(payload.get("data"), ensure_ascii=False).encode("utf-8"))
     except (TypeError, ValueError):
         size = 0
-    if size > MAX_BYTES:
-        return _error("transit_invalid", 400, f"数据过大（{size} 字节，上限 {MAX_BYTES}）")
+    if size > MAX_VERSION_BYTES:
+        return _error("transit_invalid", 400, f"数据过大（{size} 字节，上限 {MAX_VERSION_BYTES}）")
 
     force = bool(payload.get("force"))
     if force and _permission(user) < _FORCE_PERMISSION:

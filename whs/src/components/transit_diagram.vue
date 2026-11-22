@@ -208,6 +208,7 @@ onBeforeUnmount(() => {
       </g>
 
       <g class="transit-stations">
+        <TransitionGroup name="station">
         <g
           v-for="station in stations"
           :key="station.id"
@@ -223,6 +224,8 @@ onBeforeUnmount(() => {
           @click.stop="select(station)"
           @keydown.enter.prevent="select(station)"
         >
+          <!-- 透明热区：手机上点站名/站点附近都能选中，避免只能靠搜索 -->
+          <circle class="station-hit" r="20" fill="transparent" />
           <circle v-if="station.transfer" class="station-ring" r="10" fill="none" stroke-width="3" :stroke="stationColor(station)" />
           <circle class="station-dot" r="6" :fill="stationColor(station)" stroke-width="2" />
           <text
@@ -233,6 +236,7 @@ onBeforeUnmount(() => {
             class="station-label"
           >{{ station.label.text }}</text>
         </g>
+        </TransitionGroup>
       </g>
     </svg>
   </div>
@@ -284,8 +288,27 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 
+.station-hit {
+  pointer-events: fill;
+}
+
+.transit-stations g:focus-visible .station-hit {
+  fill: rgba(var(--notice-color), 0.25);
+}
+
 .transit-stations g.is-dim {
   opacity: 0.25;
+}
+
+/* 站点增删/换色时淡入淡出，避免“突然消失” */
+.station-enter-active,
+.station-leave-active {
+  transition: opacity 0.25s ease;
+}
+
+.station-enter-from,
+.station-leave-to {
+  opacity: 0;
 }
 
 .transit-stations g.is-selected .station-dot {

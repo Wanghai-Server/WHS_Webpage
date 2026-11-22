@@ -14,6 +14,7 @@ import { Pencil, Route, Search, MapPin } from 'lucide-vue-next'
 import Top_navbar from '../../../components/top_navbar.vue'
 import Page_footer from '../../../components/page_footer.vue'
 import TransitDiagram from '../../../components/transit_diagram.vue'
+import MarkdownView from '../../../components/markdown_view.vue'
 import { useAuth } from '../../../composables/useAuth'
 import { buildSchematic, lineName, matchStations, stationName } from '../../../composables/transitLayout'
 
@@ -27,12 +28,15 @@ const error = ref('')
 const hiddenLines = ref([])
 const keyword = ref('')
 const selectedId = ref('')
+const selectedLineId = ref('')
 
 const data = computed(() => payload.value?.data || null)
 const schematic = computed(() => (data.value ? buildSchematic(data.value, { locale: locale.value }) : null))
 const stations = computed(() => schematic.value?.stations || [])
 const lines = computed(() => schematic.value?.lines || [])
 const selected = computed(() => stations.value.find((item) => item.id === selectedId.value) || null)
+const selectedLineInfo = computed(() => lines.value.find((item) => item.id === selectedLineId.value) || null)
+const diagramSelectedId = computed(() => selectedId.value || selectedLineId.value)
 const matches = computed(() => matchStations(stations.value, keyword.value).slice(0, 6))
 const canView3d = computed(() => (authState.user?.permission ?? 0) >= 2)
 
@@ -57,8 +61,30 @@ function authHeaders() {
 }
 
 function onSelect({ kind, id }) {
-  if (kind !== 'station') return
+  if (kind === 'line') {
+    selectedLineId.value = id
+    selectedId.value = ''
+    return
+  }
   selectedId.value = id
+  selectedLineId.value = ''
+}
+
+function clearSelection() {
+  selectedId.value = ''
+  selectedLineId.value = ''
+}
+
+function lineStatusLabel(line) {
+  if (line.status === 'building') return t('transit.edit.statusBuilding')
+  if (line.status === 'planned') return t('transit.edit.statusPlanned')
+  return t('transit.edit.statusOpen')
+}
+
+function stationsOfLine(line) {
+  return (line.stations || [])
+    .map((id) => stations.value.find((item) => item.id === id))
+    .filter(Boolean)
 }
 
 function toggleLine(id) {
@@ -69,10 +95,12 @@ function toggleLine(id) {
 
 function selectStation(station) {
   selectedId.value = station.id
+  selectedLineId.value = ''
 }
 
 function pickMatch(station) {
   selectedId.value = station.id
+  selectedLineId.value = ''
   keyword.value = ''
 }
 
@@ -165,13 +193,13 @@ onMounted(load)
       <div class="transit-canvas">
         <TransitDiagram
           :schematic="schematic"
-          :selected-id="selectedId"
+          :selected-id="diagramSelectedId"
           :hidden-lines="hiddenLines"
           @select="onSelect"
         />
 
         <aside v-if="selected" class="transit-card">
-          <button type="button" class="card-close" :aria-label="t('transit.close')" @click="selectedId = ''">×</button>
+          <button type="button" class="card-close" :aria-label="t('transit.close')" @click="clearSelection">×</button>
           <h2>{{ stationName(selected, locale) }}</h2>
           <p class="card-coord">
             <MapPin :size="13" aria-hidden="true" />
@@ -183,12 +211,27 @@ onMounted(load)
               {{ lineName(lines.find((item) => item.id === id) || {}, locale) }}
             </li>
           </ul>
-          <p v-if="selected.note" class="card-note">{{ selected.note[locale] || selected.note.zh || selected.note.en }}</p>
+          <MarkdownView v-if="selected.note" :content="selected.note" class="card-note" />
 
           <button v-if="canView3d" type="button" class="card-action" @click="viewIn3d">
             {{ t('transit.viewIn3d') }}
           </button>
           <RouterLink v-else to="/joinus" class="card-hint">{{ t('transit.needMember') }}</RouterLink>
+        </aside>
+
+        <aside v-else-if="selectedLineInfo" class="transit-card">
+          <button type="button" class="card-close" :aria-label="t('transit.close')" @click="clearSelection">×</button>
+          <h2>{{ lineName(selectedLineInfo, locale) }}</h2>
+          <p class="card-coord">
+            <span class="card-line-swatch" :style="{ background: selectedLineInfo.color }" aria-hidden="true"></span>
+            {{ lineStatusLabel(selectedLineInfo) }}
+          </p>
+          <ol class="card-stations">
+            <li v-for="station in stationsOfLine(selectedLineInfo)" :key="station.id">
+              <button type="button" @click="selectStation(station)">{{ stationName(station, locale) }}</button>
+            </li>
+          </ol>
+          <MarkdownView v-if="selectedLineInfo.note" :content="selectedLineInfo.note" class="card-note" />
         </aside>
       </div>
 
@@ -466,6 +509,42 @@ onMounted(load)
   font-size: 12px;
   line-height: 1.55;
   color: var(--links-color);
+}
+
+.card-note :deep(.md-body) {
+  font-size: 12px;
+}
+
+.card-line-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 5px;
+  border-radius: 3px;
+}
+
+.card-stations {
+  margin: 9px 0 0;
+  padding: 0 0 0 18px;
+  font-size: 12px;
+  color: var(--links-color);
+}
+
+.card-stations li {
+  margin-top: 3px;
+}
+
+.card-stations button {
+  padding: 0;
+  font-size: 12px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+}
+
+.card-stations button:hover {
+  color: var(--text-color);
 }
 
 .card-action {
