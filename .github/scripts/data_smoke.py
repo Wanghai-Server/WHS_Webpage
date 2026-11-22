@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import sqlite3
 import sys
@@ -486,12 +487,189 @@ def check_databases() -> None:
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+# ---------------------------------------------------------------------------
+# 6. 轨交路线图数据
+# ---------------------------------------------------------------------------
+def check_transit() -> None:
+    section("轨交路线图数据（data/transit.py）")
+    from data.transit import (
+        MAX_VERSIONS,
+        TransitConfigError,
+        TransitConflictError,
+        compact,
+        ensure_transit_file,
+        load_current,
+        merge_three_way,
+        read_store,
+        rollback,
+        submit,
+        validate_data,
+        version_id,
+    )
+
+    def make_data(b_name: str = "乙") -> dict:
+        return {
+            "note": {"zh": "示意", "en": "Schematic"},
+            "lines": [
+                {
+                    "id": "l1",
+                    "name": {"zh": "1号线", "en": "Line 1"},
+                    "color": "#2f7fe0",
+                    "stations": ["a", "b"],
+                }
+            ],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲", "en": "A"}, "pos": [0, 0]},
+                {"id": "b", "name": {"zh": b_name, "en": "B"}, "pos": [100, 0]},
+            ],
+        }
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "transit.yml"
+
+        # 1. 启动自建
+        check(ensure_transit_file(path) is True, "首次 ensure_transit_file 创建种子文件")
+        check(ensure_transit_file(path) is False, "再次 ensure_transit_file 不覆盖已有文件")
+        seed_data, seed_id, warnings = load_current(path)
+        check(len(seed_data["lines"]) == 3, "种子数据有 3 条线路")
+        check(len(seed_data["stations"]) == 7, "种子数据有 7 个车站")
+        check(
+            seed_data["stations"][1]["lines"] == ["l1", "l2"],
+            "读取时自动回填车站的 lines 反查（换乘站两条线）",
+        )
+        check(len(seed_id) == 6 and all(c in "0123456789abcdef" for c in seed_id), "版本 ID 是 6 位 hex")
+
+        # 2. 追加写：旧字节不变，文件只增长
+        size_before = path.stat().st_size
+        prefix = path.read_bytes()
+        result = submit(make_data(), base_version=seed_id, author={"uid": 1, "name": "ci"}, summary="修改乙", path=path)
+        check(result["created"] is True, "提交生成新版本")
+        check(path.stat().st_size > size_before, "提交后文件变大")
+        check(path.read_bytes()[:size_before] == prefix, "追加写：原有字节完全不变")
+
+        # 3. 幂等：同内容同父版本不写盘
+        size_now = path.stat().st_size
+        again = submit(make_data(), base_version=seed_id, author={"uid": 1, "name": "ci"}, summary="修改乙", path=path)
+        check(again["created"] is False, "重复提交不再生成版本（幂等）")
+        check(path.stat().st_size == size_now, "重复提交不写盘（文件大小不变）")
+
+        # 4. 版本 ID 规则
+        _, current_id, _ = load_current(path)
+        check(
+            version_id(None, make_data()) == version_id(None, make_data()),
+            "同内容得到同一个版本 ID",
+        )
+        check(
+            version_id(None, make_data()) != version_id(None, make_data("丙")),
+            "内容变化则版本 ID 变化",
+        )
+
+        # 5. 三方合并：不同对象自动合并
+        base = {
+            "lines": [],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]},
+                {"id": "b", "name": {"zh": "乙"}, "pos": [100, 0]},
+            ],
+        }
+        current = {
+            "lines": [],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]},
+                {"id": "b", "name": {"zh": "乙改"}, "pos": [100, 0]},
+            ],
+        }
+        incoming = {
+            "lines": [],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲改"}, "pos": [0, 0]},
+                {"id": "b", "name": {"zh": "乙"}, "pos": [100, 0]},
+            ],
+        }
+        merged, conflicts = merge_three_way(base, current, incoming)
+        check(not conflicts, "不同车站的改动可自动合并")
+        names = {item["id"]: item["name"]["zh"] for item in merged["stations"]}
+        check(names["a"] == "甲改" and names["b"] == "乙改", "自动合并保留双方的改动")
+
+        # 6. 冲突：同一字段两边改成不同值
+        incoming_same = {
+            "lines": [],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]},
+                {"id": "b", "name": {"zh": "乙再改"}, "pos": [100, 0]},
+            ],
+        }
+        _, conflicts = merge_three_way(base, current, incoming_same)
+        check(bool(conflicts) and conflicts[0]["path"].startswith("stations[b]"), "同一字段冲突被识别并带位置")
+
+        # 7. 冲突：一边删除、一边修改
+        incoming_delete = {
+            "lines": [],
+            "stations": [{"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]}],
+        }
+        _, conflicts = merge_three_way(base, current, incoming_delete)
+        check(bool(conflicts), "一边删除一边修改被识别为冲突")
+
+        # 8. 提交流程里的冲突（409 的来源）
+        try:
+            submit(make_data("乙又改"), base_version=seed_id, author={"uid": 1, "name": "ci"}, summary="冲突", path=path)
+        except TransitConflictError as exc:
+            ok("基于旧版本的重复修改被拒绝（TransitConflictError）")
+            check(bool(exc.conflicts), f"冲突清单带 {len(exc.conflicts)} 条明细")
+        else:
+            fail("基于旧版本的冲突修改没有被拒绝")
+
+        # 9. 回退：生成新版本且内容回到目标版本
+        rolled = rollback(seed_id, author={"uid": 2, "name": "ci"}, path=path)
+        check(rolled["created"] is True, "回退生成新版本")
+        rolled_data, rolled_id, _ = load_current(path)
+        check(rolled_id == rolled["version"], "回退后 current 指向新版本")
+        check(
+            rolled_data["stations"][1]["name"]["zh"] == seed_data["stations"][1]["name"]["zh"],
+            "回退后内容与目标版本一致",
+        )
+
+        # 10. 压实：保留最近 N 版
+        last_id = ""
+        for index in range(4):
+            _, latest, _ = load_current(path)
+            last_id = submit(make_data(f"第{index}版"), base_version=latest,
+                             author={"uid": 1, "name": "ci"}, summary=f"v{index}", path=path)["version"]
+        store = read_store(path)
+        check(len(store["versions"]) >= 5, f"压实前有 {len(store['versions'])} 个版本")
+        result = compact(path, keep=3)
+        check(result["compacted"] is True, "compact 触发重写")
+        store = read_store(path)
+        check(len(store["versions"]) == 3, f"压实后保留 3 个版本（实际 {len(store['versions'])}）")
+        check(store["versions"][-1]["id"] == last_id, "压实保留最新版本")
+        check(path.with_name("transit.yml.bak").exists(), "压实前生成 .bak 备份")
+        check(MAX_VERSIONS == 200, "版本上限常量为 200")
+
+        # 11. 非法数据：拒绝且不写盘
+        size_before = path.stat().st_size
+        bad = make_data()
+        bad["lines"][0]["stations"].append("nope")
+        try:
+            submit(bad, base_version=None, author={"uid": 1, "name": "ci"}, summary="坏数据", path=path)
+        except TransitConfigError:
+            ok("非法线路数据被拒绝（引用不存在的车站）")
+        else:
+            fail("非法线路数据未被拒绝")
+        check(path.stat().st_size == size_before, "非法提交没有写入文件")
+
+        # 12. 校验器默认值
+        normalized, _ = validate_data(make_data())
+        check(normalized["lines"][0]["type"] == "metro", "线路 type 缺省为 metro")
+        check(normalized["lines"][0]["status"] == "open", "线路 status 缺省为 open")
+
+
 def main() -> int:
     print("数据层 CI 冒烟检查开始……", flush=True)
     probe_sqlite()
     check_syntax()
     check_exam_parser()
     check_text_utils()
+    check_transit()
     check_databases()
     print(f"\n全部通过：{_passed} 项检查 PASS", flush=True)
     return 0

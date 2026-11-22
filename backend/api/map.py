@@ -27,7 +27,6 @@ _MEMBER_PERMISSION = 2
 # BlueMap settings.json 与入口探活的进程内缓存（秒）
 _SETTINGS_TTL = 300
 _PROBE_TTL = 30
-
 _SETTINGS_CACHE: dict[str, tuple[float, dict | None]] = {}
 _PROBE_CACHE: dict[str, tuple[float, bool]] = {}
 

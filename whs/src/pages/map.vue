@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Maximize2, Minimize2, Users, Map as MapIcon } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { Maximize2, Minimize2, Users, Map as MapIcon, Route } from 'lucide-vue-next'
 import Top_navbar from '../components/top_navbar.vue'
 import Page_footer from '../components/page_footer.vue'
 import StatusDropdown from '../components/status_dropdown.vue'
@@ -9,6 +10,8 @@ import { useAuth } from '../composables/useAuth'
 
 const { t } = useI18n()
 const { state: authState } = useAuth()
+const route = useRoute()
+const router = useRouter()
 
 const wrapEl = ref(null)
 const frameEl = ref(null)
@@ -27,6 +30,9 @@ const gate = ref(null)
 const loading = ref(true)
 // 地图变化时重建 iframe，让 BlueMap 按新的地图/出生点初始化
 const frameKey = ref(0)
+// 从路线图跳转过来时的临时视角覆盖（/map?x=&z=&y=&station=）
+const focusTarget = ref(null)
+const pendingFocus = ref(readFocusQuery())
 
 let configTimer = null
 let playersTimer = null
@@ -37,13 +43,43 @@ let controlsTimer = null
 // 地图页固定使用 3D 透视视图；视角贴近地表并略微压低，接近游戏内旁观。
 const viewerSrc = computed(() => {
   if (!viewer.value || !activeMap.value) return ''
-  const [x, z] = startPos.value
-  const y = startY.value + 20
-  return `${viewer.value}#${activeMap.value}:${x}:${y}:${z}:150:0:1.1:0:0:perspective`
+  const focus = focusTarget.value
+  const mapId = focus?.map || activeMap.value
+  const [x, z] = focus ? [focus.x, focus.z] : startPos.value
+  const y = focus ? focus.y : startY.value + 20
+  // 从路线图定位时拉近视角，默认仍是出生点上方的广角
+  const distance = focus ? 60 : 150
+  return `${viewer.value}#${mapId}:${x}:${y}:${z}:${distance}:0:1.1:0:0:perspective`
 })
 
 // 站点通用下拉组件（status_dropdown.vue）的选项格式
 const mapOptions = computed(() => maps.value.map((m) => ({ value: m.id, label: m.name })))
+
+function readFocusQuery() {
+  const x = Number(route.query.x)
+  const z = Number(route.query.z)
+  if (!Number.isFinite(x) || !Number.isFinite(z)) return null
+  const y = Number(route.query.y)
+  return { x, z, y: Number.isFinite(y) ? y : null, station: String(route.query.station || '') }
+}
+
+/** 从路线图点站进来：把视角落到该坐标，并清掉 query（一次性消费）。 */
+function applyPendingFocus() {
+  const target = pendingFocus.value
+  if (!target) return
+  pendingFocus.value = null
+  focusTarget.value = {
+    map: activeMap.value,
+    x: target.x,
+    z: target.z,
+    y: (target.y ?? startY.value) + 20,
+  }
+  loaded.value = false
+  failed.value = false
+  frameKey.value += 1
+  beginLoad()
+  router.replace({ path: '/map' })
+}
 
 function authHeaders() {
   return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
@@ -192,6 +228,7 @@ async function loadConfig() {
     beginLoad()
     scheduleRefresh(data.ttl)
     loadPlayers()
+    applyPendingFocus()
   } catch {
     if (!available.value) showGate('network')
     // 首次加载失败时自动重试，避免网络抖动后页面永远停在错误态
@@ -203,6 +240,8 @@ async function loadConfig() {
 }
 
 async function onMapChange() {
+  // 手动切地图时丢掉路线图的定位覆盖，回到新地图的出生点
+  focusTarget.value = null
   await loadConfig()
 }
 
@@ -260,6 +299,7 @@ onBeforeUnmount(() => {
           </template>
         </StatusDropdown>
 
+
         <button
           v-if="available && loaded && !immersive"
           type="button"
@@ -271,6 +311,12 @@ onBeforeUnmount(() => {
         </button>
       </div>
     </header>
+
+    <div v-if="!immersive" class="map-transit-notice">
+      <Route :size="15" aria-hidden="true" />
+      <span>{{ t('map.transitNotice') }}</span>
+      <router-link to="/map/transit">{{ t('map.transitNoticeLink') }}</router-link>
+    </div>
 
     <div v-if="gate" class="map-gate">
       <span class="gate-icon" aria-hidden="true"><MapIcon :size="28" /></span>
@@ -326,6 +372,7 @@ onBeforeUnmount(() => {
         {{ t('map.controls3d') }}
       </div>
     </div>
+
   </main>
 
   <Page_footer />
@@ -398,6 +445,35 @@ onBeforeUnmount(() => {
   color: var(--links-color, #6b7280);
   font-size: 15px;
   line-height: 1.7;
+}
+
+.map-transit-notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0 0 12px;
+  padding: 9px 14px;
+  font-size: 13px;
+  color: var(--links-color);
+  background: var(--card-color);
+  border: 1px solid var(--float-bg);
+  border-radius: 12px;
+}
+
+.map-transit-notice svg {
+  color: var(--notice-color);
+}
+
+.map-transit-notice a {
+  margin-left: auto;
+  font-weight: 700;
+  color: var(--text-color);
+  text-decoration: none;
+}
+
+.map-transit-notice a:hover {
+  color: var(--notice-color);
 }
 
 .map-tools {
@@ -481,6 +557,7 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--text-color);
   outline-offset: 3px;
 }
+
 
 .map-canvas-wrap {
   position: relative;

@@ -21,6 +21,18 @@ const routes = [
     meta: { titleKey: 'pageTitle.map'}
   },
   {
+    path: '/map/transit',
+    name: 'Transit',
+    component: () => import("../pages/map/transit/index.vue"),
+    meta: { titleKey: 'pageTitle.transit'}
+  },
+  {
+    path: '/map/transit/edit',
+    name: 'TransitEdit',
+    component: () => import("../pages/map/transit/edit.vue"),
+    meta: { titleKey: 'pageTitle.transit'}
+  },
+  {
     path: '/projects',
     name: 'Projects',
     component: () => import("../pages/project/index.vue"),

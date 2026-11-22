@@ -362,6 +362,52 @@ def check_http(base_url: str) -> None:
         "未登录 GET /api/projects/accounts 返回 401 + code=unauthorized",
     )
 
+    # 轨交路线图：公开只读，不依赖 MCDR / BlueMap
+    status, body = http_request("GET", base_url + "/api/map/transit")
+    check(
+        status == 200
+        and isinstance(body, dict)
+        and body.get("available") is True
+        and isinstance(body.get("data", {}).get("lines"), list)
+        and isinstance(body.get("data", {}).get("stations"), list)
+        and isinstance(body.get("version"), str)
+        and body.get("can_edit") is False,
+        "GET /api/map/transit 返回线路、车站、版本号（未登录 can_edit=false）",
+    )
+    if isinstance(body, dict) and body.get("available"):
+        data = body.get("data") or {}
+        stations = {s.get("id") for s in data.get("stations") or []}
+        check(
+            all(sid in stations for line in data.get("lines") or [] for sid in line.get("stations") or []),
+            "路线图线路引用的车站都在 stations 里",
+        )
+        check(
+            all("y" in s and s.get("y_source") in ("explicit", "picked", "default") for s in data.get("stations") or []),
+            "车站带生效的 y 与来源标记",
+        )
+
+    status, body = http_request("GET", base_url + "/api/map/transit/versions")
+    check(
+        status == 200
+        and isinstance(body, dict)
+        and isinstance(body.get("versions"), list)
+        and len(body.get("versions") or []) >= 1
+        and isinstance(body.get("current"), str),
+        "GET /api/map/transit/versions 返回历史列表",
+    )
+
+    status, body = http_request("POST", base_url + "/api/map/transit", payload={"data": {}})
+    check(
+        status == 401 and isinstance(body, dict) and body.get("code") == "unauthorized",
+        "未登录 POST /api/map/transit 返回 401",
+    )
+
+    status, body = http_request("POST", base_url + "/api/map/transit/validate", payload={"data": {}})
+    check(
+        status == 401 and isinstance(body, dict) and body.get("code") == "unauthorized",
+        "未登录 POST /api/map/transit/validate 返回 401",
+    )
+
     status, body = http_request("POST", base_url + "/")
     check(
         status == 405 and isinstance(body, dict) and body.get("code") == "method_not_allowed",

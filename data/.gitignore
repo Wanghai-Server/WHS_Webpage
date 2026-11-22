@@ -1,5 +1,9 @@
+# 配置与运行时数据都不入库
+# 轨交路线图 data/transit.yml 是追加式版本库，后端启动时自动创建
 *.json
 *.yml
+*.yml.bak
+*.tmp
 /database
 /avatar
 __pycache__/
