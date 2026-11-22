@@ -654,10 +654,15 @@ onMounted(load)
 
   .transit-legend {
     margin-left: 0;
-    flex-wrap: nowrap;
-    overflow-x: auto;
     width: 100%;
+    /* 手机线路多时自动换行，避免挤成一排或横向滚动 */
+    flex-wrap: wrap;
+    overflow: visible;
     padding-bottom: 2px;
+  }
+
+  .legend-chip {
+    flex: 0 0 auto;
   }
 }
 </style>
