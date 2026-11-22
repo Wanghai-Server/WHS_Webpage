@@ -3,6 +3,7 @@ import concurrent.futures
 import json
 import re
 import uuid
+from types import SimpleNamespace
 from typing import Any, Callable, Awaitable
 
 import websockets
@@ -15,7 +16,7 @@ from online_player_api import get_player_list, is_online
 
 PLUGIN_METADATA = {
     "id": "mcdr2web",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "name": "MCDR to Web",
     "description": {
         "zh_cn": "将 Minecraft 服务器（MCDReforged）与望海官网打通：上报服务器状态与在线玩家，同步白名单。",
@@ -87,6 +88,138 @@ async def _handle_remove_player(data: Any) -> Any:
     return True
 
 
+# ---------------------------------------------------------------------------
+# 工程管理桥接（数据源：signup 插件；本插件只做 WS 转发，权限由后端校验）
+# ---------------------------------------------------------------------------
+
+def _load_signup():
+    """延迟导入 signup 插件的数据函数。
+
+    不在模块顶层导入：MCDR 插件加载顺序不确定，且 signup 可能未安装或被重载。
+    统一使用 ``from signup import ...``（而非 get_plugin_instance），便于阅读。
+    """
+    try:
+        from signup import (
+            SignUpError,
+            claim_project,
+            complete_project,
+            create_project,
+            delete_project,
+            get_project,
+            list_projects,
+            update_project_meta,
+        )
+    except ImportError as exc:
+        raise ValueError("project_unavailable") from exc
+    return SimpleNamespace(
+        error=SignUpError,
+        claim_project=claim_project,
+        complete_project=complete_project,
+        create_project=create_project,
+        delete_project=delete_project,
+        get_project=get_project,
+        list_projects=list_projects,
+        update_project_meta=update_project_meta,
+    )
+
+
+def _project_name(data: Any) -> str:
+    """从请求数据中取出工程名（去空白，空值报 project_name_invalid）。"""
+    name = str((data or {}).get("name") or "") if isinstance(data, dict) else ""
+    name = name.strip()
+    if not name:
+        raise ValueError("project_name_invalid")
+    return name
+
+
+def _project_player(data: Any, key: str = "player") -> str:
+    """从请求数据中取出 MC 玩家名（去空白，空值报 project_player_invalid）。"""
+    player = str((data or {}).get(key) or "") if isinstance(data, dict) else ""
+    player = player.strip()
+    if not player:
+        raise ValueError("project_player_invalid")
+    return player
+
+
+async def _handle_project_list(data: Any) -> Any:
+    """返回全部工程（含描述 / 备注 / 时间等元数据）。"""
+    api = _load_signup()
+    return {"projects": api.list_projects()}
+
+
+async def _handle_project_get(data: Any) -> Any:
+    """按名称返回单个工程。"""
+    api = _load_signup()
+    project = api.get_project(_project_name(data))
+    if project is None:
+        raise ValueError("project_not_found")
+    return {"project": project}
+
+
+async def _handle_project_create(data: Any) -> Any:
+    """创建工程（创建者身份由后端按网站账号校验后传入）。"""
+    api = _load_signup()
+    name = _project_name(data)
+    creator = _project_player(data, "creator")
+    try:
+        project = api.create_project(name, creator)
+    except api.error as exc:
+        raise ValueError(exc.code) from exc
+    return {"project": project}
+
+
+async def _handle_project_claim(data: Any) -> Any:
+    """认领工程（同一 MC 玩家名不能重复认领）。"""
+    api = _load_signup()
+    name = _project_name(data)
+    player = _project_player(data)
+    try:
+        project = api.claim_project(name, player)
+    except api.error as exc:
+        raise ValueError(exc.code) from exc
+    return {"project": project}
+
+
+async def _handle_project_complete(data: Any) -> Any:
+    """标记工程完成（发起者 / 管理员权限由后端校验）。"""
+    api = _load_signup()
+    name = _project_name(data)
+    try:
+        project = api.complete_project(name)
+    except api.error as exc:
+        raise ValueError(exc.code) from exc
+    return {"project": project}
+
+
+async def _handle_project_delete(data: Any) -> Any:
+    """删除工程（权限由后端校验）。"""
+    api = _load_signup()
+    name = _project_name(data)
+    try:
+        api.delete_project(name)
+    except api.error as exc:
+        raise ValueError(exc.code) from exc
+    return {"success": True}
+
+
+async def _handle_project_update(data: Any) -> Any:
+    """更新工程描述 / 备注（仅官网可编辑；权限由后端校验）。"""
+    api = _load_signup()
+    name = _project_name(data)
+    payload = data if isinstance(data, dict) else {}
+    description = payload.get("description")
+    remark = payload.get("remark")
+    if description is not None:
+        description = str(description)
+    if remark is not None:
+        remark = str(remark)
+    try:
+        project = api.update_project_meta(name, description, remark)
+    except api.error as exc:
+        raise ValueError(exc.code) from exc
+    return {"project": project}
+
+
 command_handlers: dict[str, Callable[[Any], Awaitable[Any]]] = {
     "ping": _handle_ping,
     # 在线名单 / 在线判断（whs 官网在线人数只统计真人，bot_ 前缀视为假人）
@@ -96,23 +229,45 @@ command_handlers: dict[str, Callable[[Any], Awaitable[Any]]] = {
     "get_whitelist": _handle_get_whitelist,
     "add_player": _handle_add_player,
     "remove_player": _handle_remove_player,
+    # 工程管理（数据源：signup 插件；描述/备注/时间仅官网可编辑）
+    "project_list": _handle_project_list,
+    "project_get": _handle_project_get,
+    "project_create": _handle_project_create,
+    "project_claim": _handle_project_claim,
+    "project_complete": _handle_project_complete,
+    "project_delete": _handle_project_delete,
+    "project_update": _handle_project_update,
 }
 
 async def _main_loop() -> None:
+    """WS 客户端主循环：断线自动重连；日志只在连接状态变化时输出，避免刷屏。"""
     global connected
     url = f"ws://{config['ws_host']}:{config['ws_port']}"
+    state: str | None = None  # None（初始）/ "connected" / "offline"
     while True:
-        try:
+        if state != "offline":
             server_interface.logger.info(f"[{PLUGIN_ID}] 正在连接后端 WS 服务 {url} ...")
+        try:
             async with websockets.connect(url) as conn:
                 connected = True
-                server_interface.logger.info(f"[{PLUGIN_ID}] 已连接后端 WS 服务")
-                try:
-                    await asyncio.gather(_recv_loop(conn), _send_loop(conn))
-                except Exception as exc:
-                    server_interface.logger.warning(f"[{PLUGIN_ID}] WS 会话异常: {exc}")
+                if state != "connected":
+                    server_interface.logger.info(f"[{PLUGIN_ID}] 已连接后端 WS 服务")
+                state = "connected"
+                await asyncio.gather(_recv_loop(conn), _send_loop(conn))
+                # 会话正常结束（例如后端主动关闭）：按断线处理，下方统一记录
         except Exception as exc:
-            server_interface.logger.warning(f"[{PLUGIN_ID}] WS 连接失败: {exc}")
+            if state != "offline":
+                server_interface.logger.warning(
+                    f"[{PLUGIN_ID}] 无法连接后端 WS 服务（{exc}），"
+                    f"将每 {RECONNECT_DELAY:.0f}s 重试；后续重试不再输出日志"
+                )
+            state = "offline"
+        else:
+            if state != "offline":
+                server_interface.logger.warning(
+                    f"[{PLUGIN_ID}] 后端 WS 连接已断开，将每 {RECONNECT_DELAY:.0f}s 重试"
+                )
+            state = "offline"
         finally:
             connected = False
         await asyncio.sleep(RECONNECT_DELAY)

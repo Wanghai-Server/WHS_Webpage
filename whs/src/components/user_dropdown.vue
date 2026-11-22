@@ -2,7 +2,7 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { User, Settings, LogOut, Users } from 'lucide-vue-next'
+import { User, Settings, LogOut, Users, FolderKanban } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
 import { useDialogBox } from '../composables/useDialogBox'
 
@@ -36,6 +36,11 @@ function goSettings() {
 
 function goAdminSettings() {
   router.push({ path: `/user/${user.value?.uid}`, query: { tab: 'admin' } })
+}
+
+// 工程管理：公开页面，入口仅放在用户下拉栏（与上方账号相关入口以横线分隔）
+function goProjects() {
+  router.push('/projects')
 }
 
 // 退出登录：先弹全局确认框，确认后才清空本地登录态并回首页（与设置页一致）
@@ -95,6 +100,13 @@ async function signOut() {
     <button v-if="isAdmin" class="dropdown-item" type="button" @click="goAdminSettings">
       <Users :size="18"></Users>
       <span>{{ t('userMenu.admin') }}</span>
+    </button>
+
+    <!-- 分隔线 + 工程管理入口（不占用顶部导航） -->
+    <div class="dropdown-divider" role="separator"></div>
+    <button class="dropdown-item" type="button" @click="goProjects">
+      <FolderKanban :size="18" />
+      <span>{{ t('userMenu.projects') }}</span>
     </button>
   </div>
 </template>
@@ -250,5 +262,12 @@ async function signOut() {
 .dropdown-item svg {
   flex-shrink: 0;
   color: var(--links-color);
+}
+
+/* 工程入口与上方账号相关入口之间的分隔线 */
+.dropdown-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(148, 163, 184, 0.15);
 }
 </style>

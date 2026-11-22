@@ -31,6 +31,11 @@ class WsCommandServer:
         # 内置测试指令
         self.register("ping")(self._handle_ping)
 
+    @property
+    def has_clients(self) -> bool:
+        """当前是否至少有一个已连接的 MCDR 客户端（供依赖 MCDR 的接口做离线判断）。"""
+        return bool(self._connections)
+
     # ------------------------------------------------------------------
     # 指令注册
     # ------------------------------------------------------------------

@@ -11,7 +11,8 @@
 3. 以随机端口真实启动 uvicorn（cwd=backend，等价于 manage.py 的启动方式），
    等待 lifespan 完成（连接全部数据库 + 启动 MCDR WS 命令服务）；
 4. HTTP 接口：GET /、/api/whs、/api/user/me（401）、/api/wiki/pages、
-   /api/wiki/search、未知路由（404）、错误方法（405）；
+   /api/wiki/search、未知路由（404）、错误方法（405）、工程接口（离线列表 /
+   未登录 401）；
 5. MCDR WS 命令服务：ping → pong、未知指令 → success=false；
 6. 优雅关闭后检查日志：无 Traceback，且包含启动完成标记。
 
@@ -233,9 +234,17 @@ def log_tail(text: str, lines: int = 60) -> str:
 # ---------------------------------------------------------------------------
 # HTTP / WS 检查
 # ---------------------------------------------------------------------------
-def http_request(method: str, url: str, timeout: float = 10.0):
-    data = b"" if method in ("POST", "PUT", "DELETE", "PATCH") else None
-    request = urllib.request.Request(url, data=data, method=method)
+def http_request(method: str, url: str, timeout: float = 10.0, payload=None, token: str = ""):
+    """发送 HTTP 请求；支持可选 JSON 请求体与 Bearer token（供工程接口检查）。"""
+    if payload is not None:
+        data = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+    else:
+        data = b"" if method in ("POST", "PUT", "DELETE", "PATCH") else None
+        headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(url, data=data, headers=headers, method=method)
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             raw = response.read().decode("utf-8")
@@ -328,6 +337,29 @@ def check_http(base_url: str) -> None:
     check(
         status == 404 and isinstance(body, dict) and body.get("code") == "not_found",
         "未知路由返回 404 + code=not_found",
+    )
+
+    status, body = http_request("GET", base_url + "/api/projects")
+    check(
+        status == 200
+        and isinstance(body, dict)
+        and body.get("online") is False
+        and body.get("items") == [],
+        "GET /api/projects 在 MCDR 离线时返回 200 + online=false + 空列表",
+    )
+
+    status, body = http_request(
+        "POST", base_url + "/api/projects", payload={"name": "ci-project"}
+    )
+    check(
+        status == 401 and isinstance(body, dict) and body.get("code") == "unauthorized",
+        "未登录 POST /api/projects 返回 401 + code=unauthorized",
+    )
+
+    status, body = http_request("GET", base_url + "/api/projects/accounts")
+    check(
+        status == 401 and isinstance(body, dict) and body.get("code") == "unauthorized",
+        "未登录 GET /api/projects/accounts 返回 401 + code=unauthorized",
     )
 
     status, body = http_request("POST", base_url + "/")
