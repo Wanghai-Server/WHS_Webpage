@@ -195,6 +195,7 @@ onMounted(load)
           :schematic="schematic"
           :selected-id="diagramSelectedId"
           :hidden-lines="hiddenLines"
+          :locale="locale"
           @select="onSelect"
         />
 

@@ -706,6 +706,7 @@ onBeforeUnmount(() => {
         <TransitDiagram
           :schematic="schematic"
           :selected-id="selection?.id || ''"
+          :locale="locale"
           @select="onDiagramSelect"
         />
         <p class="preview-hint">{{ t('transit.edit.previewHint') }}</p>
@@ -781,10 +782,6 @@ onBeforeUnmount(() => {
               <Markdown_editer v-model="draft.note" multilingual :min-height="120" :placeholder="t('transit.edit.notePlaceholder')" />
             </div>
           </template>
-          <div class="detail-actions">
-            <button type="button" class="btn-ghost" @click="cancelCreate">{{ t('transit.edit.cancel') }}</button>
-            <button type="button" class="btn-primary" @click="confirmCreate">{{ t('transit.edit.create') }}</button>
-          </div>
         </div>
 
         <div v-else-if="selectedLine" class="detail-body">
@@ -843,11 +840,6 @@ onBeforeUnmount(() => {
             <span>{{ t('transit.edit.note') }}</span>
             <Markdown_editer v-model="selectedLine.note" multilingual :min-height="150" :placeholder="t('transit.edit.notePlaceholder')" />
           </div>
-          <div class="detail-actions">
-            <button type="button" class="icon-btn" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /></button>
-            <button type="button" class="icon-btn" :disabled="lines[lines.length - 1]?.id === selectedLine.id" @click="moveLine(selectedLine, 1)"><ArrowDown :size="14" /></button>
-            <button type="button" class="btn-danger" @click="deleteLine(selectedLine)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
-          </div>
         </div>
 
         <div v-else-if="selectedStation" class="detail-body">
@@ -874,10 +866,22 @@ onBeforeUnmount(() => {
             <span>{{ t('transit.edit.note') }}</span>
             <Markdown_editer v-model="selectedStation.note" multilingual :min-height="150" :placeholder="t('transit.edit.notePlaceholder')" />
           </div>
-          <div class="detail-actions">
-            <button type="button" class="btn-danger" @click="deleteStation(selectedStation)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
-          </div>
         </div>
+
+        <footer v-if="creating || selectedLine || selectedStation" class="detail-actions">
+          <template v-if="creating">
+            <button type="button" class="btn-ghost" @click="cancelCreate">{{ t('transit.edit.cancel') }}</button>
+            <button type="button" class="btn-primary" @click="confirmCreate">{{ t('transit.edit.create') }}</button>
+          </template>
+          <template v-else-if="selectedLine">
+            <button type="button" class="icon-btn" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /></button>
+            <button type="button" class="icon-btn" :disabled="lines[lines.length - 1]?.id === selectedLine.id" @click="moveLine(selectedLine, 1)"><ArrowDown :size="14" /></button>
+            <button type="button" class="btn-danger" @click="deleteLine(selectedLine)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
+          </template>
+          <template v-else>
+            <button type="button" class="btn-danger" @click="deleteStation(selectedStation)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
+          </template>
+        </footer>
       </aside>
       </Transition>
     </div>
@@ -1475,16 +1479,13 @@ onBeforeUnmount(() => {
 }
 
 .detail-actions {
-  position: sticky;
-  bottom: 0;
   display: flex;
+  flex: 0 0 auto;
   gap: 6px;
   align-items: center;
-  margin-top: 8px;
-  padding: 8px 0 10px;
-  background: linear-gradient(rgba(var(--card-color-rgb), 0), rgba(var(--card-color-rgb), 0.92) 24%);
-  -webkit-backdrop-filter: blur(10px);
-  backdrop-filter: blur(10px);
+  padding: 9px 12px;
+  border-top: 1px solid rgba(var(--text-color-rgb), 0.1);
+  background: rgba(var(--card-color-rgb), 0.55);
 }
 
 .detail-actions .btn-danger {
@@ -1766,7 +1767,7 @@ onBeforeUnmount(() => {
     left: 0;
     z-index: 65;
     max-height: 80vh;
-    overflow-y: auto;
+    overflow: hidden;
     overscroll-behavior: contain;
     /* 与全站弹窗 / 导航同款背景与毛玻璃 */
     background: var(--navbar-bg);
