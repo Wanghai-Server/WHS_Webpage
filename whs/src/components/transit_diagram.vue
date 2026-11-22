@@ -25,6 +25,8 @@ const viewBox = ref({ x: 0, y: 0, w: 800, h: 500 })
 let drag = null
 let animation = null
 let lastBoundsKey = ''
+let moved = false
+let suppressClick = false
 
 const lines = computed(() => (props.schematic?.lines || [])
   .filter((line) => !props.hiddenLines.includes(line.id)))
@@ -124,12 +126,17 @@ function onWheel(event) {
 function onPointerDown(event) {
   if (!props.interactive || event.button !== 0) return
   stopAnimation()
+  moved = false
   drag = { x: event.clientX, y: event.clientY, box: { ...viewBox.value } }
-  svgEl.value?.setPointerCapture?.(event.pointerId)
+  // 不用 setPointerCapture：捕获到 svg 根节点会让站点/线路的 click 永远不触发
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', onPointerUp, { once: true })
+  window.addEventListener('pointercancel', onPointerUp, { once: true })
 }
 
 function onPointerMove(event) {
   if (!drag || !svgEl.value) return
+  if (Math.abs(event.clientX - drag.x) + Math.abs(event.clientY - drag.y) > 4) moved = true
   const rect = svgEl.value.getBoundingClientRect()
   viewBox.value = {
     ...drag.box,
@@ -139,7 +146,18 @@ function onPointerMove(event) {
 }
 
 function onPointerUp() {
+  window.removeEventListener('pointermove', onPointerMove)
+  // 拖动结束后紧跟的 click 不应被当成“点选”
+  if (drag && moved) suppressClick = true
   drag = null
+  if (suppressClick) setTimeout(() => { suppressClick = false }, 0)
+}
+
+function onClick(event) {
+  if (suppressClick) {
+    event.stopPropagation()
+    event.preventDefault()
+  }
 }
 
 function select(station) {
@@ -153,6 +171,8 @@ function selectLine(line) {
 onBeforeUnmount(() => {
   drag = null
   stopAnimation()
+  window.removeEventListener('pointermove', onPointerMove)
+  window.removeEventListener('pointerup', onPointerUp)
 })
 </script>
 
@@ -173,9 +193,7 @@ onBeforeUnmount(() => {
       :style="{ cursor: interactive ? 'grab' : 'default' }"
       @wheel="onWheel"
       @pointerdown="onPointerDown"
-      @pointermove="onPointerMove"
-      @pointerup="onPointerUp"
-      @pointerleave="onPointerUp"
+      @click.capture="onClick"
     >
       <g class="transit-lines">
         <g

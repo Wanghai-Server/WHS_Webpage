@@ -8,7 +8,7 @@
  * - 「强制并入」仅 can_force（permission ≥ 4）；
  * - 车站坐标可「从地图取点」：内嵌 BlueMap iframe，读相机 hash。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave } from 'vue-router'
 import {
@@ -104,6 +104,13 @@ const pickerInitial = computed(() => {
 function fitMedia() {
   isMobile.value = window.matchMedia('(max-width: 767px)').matches
 }
+
+// 手机编辑抽屉打开时隐藏左下角消息悬浮按钮，避免压住备注编辑区
+function syncSheetClass() {
+  document.body.classList.toggle('transit-sheet-open', isMobile.value && showPanel.value)
+}
+
+watch([isMobile, showPanel], syncSheetClass)
 
 function authHeaders() {
   return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
@@ -231,7 +238,12 @@ function confirmCreate() {
       showTip('error', t('transit.edit.idTaken'))
       return
     }
-    const station = { id: draft.value.id, name: { ...draft.value.name }, pos: [...draft.value.pos], note: { zh: '', en: '' } }
+    const station = {
+      id: draft.value.id,
+      name: { ...draft.value.name },
+      pos: [...draft.value.pos],
+      note: { zh: draft.value.note?.zh || '', en: draft.value.note?.en || '' },
+    }
     const tags = String(draft.value.tags || '').split(',').map((item) => item.trim()).filter(Boolean)
     if (tags.length) station.tags = tags
     if (draft.value.y != null) {
@@ -597,6 +609,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('resize', fitMedia)
   window.removeEventListener('beforeunload', beforeUnload)
+  document.body.classList.remove('transit-sheet-open')
 })
 </script>
 
@@ -1077,6 +1090,7 @@ onBeforeUnmount(() => {
   flex-direction: column;
   min-height: 0;
   height: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   /* 与全站导航/弹窗同款毛玻璃 */
   background: rgba(var(--card-color-rgb), 0.72);
@@ -1394,7 +1408,9 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  padding: 7px 12px;
+  min-height: 32px;
+  padding: 0 12px;
+  box-sizing: border-box;
   font-size: 13px;
   cursor: pointer;
   border-radius: 9px;
@@ -1446,10 +1462,16 @@ onBeforeUnmount(() => {
 }
 
 .detail-actions {
+  position: sticky;
+  bottom: 0;
   display: flex;
   gap: 6px;
   align-items: center;
   margin-top: 8px;
+  padding: 8px 0 10px;
+  background: linear-gradient(rgba(var(--card-color-rgb), 0), rgba(var(--card-color-rgb), 0.92) 24%);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
 }
 
 .detail-actions .btn-danger {
@@ -1756,6 +1778,16 @@ onBeforeUnmount(() => {
     max-height: 82vh;
     border-radius: 18px 18px 0 0;
     box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.3);
+  }
+}
+</style>
+
+
+<style>
+/* 手机编辑抽屉打开时隐藏左下角消息悬浮按钮 */
+@media (max-width: 767px) {
+  body.transit-sheet-open .message-fab {
+    display: none;
   }
 }
 </style>
