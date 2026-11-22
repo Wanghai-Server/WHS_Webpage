@@ -1227,7 +1227,9 @@ onUnmounted(() => {
 
 .panel {
   width: min(760px, 100%);
-  max-height: 88vh;
+  /* 桌面端铺满遮罩可用高度（遮罩上下各留 24px）；内容不满时随内容收缩，
+     只有内容确实超出可用高度时才出现滚动条 */
+  max-height: calc(100vh - 48px);
   display: flex;
   flex-direction: column;
   border-radius: 16px;

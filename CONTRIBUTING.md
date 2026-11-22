@@ -247,7 +247,7 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 - `whs/src/style.css` 定义主题 CSS 变量（`--bg-color`、`--card-color`、`--text-color`、`--links-color`、`--notice-color`、`--float-bg` 及 `*-rgb` 版本），深色模式由 `html.dark` 与系统 `prefers-color-scheme` 共同控制。
 - **不要硬编码颜色**，使用现有变量以保证深 / 浅色主题一致；新增变量需同时补齐 `:root`、`html.dark` 与 `prefers-color-scheme` 三处。
 - Markdown 正文样式统一在 `style.css` 的 `.md-body`（含代码块 / 语言栏 / 复制按钮 / 公式 / mermaid / 高亮配色），维基在 `wiki_markdown.vue` 的 `.wiki-md` 覆盖；新增 Markdown 展示位置不要再复制一套排版。
-- 管理端悬浮框（`admin_settings.vue`）约定为单滚动容器：`.panel` 自身滚动，`.panel-body` 不参与拉伸（内容少时高度跟随内容，内容超高才滚动），头部与翻页栏随内容滚动、不吸顶、不叠加背景色；打开时锁定背景页面滚动。手机端在表格等横向滚动容器内的纵向滑动由 `onOverlayTouchMove` 转发给主对话框，横向滑动保留给容器自身；新增弹窗不要恢复成 `.panel` + `.panel-body` 双层滚动。
+- 管理端悬浮框（`admin_settings.vue`）约定为单滚动容器：`.panel` 自身滚动，最大高度为 `calc(100vh - 48px)`（内容装得下时不出现滚动条），`.panel-body` 不参与拉伸（内容少时高度跟随内容，内容超高才滚动），头部与翻页栏随内容滚动、不吸顶、不叠加背景色；打开时锁定背景页面滚动。手机端在表格等横向滚动容器内的纵向滑动由 `onOverlayTouchMove` 转发给主对话框，横向滑动保留给容器自身；新增弹窗不要恢复成 `.panel` + `.panel-body` 双层滚动。
 - 移动端约定：底部弹层使用 20px 顶部圆角、`min-height: 20vh` / `max-height: 80vh` 或类似范围、`overscroll-behavior: contain`；弹层层级参考现有 z-index（消息层 3000、发布层 9500、悬浮按钮 2500）。
 - 动画优先使用已有 `.load-in` 等类，并尊重 `prefers-reduced-motion`。
 
