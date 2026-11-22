@@ -35,6 +35,8 @@ import yaml
 TRANSIT_PATH = Path(__file__).resolve().parent / "transit.yml"
 MAX_VERSIONS = 200
 MAX_BYTES = 8 * 1024 * 1024
+# 单个版本的硬上限：远小于整库上限，避免「每次提交都触发全量重写且仍超限」
+MAX_VERSION_BYTES = MAX_BYTES // 4
 
 _LOCK = threading.RLock()
 
@@ -105,7 +107,15 @@ def read_store(path: Path | None = None) -> dict:
         except TransitConfigError:
             raise
         except Exception as exc:
-            raise TransitConfigError(f"{target.name} 解析失败：{exc}") from None
+            # 尾部被写坏（例如进程被强杀）：先尝试修复，再决定是否报错
+            try:
+                repaired, message = repair_transit_file(target)
+            except TransitConfigError:
+                repaired = False
+            if not repaired:
+                raise TransitConfigError(f"{target.name} 解析失败：{exc}") from None
+            print(f"[transit] {message}", flush=True)
+            header, versions = _split_docs(_read_docs(target))
         return {"format": int(header.get("format") or 1), "versions": versions}
 
 
@@ -336,6 +346,65 @@ def _write_header(handle) -> None:
     handle.write(yaml.safe_dump({"format": 1}, allow_unicode=True, sort_keys=False))
 
 
+def _estimate_versions_bytes(versions: list[dict]) -> int:
+    total = 128  # 头部注释与 format 文档
+    for doc in versions:
+        total += len(yaml.safe_dump(doc, allow_unicode=True, sort_keys=False, default_flow_style=False).encode("utf-8")) + 4
+    return total
+
+
+def repair_transit_file(path: Path | None = None) -> tuple[bool, str]:
+    """修复被强杀写坏的尾部：保留能解析的前缀文档，备份后重写。
+
+    返回 (是否修复, 提示)；头部或全部版本都损坏时抛 TransitConfigError。
+    """
+    target = Path(path) if path else TRANSIT_PATH
+    with _LOCK:
+        text = target.read_text(encoding="utf-8")
+        try:
+            _split_docs(_parse_docs_text(text))
+            return False, ""
+        except Exception:
+            pass
+        segments = _text_docs(text)
+        kept: list[str] | None = None
+        dropped = 0
+        for index in range(len(segments), 0, -1):
+            candidate = "---\n".join(segments[:index])
+            try:
+                header, versions = _split_docs(_parse_docs_text(candidate))
+            except Exception:
+                continue
+            if header and versions:
+                kept = segments[:index]
+                dropped = len(segments) - index
+                break
+        if not kept:
+            raise TransitConfigError("transit.yml 损坏且无法修复：头部或全部版本都解析失败")
+        backup = target.with_name(target.name + ".bak")
+        try:
+            shutil.copyfile(target, backup)
+        except OSError:
+            pass
+        text_out = "---\n".join(segment.rstrip("\n") + "\n" for segment in kept)
+        target.write_text(text_out, encoding="utf-8")
+        return True, f"已丢弃 {dropped} 段损坏内容，原文件备份为 {backup.name}"
+
+
+def _parse_docs_text(text: str) -> list[dict]:
+    docs = []
+    for raw in yaml.safe_load_all(text):
+        if isinstance(raw, dict) and raw:
+            docs.append(raw)
+    return docs
+
+
+def _text_docs(text: str) -> list[str]:
+    import re
+
+    return [part for part in re.split(r"(?m)^---\s*$", text) if part.strip()]
+
+
 def _write_all(versions: list[dict], path: Path) -> None:
     tmp = path.with_name(path.name + ".tmp")
     with tmp.open("w", encoding="utf-8") as handle:
@@ -408,7 +477,13 @@ def ensure_transit_file(path: Path | None = None) -> bool:
     target = Path(path) if path else TRANSIT_PATH
     with _LOCK:
         if target.exists() and target.stat().st_size > 0:
-            return False
+            try:
+                repaired, message = repair_transit_file(target)
+            except TransitConfigError:
+                raise
+            if repaired:
+                print(f"[transit] {message}", flush=True)
+            return repaired
         doc = seed_version()
         tmp = target.with_name(target.name + ".tmp")
         with tmp.open("w", encoding="utf-8") as handle:
@@ -587,7 +662,12 @@ def _maybe_compact(path: Path, store: dict) -> bool:
     versions = store.get("versions") or []
     if len(versions) <= MAX_VERSIONS and path.stat().st_size <= MAX_BYTES:
         return False
-    keep = versions[-MAX_VERSIONS:]
+    keep_count = min(MAX_VERSIONS, len(versions))
+    keep = versions[-keep_count:]
+    # 版本数达标但文件仍超限时继续减半，最少保留最新一版
+    while keep_count > 1 and _estimate_versions_bytes(keep) > MAX_BYTES:
+        keep_count = max(1, keep_count // 2)
+        keep = versions[-keep_count:]
     backup = path.with_name(path.name + ".bak")
     try:
         shutil.copyfile(path, backup)
@@ -602,6 +682,10 @@ def submit(data, *, base_version: str | None, author: dict, summary: str,
     """提交一个新版本。返回 {created, version, data, merged, conflicts}。"""
     target = Path(path) if path else TRANSIT_PATH
     normalized, warnings = validate_data(data, require_lines=True)
+    if len(_canonical(normalized)) > MAX_VERSION_BYTES:
+        raise TransitConfigError(
+            f"单个版本超过 {MAX_VERSION_BYTES // 1024} KiB 上限，请精简数据（例如缩短提示文本）"
+        )
 
     with _LOCK:
         store = read_store(target)
@@ -706,3 +790,21 @@ def compact(path: Path | None = None, keep: int = MAX_VERSIONS) -> dict:
             pass
         _write_all(versions[-keep:], target)
         return {"compacted": True, "before": before, "after": keep}
+
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="轨交版本库维护工具")
+    parser.add_argument("command", choices=["compact", "repair", "check"])
+    parser.add_argument("--keep", type=int, default=MAX_VERSIONS)
+    args = parser.parse_args()
+
+    if args.command == "compact":
+        print(compact(keep=args.keep))
+    elif args.command == "repair":
+        print(repair_transit_file())
+    else:
+        store = read_store()
+        print({"versions": len(store.get("versions") or []), "bytes": TRANSIT_PATH.stat().st_size})

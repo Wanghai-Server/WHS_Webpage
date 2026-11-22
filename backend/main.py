@@ -937,6 +937,28 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# 轨交写接口的请求体上限：防止超大 JSON 直接把内存和版本库撑爆
+_TRANSIT_BODY_LIMIT = 16 * 1024 * 1024
+
+
+@app.middleware("http")
+async def limit_transit_body(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH") and request.url.path.startswith("/api/map/transit"):
+        length = request.headers.get("content-length")
+        try:
+            too_large = bool(length) and int(length) > _TRANSIT_BODY_LIMIT
+        except ValueError:
+            too_large = True
+        if too_large:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "code": "transit_invalid",
+                    "message": {"zh": "请求体过大，请精简数据后重试", "en": "Request body too large"},
+                },
+            )
+    return await call_next(request)
+
 
 @app.exception_handler(UserDatabaseError)
 async def user_database_error_handler(request: Request, exc: UserDatabaseError):

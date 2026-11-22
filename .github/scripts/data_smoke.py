@@ -493,6 +493,7 @@ def check_databases() -> None:
 def check_transit() -> None:
     section("轨交路线图数据（data/transit.py）")
     from data.transit import (
+        MAX_BYTES,
         MAX_VERSIONS,
         TransitConfigError,
         TransitConflictError,
@@ -501,6 +502,7 @@ def check_transit() -> None:
         load_current,
         merge_three_way,
         read_store,
+        repair_transit_file,
         rollback,
         submit,
         validate_data,
@@ -681,7 +683,32 @@ def check_transit() -> None:
             fail("非法线路数据未被拒绝")
         check(path.stat().st_size == size_before, "非法提交没有写入文件")
 
-        # 12. 校验器默认值
+        # 12. 单版本过大：拒绝且不写盘（避免每次提交都触发全量重写）
+        huge = make_data()
+        huge["note"] = {"zh": "x" * (MAX_BYTES // 4 + 64), "en": "x"}
+        size_before = path.stat().st_size
+        try:
+            submit(huge, base_version=None, author={"uid": 1, "name": "ci"}, summary="超大", path=path)
+        except TransitConfigError:
+            ok("单个版本超过上限被拒绝（TransitConfigError）")
+        else:
+            fail("单个版本超大时没有被拒绝")
+        check(path.stat().st_size == size_before, "超大版本不写盘")
+
+        # 13. 进程被强杀写坏尾部：读取时自动修复，保留可解析版本
+        broken = Path(tmp) / "broken.yml"
+        ensure_transit_file(broken)
+        with broken.open("a", encoding="utf-8") as handle:
+            handle.write("---\n  broken: [unclosed\n")
+        repaired_store = read_store(broken)
+        check(len(repaired_store["versions"]) == 1, "损坏的尾部被修复，可解析版本保留")
+        check(broken.with_name("broken.yml.bak").exists(), "修复前生成 .bak 备份")
+        repaired_data, _, _ = load_current(broken)
+        check(repaired_data["lines"][0]["id"] == "l1", "修复后仍能读到种子线路")
+        ok_repaired, _ = repair_transit_file(broken)
+        check(ok_repaired is False, "已修复的文件再次检查不会重复改动")
+
+        # 14. 校验器默认值
         normalized, _ = validate_data(make_data())
         check(normalized["lines"][0]["type"] == "metro", "线路 type 缺省为 metro")
         check(normalized["lines"][0]["status"] == "open", "线路 status 缺省为 open")

@@ -7,11 +7,14 @@
 数据文件 `data/transit.yml` 不入库，由 `main.lifespan` 启动时自动创建（见 data/transit.py）。
 """
 
+import json
+
 from fastapi import APIRouter, Body, Header
 from fastapi.responses import JSONResponse
 
 from data import read_config
 from data.transit import (
+    MAX_BYTES,
     TRANSIT_PATH,
     _LOCK,
     TransitConflictError,
@@ -216,6 +219,13 @@ def transit_submit(payload: dict = Body(...), authorization: str = Header(None))
         return _error("unauthorized", 401)
     if _permission(user) < _EDIT_PERMISSION:
         return _error("permission_denied", 403)
+
+    try:
+        size = len(json.dumps(payload.get("data"), ensure_ascii=False).encode("utf-8"))
+    except (TypeError, ValueError):
+        size = 0
+    if size > MAX_BYTES:
+        return _error("transit_invalid", 400, f"数据过大（{size} 字节，上限 {MAX_BYTES}）")
 
     force = bool(payload.get("force"))
     if force and _permission(user) < _FORCE_PERMISSION:
