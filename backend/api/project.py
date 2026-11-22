@@ -138,7 +138,8 @@ def _get_project_items() -> tuple[list[dict], bool]:
     with _CACHE_LOCK:
         items = _PROJECT_CACHE["items"]
         if isinstance(items, list) and now - _PROJECT_CACHE["fetched_at"] < PROJECT_CACHE_TTL:
-            return list(items), bool(_PROJECT_CACHE["online"])
+            # 缓存命中时仍以当前 WS 连接状态为准，避免 MCDR 刚断线还显示在线
+            return list(items), ws_server.has_clients
 
     data, code = _call_project("project_list", {}, READ_TIMEOUT)
     projects = data.get("projects") if isinstance(data, dict) else None
@@ -205,6 +206,15 @@ def _is_creator(project: dict, user: dict | None) -> bool:
     return _resolve_uid(creator) == user["uid"]
 
 
+def _claimed_by_user(project: dict, user: dict | None) -> bool:
+    """当前用户的任一 MC 账号是否已认领该工程（网页按"人"去重）。"""
+    if user is None:
+        return False
+    names = set(_user_player_names(user["uid"]))
+    claimants = {str(name) for name in (project.get("claimants") or [])}
+    return bool(names & claimants)
+
+
 def _serialize_project(project: dict) -> dict:
     """工程对外的展示结构：补 uid、把认领者转为 {name, uid}。"""
     creator = str(project.get("creator") or "")
@@ -232,14 +242,13 @@ def _viewer(project: dict, user: dict | None) -> dict:
     permission = int((user or {}).get("permission") or 0)
     status = str(project.get("status") or "unclaimed")
     is_creator = _is_creator(project, user)
-    names = set(_user_player_names(user["uid"])) if user else set()
-    claimed = {str(name) for name in (project.get("claimants") or [])}
+    claimed_by_user = _claimed_by_user(project, user)
     return {
         "is_creator": is_creator,
         "can_claim": bool(user)
         and permission >= MEMBER_PERMISSION
         and status in ("unclaimed", "claimed")
-        and bool(names - claimed),
+        and not claimed_by_user,
         "can_complete": bool(user)
         and status == "claimed"
         and (is_creator or permission >= ADMIN_PERMISSION),
@@ -370,6 +379,13 @@ def project_claim(payload: dict = Body(...), user: dict | None = Depends(get_cur
     player, error = _validate_player(user, payload.get("player"))
     if error is not None:
         return error
+    project, _, code = _get_project(name)
+    if code is not None:
+        return _project_error(code)
+    if project.get("status") == "completed":
+        return _project_error("project_completed")
+    if _claimed_by_user(project, user):
+        return _project_error("project_already_claimed")
     data, code = _call_project(
         "project_claim", {"name": name, "player": player}, WRITE_TIMEOUT
     )

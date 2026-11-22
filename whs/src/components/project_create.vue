@@ -8,7 +8,7 @@
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { X } from 'lucide-vue-next'
-import McAccountPicker from './mc_account_picker.vue'
+import ProjectAccountDialog from './project_account_dialog.vue'
 import { useAuth } from '../composables/useAuth'
 import { useTips } from '../composables/useTips'
 import { preferredPlayer } from '../composables/useProjectPlayer'
@@ -27,6 +27,7 @@ const { showTip } = useTips()
 const name = ref('')
 const player = ref('')
 const submitting = ref(false)
+const confirmOpen = ref(false)
 
 function localMessage(data) {
   const message = data && data.message
@@ -45,6 +46,7 @@ function authHeaders(extra = {}) {
 function resetForm() {
   name.value = ''
   submitting.value = false
+  confirmOpen.value = false
   player.value = preferredPlayer(props.accounts, props.defaultAccount)
 }
 
@@ -65,7 +67,7 @@ watch(
   }
 )
 
-async function submit() {
+function submit() {
   if (submitting.value) return
   const projectName = name.value.trim()
   if (!projectName) {
@@ -76,16 +78,26 @@ async function submit() {
     showTip('warning', t('projects.nameTooLong'))
     return
   }
-  if (!player.value) {
+  if (!props.accounts.length) {
     showTip('warning', t('projects.bindAccount'))
     return
   }
+  // 多账号：先弹出确认浮层选择账号；单账号直接创建
+  if (props.accounts.length > 1) {
+    confirmOpen.value = true
+    return
+  }
+  createProject(props.accounts[0].name)
+}
+
+async function createProject(selectedPlayer) {
+  if (submitting.value) return
   submitting.value = true
   try {
     const res = await fetch('/api/projects', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ name: projectName, player: player.value }),
+      body: JSON.stringify({ name: name.value.trim(), player: selectedPlayer }),
     })
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
@@ -101,6 +113,11 @@ async function submit() {
   } finally {
     submitting.value = false
   }
+}
+
+function onConfirmCreate(selectedPlayer) {
+  confirmOpen.value = false
+  createProject(selectedPlayer)
 }
 </script>
 
@@ -122,12 +139,6 @@ async function submit() {
               <span class="float-label">{{ t('projects.nameLabel') }}</span>
             </label>
             <p class="rc-hint">{{ t('projects.nameHint') }}</p>
-
-            <McAccountPicker
-              v-if="accounts.length > 1"
-              v-model="player"
-              :accounts="accounts"
-            />
           </div>
 
           <footer class="rc-foot">
@@ -143,6 +154,18 @@ async function submit() {
       </div>
     </Transition>
   </Teleport>
+
+  <ProjectAccountDialog
+    :open="confirmOpen"
+    :title="t('projects.createConfirmTitle')"
+    :message="t('projects.createConfirmMessage', { name: name.trim() })"
+    :accounts="accounts"
+    :default-player="player"
+    :busy="submitting"
+    :confirm-text="t('projects.create')"
+    @close="confirmOpen = false"
+    @confirm="onConfirmCreate"
+  />
 </template>
 
 <style scoped>
