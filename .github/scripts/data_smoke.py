@@ -616,8 +616,32 @@ def check_transit() -> None:
         except TransitConflictError as exc:
             ok("基于旧版本的重复修改被拒绝（TransitConflictError）")
             check(bool(exc.conflicts), f"冲突清单带 {len(exc.conflicts)} 条明细")
+            check(
+                isinstance(exc.current_data, dict) and exc.current_data.get("stations"),
+                "冲突异常携带当前完整数据（前端据此合并后重提）",
+            )
         else:
             fail("基于旧版本的冲突修改没有被拒绝")
+
+        # 8b. 冲突重提：双方新增的车站都要保留
+        base2 = {"lines": [], "stations": [{"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]}]}
+        current2 = {
+            "lines": [],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]},
+                {"id": "s_qa", "name": {"zh": "甲新"}, "pos": [10, 0]},
+            ],
+        }
+        incoming2 = {
+            "lines": [],
+            "stations": [
+                {"id": "a", "name": {"zh": "甲"}, "pos": [0, 0]},
+                {"id": "s_qb", "name": {"zh": "乙新"}, "pos": [20, 0]},
+            ],
+        }
+        merged2, _ = merge_three_way(base2, current2, incoming2)
+        ids2 = {item["id"] for item in merged2["stations"]}
+        check("s_qa" in ids2 and "s_qb" in ids2, "冲突重提时双方新增的车站都保留")
 
         # 9. 回退：生成新版本且内容回到目标版本
         rolled = rollback(seed_id, author={"uid": 2, "name": "ci"}, path=path)
