@@ -698,6 +698,54 @@ ERROR_MESSAGES = {
         "zh": "文件不存在",
         "en": "File not found",
     },
+    "project_not_found": {
+        "zh": "工程不存在",
+        "en": "Project not found",
+    },
+    "project_exists": {
+        "zh": "工程名称已存在",
+        "en": "A project with this name already exists",
+    },
+    "project_name_invalid": {
+        "zh": "工程名称不能为空",
+        "en": "Project name cannot be empty",
+    },
+    "project_name_too_large": {
+        "zh": "工程名称过长（最多 32 个字符）",
+        "en": "Project name is too long (max 32 characters)",
+    },
+    "project_player_invalid": {
+        "zh": "请选择属于你的游戏账号",
+        "en": "Please choose one of your own game accounts",
+    },
+    "project_already_claimed": {
+        "zh": "该游戏账号已经认领过这个工程",
+        "en": "This game account has already claimed the project",
+    },
+    "project_not_claimed": {
+        "zh": "该工程尚未被认领，无法完成",
+        "en": "The project has not been claimed yet",
+    },
+    "project_completed": {
+        "zh": "该工程已完成，无法继续操作",
+        "en": "The project is already completed",
+    },
+    "project_permission_denied": {
+        "zh": "没有权限执行此工程操作",
+        "en": "You do not have permission for this project action",
+    },
+    "project_description_too_large": {
+        "zh": "工程描述过长（最多 20000 个字符）",
+        "en": "Project description is too long (max 20000 characters)",
+    },
+    "project_remark_too_large": {
+        "zh": "工程备注过长（最多 500 个字符）",
+        "en": "Project remark is too long (max 500 characters)",
+    },
+    "project_unavailable": {
+        "zh": "工程服务暂时不可用（游戏服务器连接不可用）",
+        "en": "Project service is temporarily unavailable (game server connection is offline)",
+    },
 }
 
 # 错误码 -> HTTP 状态码。
@@ -796,6 +844,18 @@ ERROR_STATUS: dict[str, int] = {
     "feedback_page_invalid": 400,
     "feedback_comment_empty": 400,
     "feedback_comment_too_large": 413,
+    "project_not_found": 404,
+    "project_exists": 409,
+    "project_name_invalid": 400,
+    "project_name_too_large": 413,
+    "project_player_invalid": 400,
+    "project_already_claimed": 400,
+    "project_not_claimed": 400,
+    "project_completed": 400,
+    "project_permission_denied": 403,
+    "project_description_too_large": 413,
+    "project_remark_too_large": 413,
+    "project_unavailable": 503,
 }
 
 # 未收录错误码时的兜底双语消息。
@@ -1239,6 +1299,7 @@ from api.feedback import router as feedback_router
 from api.map import router as map_router
 from api.markdown import router as markdown_router
 from api.message import router as message_router
+from api.project import router as project_router
 from api.search import router as search_router
 from api.server import router as server_router
 from api.site import router as site_router
@@ -1257,3 +1318,4 @@ app.include_router(map_router)
 app.include_router(search_router)
 app.include_router(wiki_router)
 app.include_router(markdown_router)
+app.include_router(project_router)

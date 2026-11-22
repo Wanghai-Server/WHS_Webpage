@@ -11,9 +11,11 @@
 2. 源码中 PLUGIN_METADATA 与清单逐字段一致（防止两处元数据漂移）；
 3. 插件源码语法编译；
 4. 用最小桩模块替代未入库的 whitelist_api / online_player_api 后真实导入插件，
-   检查 MCDR 入口函数与 WS 命令表；
+   检查 MCDR 入口函数与 WS 命令表（含工程指令）；
 5. 纯函数行为：`tick query` 解析（TPS/MSPT/health）、`list` 输出解析（玩家上限）；
-6. 可选 `--packed`：校验 mcdreforged pack 产出的 .mcdr 包内容与清单。
+6. 工程桥接：signup 缺失时返回 project_unavailable；用 signup 桩验证 create / claim /
+   complete / update / delete 与错误码透传；
+7. 可选 `--packed`：校验 mcdreforged pack 产出的 .mcdr 包内容与清单。
 
 说明：CI 中 mcdreforged 与 websockets 由 workflow 安装；本地可借
       mcdr_connecter_plugin/venv 的 site-packages（设置 PYTHONPATH）运行。
@@ -30,6 +32,7 @@ import re
 import shutil
 import sys
 import tempfile
+import types
 import zipfile
 from pathlib import Path
 
@@ -210,6 +213,13 @@ def import_plugin():
         "get_whitelist",
         "add_player",
         "remove_player",
+        "project_list",
+        "project_get",
+        "project_create",
+        "project_claim",
+        "project_complete",
+        "project_delete",
+        "project_update",
     }
     check(isinstance(handlers, dict), "插件注册了 WS 命令表 command_handlers")
     if isinstance(handlers, dict):
@@ -259,7 +269,150 @@ def check_parsers(plugin) -> None:
 
 
 # ---------------------------------------------------------------------------
-# 6. 打包产物
+# 6. 工程桥接（signup 桩）
+# ---------------------------------------------------------------------------
+STUB_SIGNUP = '''"""CI 桩模块：替代未入库的 signup 插件数据层（仅用于桥接检查）。"""
+
+
+class SignUpError(Exception):
+    def __init__(self, code):
+        self.code = code
+        super().__init__(code)
+
+
+_PROJECTS = {}
+
+
+def list_projects():
+    return [dict(project, claimants=list(project.get("claimants") or [])) for project in _PROJECTS.values()]
+
+
+def get_project(name):
+    return _PROJECTS.get(name)
+
+
+def create_project(name, creator):
+    if name in _PROJECTS:
+        raise SignUpError("project_exists")
+    project = {"name": name, "creator": creator, "status": "unclaimed", "claimants": []}
+    _PROJECTS[name] = project
+    return project
+
+
+def claim_project(name, player):
+    project = _PROJECTS.get(name)
+    if project is None:
+        raise SignUpError("project_not_found")
+    project["claimants"].append(player)
+    project["status"] = "claimed"
+    return project
+
+
+def complete_project(name):
+    project = _PROJECTS.get(name)
+    if project is None:
+        raise SignUpError("project_not_found")
+    project["status"] = "completed"
+    return project
+
+
+def delete_project(name):
+    if _PROJECTS.pop(name, None) is None:
+        raise SignUpError("project_not_found")
+    return {"success": True}
+
+
+def update_project_meta(name, description=None, remark=None):
+    project = _PROJECTS.get(name)
+    if project is None:
+        raise SignUpError("project_not_found")
+    if description is not None:
+        project["description"] = description
+    if remark is not None:
+        project["remark"] = remark
+    return project
+'''
+
+
+def _install_signup_stub() -> None:
+    module = types.ModuleType("signup")
+    exec(compile(STUB_SIGNUP, "<signup-stub>", "exec"), module.__dict__)
+    sys.modules["signup"] = module
+
+
+def _expect_value_error(coro, code: str, message: str) -> None:
+    try:
+        asyncio.run(coro)
+    except ValueError as exc:
+        check(str(exc) == code, message)
+    else:
+        fail(f"{message}（未抛出 ValueError）")
+
+
+def check_project_bridge(plugin) -> None:
+    """检查 mcdr2web 的 project_* 指令：signup 缺失 / 桩成功路径 / 错误码透传。"""
+    section("工程桥接（signup 桩）")
+    sys.modules.pop("signup", None)
+    _expect_value_error(
+        plugin._handle_project_list(None),
+        "project_unavailable",
+        "signup 未加载时 project_list 返回 project_unavailable",
+    )
+
+    _install_signup_stub()
+    try:
+        created = asyncio.run(
+            plugin._handle_project_create({"name": "ci project", "creator": "Steve"})
+        )
+        check(created["project"]["creator"] == "Steve", "project_create 透传创建者")
+
+        listed = asyncio.run(plugin._handle_project_list(None))
+        check(
+            any(item.get("name") == "ci project" for item in listed.get("projects", [])),
+            "project_list 返回新建工程",
+        )
+
+        claimed = asyncio.run(
+            plugin._handle_project_claim({"name": "ci project", "player": "Alex"})
+        )
+        check(claimed["project"]["status"] == "claimed", "project_claim 更新为已认领")
+
+        completed = asyncio.run(plugin._handle_project_complete({"name": "ci project"}))
+        check(completed["project"]["status"] == "completed", "project_complete 更新为已完成")
+
+        updated = asyncio.run(
+            plugin._handle_project_update(
+                {"name": "ci project", "description": "**md**", "remark": "note"}
+            )
+        )
+        check(
+            updated["project"]["description"] == "**md**"
+            and updated["project"]["remark"] == "note",
+            "project_update 写入描述与备注",
+        )
+
+        detail = asyncio.run(plugin._handle_project_get({"name": "ci project"}))
+        check(detail["project"]["name"] == "ci project", "project_get 返回单个工程")
+
+        deleted = asyncio.run(plugin._handle_project_delete({"name": "ci project"}))
+        check(deleted.get("success") is True, "project_delete 返回 success")
+
+        _expect_value_error(
+            plugin._handle_project_get({"name": "missing"}),
+            "project_not_found",
+            "缺失工程返回 project_not_found",
+        )
+        _expect_value_error(
+            plugin._handle_project_create({"name": "", "creator": "Steve"}),
+            "project_name_invalid",
+            "空工程名返回 project_name_invalid",
+        )
+    finally:
+        sys.modules.pop("signup", None)
+
+
+# ---------------------------------------------------------------------------
+# 7. 打包产物
 # ---------------------------------------------------------------------------
 def check_packed(path: Path | None, manifest: dict) -> None:
     if path is None:
@@ -330,6 +483,7 @@ def main(argv: list[str] | None = None) -> int:
     if plugin is None:
         return 1
     check_parsers(plugin)
+    check_project_bridge(plugin)
     check_packed(args.packed, manifest)
     print(f"\n全部通过：{_passed} 项检查 PASS", flush=True)
     return 0

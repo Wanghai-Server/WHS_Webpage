@@ -21,6 +21,12 @@ const routes = [
     meta: { titleKey: 'pageTitle.map'}
   },
   {
+    path: '/projects',
+    name: 'Projects',
+    component: () => import("../pages/project/index.vue"),
+    meta: { titleKey: 'pageTitle.projects'}
+  },
+  {
     path: '/forum',
     name: 'Forum',
     component: () => import("../pages/forum/index.vue"),

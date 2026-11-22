@@ -310,12 +310,15 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
 | 4 | owner |
 
 - 管理接口通常要求 `(user.get("permission") or 0) >= 3`；维基编辑另受页面 `min_permission` 限制（2 / 3 / 4）。
+- 工程接口与游戏内 signup 插件逻辑一致：发起 ≥ 3、认领 ≥ 2、完成 = 发起者或 ≥ 3、删除 = ≥ 4 或（未认领且 ≥ 3 / 发起者）、描述与备注 = 发起者或 ≥ 3。
 - 不能封禁 / 修改权限高于或等于自己的用户；不能修改自己的权限；不能封禁自己（错误码见 `ERROR_MESSAGES`）。
 
 #### 6.2.4 WebSocket（后端 ↔ MCDR）
 
 - `backend/ws_server.py` 的 `WsCommandServer`：`register("命令名")` 注册 `async handler(data) -> Any`，`start()` / `stop()` 由 FastAPI lifespan 管理，服务端主动请求用 `await ws_server.request(...)`（同步上下文用 `main.ws_request_sync`）。
 - 协议：请求 `{request_id, command, data}`，响应 `{request_id, success, data}`；新增指令需**前后端 + MCDR 插件同时改**，并更新 README §7。
+- 工程指令（`project_list` / `project_get` / `project_create` / `project_claim` / `project_complete` / `project_delete` / `project_update`）由 `mcdr2web` 桥接到 signup 插件；插件侧业务错误以 `ValueError("<code>")` 抛出（`success:false, data:"<code>"`），后端把已知 code 映射为双语错误，未知 code 视为桥接不可用（`project_unavailable`，503）。
+- `WsCommandServer.has_clients` 用于离线判断：读接口回退 10s 缓存并标记 `online:false`，写接口直接返回 `project_unavailable`；离线日志按 60s 限频，不要每次请求都打印。
 
 #### 6.2.5 媒体上传（`backend/api/media_upload.py`）
 
@@ -376,6 +379,8 @@ CI **不覆盖**：真实 SMTP / hCaptcha、真实 Minecraft 服务器、浏览�
   - `DEFAULT_CONFIG` + `server.load_config_simple()`：配置读取与默认值；
   - `on_load` / `on_unload` + `_mcdr_event_loop()`：常驻协程调度与卸载清理。
 - 新增指令：同时修改插件 `command_handlers`、后端 `ws_server.register(...)`，并更新 README §7；`whitelist_api` / `online_player_api` 不在版本库中，CI 用桩模块替代，真实联调需自行准备。
+- 跨插件调用（如 `mcdr2web` → `signup`）统一使用 `from signup import ...`，并在 handler 内**延迟导入**：MCDR 插件加载顺序不确定，且插件可能被重载；不要用 `server.get_plugin_instance(...)`，也不要缓存导入的函数引用（每次调用重新导入，`sys.modules` 命中，开销可忽略）。导入失败抛 `ValueError("project_unavailable")`；signup 业务异常 `SignUpError.code` 原样透传给后端。
+- 工程桥接的 CI 覆盖在 `.github/scripts/mcdr_check.py` 的 signup 桩测试中：新增 / 修改工程指令时同步补用例。
 - 本地无 MCDR 环境时可用（未入库的）`pseudo_mcdr/pseudo_mcdr.py` 作为 WS 客户端替身。
 
 ### 6.5 配置读取

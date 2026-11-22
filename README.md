@@ -19,7 +19,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 98 条）
+6. HTTP API（共 106 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -146,6 +146,15 @@
 - `bot_` 前缀视为假人，不计入官网在线人数；WS 不可用时回退上一次缓存或离线占位。
 - 白名单列表接口已提供（前端预留成员墙用途）。
 
+### 工程管理
+
+- 公开浏览 `/projects`：按状态筛选（全部 / 待认领 / 已认领 / 已完成）、查看详情；入口只放在用户下拉栏（顶部 / 底部导航不放入口）。
+- 权限与游戏内插件逻辑一致：发起需 permission ≥ 3（创建者使用已绑定的 MC 账号）；认领需 ≥ 2；完成需发起者或 ≥ 3；删除需 ≥ 4（任意状态），否则仅未认领时 ≥ 3 或发起者可删；描述 / 备注仅发起者或 ≥ 3 可编辑。
+- 数据源是游戏内 signup 插件的 `project.json`（经 mcdr2web 的 WS 桥接），网页不另存工程库；网页改动立即对游戏内 `!!signup project` 可见，反之亦然。
+- 描述为 Markdown、备注为纯文本，均不能在游戏内修改；创建 / 认领 / 完成 / 更新时间由插件自动记录。
+- 多账号（主账号 + 小号）可在发起 / 认领时选择，默认主账号；「下次保持当前选择」只写浏览器 localStorage。
+- 游戏服务器离线时显示横幅并禁用写操作，列表回退 10 秒缓存并标记 stale。
+
 ---
 
 ## 3. 技术栈
@@ -166,7 +175,7 @@
 | 实时能力 | `websockets`（后端 WS 服务 + MCDR 插件客户端） |
 | 试卷配置 | PyYAML（`data/exam.yml`） |
 | 邮件 | 标准库 `smtplib`（外部 SMTP） |
-| MCDR 插件 | mcdreforged ≥ 2.15、whitelist_api ≥ 2.0、online_player_api ≥ 1.0 |
+| MCDR 插件 | mcdreforged ≥ 2.15、whitelist_api ≥ 2.0、online_player_api ≥ 1.0；工程桥接依赖 signup ≥ 1.6（可选，缺失时工程接口返回离线提示） |
 
 > Python 版本要求 **≥ 3.12**（后端代码使用了 PEP 701 的嵌套 f-string 语法），`backend/requirements.txt` 未固定 Python 版本。
 
@@ -200,7 +209,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 98 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 106 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -209,6 +218,7 @@ WHS_Webpage/
 │   │   ├── message.py               # 系统消息 / 定向消息 / 已读 / 消息管理
 │   │   ├── exam.py                  # 入服考试（考生端 + 管理端）
 │   │   ├── feedback.py              # 反馈中心（列表 / 详情 / 提交 / 编辑 / 删除 / 评论 / 状态）
+│   │   ├── project.py               # 工程管理（列表 / 发起 / 认领 / 完成 / 删除 / 描述备注；经 WS 读写 signup）
 │   │   ├── server.py                # 服务器实时状态
 │   │   ├── search.py                # 全站搜索（Wiki + 用户 + 反馈）
 │   │   ├── wiki.py                  # 维基（页面 / 修订 / 重定向 / 消歧义 / 媒体）
@@ -265,6 +275,7 @@ WHS_Webpage/
 │       │   ├── useHcaptchaSiteKey.js# hCaptcha site key
 │       │   ├── useEmailCode.js      # 邮箱验证码发送 / 冷却 / 重置人机验证（统一封装）
 │       │   ├── usePasswordStrength.js # 密码强度规则、低/中/高等级与熵估算
+│       │   ├── useProjectPlayer.js  # 工程账号选择记忆（仅 localStorage）
 │       │   ├── sha256.js            # 前端密码哈希
 │       │   ├── clipboard.js
 │       │   ├── markdown/            # 统一 Markdown 体系
@@ -273,8 +284,9 @@ WHS_Webpage/
 │       │   │   ├── upload.js        # Markdown 编辑器上传（/api/markdown/upload）与类型 / 大小常量
 │       │   │   └── colorCodes.js    # MC § 颜色 / 格式代码插件
 │       │   └── wiki/{api,locale,markdown}.js  # 维基 API / 语言状态 / Markdown 兼容层（委托统一渲染管线）
-│       ├── components/              # 38 个可复用组件
+│       ├── components/              # 41 个可复用组件
 │       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown / hcaptcha_box
+│       │   ├── 工程：project_create（发起）/ project_detail（详情与操作）/ mc_account_picker（账号选择）
 │       │   ├── Markdown：markdown_editer（通用编辑器）/ markdown_view（统一渲染与复制 / mermaid / 公式增强）
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
@@ -282,15 +294,16 @@ WHS_Webpage/
 │       │   ├── 考试：exam_question / exam_editor / doc_viewer
 │       │   ├── 维基：wiki_markdown / wiki_outline / wiki_outline_node / wiki_search / wiki_page_404
 │       │   └── 管理：admin_settings / admin_user_panel / joinus_tips
-│       └── pages/                   # 17 个页面
+│       └── pages/                   # 18 个页面
 │           ├── home.vue / about.vue / map.vue / login.vue / user.vue / search.vue / joinus.vue / exam.vue
 │           ├── forum/index.vue      # 论坛（静态占位）
 │           ├── feedback/            # 反馈中心：index（列表） / detail（详情）
+│           ├── project/index.vue    # 工程管理（列表 / 发起 / 详情；入口在用户下拉栏）
 │           └── wiki/                # index / layout / page_view / page_editor / page_history / search
 │
 ├── mcdr_connecter_plugin/           # MCDR 插件（mcdr2web）
 │   ├── mcdreforged.plugin.json      # 插件元数据
-│   ├── mcdr2web/__init__.py         # WS 客户端：连接 / 重连 / 双向请求、RCON 采集、命令注册
+│   ├── mcdr2web/__init__.py         # WS 客户端：连接 / 重连 / 双向请求、RCON 采集、命令注册、工程桥接（signup）
 │   ├── requirements.txt             # websockets
 │   ├── whitelist_api/               # 依赖插件（本地目录，未入库）
 │   └── online_player_api/           # 依赖插件（本地目录，未入库）
@@ -412,7 +425,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 98 条）
+## 6. HTTP API（共 106 条）
 
 ### 6.1 约定
 
@@ -611,6 +624,24 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 - 文件保存到独立目录 `data/markdown_upload/`（与维基分开），随机 UUID 文件名；与 `/api/wiki/upload` 共用 `backend/api/media_upload.py` 的白名单 / 大小限制 / 落盘与读取逻辑。
 - 错误码：`markdown_upload_unsupported`（400）/ `markdown_upload_too_large`（413）/ `markdown_upload_not_found`（404）。
 
+### 6.14 工程管理（8 条）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/projects` | 公开 | 工程列表 + 状态计数 + 每项 `viewer` 标记；`online` / `stale` 表示 MCDR 桥接状态；10s 缓存 |
+| GET | `/api/projects/detail?name=` | 公开 | 单个工程详情 + `viewer`；离线时返回缓存并标记 `stale` |
+| GET | `/api/projects/accounts` | 登录 | 当前用户的 MC 账号（主账号 + 小号），供发起 / 认领选择 |
+| POST | `/api/projects` | 等级 ≥ 3 | `{name, player}` 发起工程（玩家名必须是本人账号） |
+| POST | `/api/projects/claim` | 等级 ≥ 2 | `{name, player}` 认领工程；同一 MC 名不可重复认领 |
+| POST | `/api/projects/complete` | 发起者或 ≥ 3 | `{name}` 标记完成 |
+| DELETE | `/api/projects?name=` | ≥ 4 任意状态；否则未认领时 ≥ 3 或发起者 | 删除工程（与插件逻辑一致） |
+| PUT | `/api/projects/meta` | 发起者或 ≥ 3 | `{name, description?, remark?}` 更新描述（Markdown ≤ 20000）/ 备注（纯文本 ≤ 500） |
+
+- 数据源是游戏内 signup 插件的 `project.json`，经 `mcdr2web` 的 `project_*` WS 指令读写；后端不另存工程库。
+- 工程名 1–32 字符（去首尾空白、禁止控制字符）；`player` 必须是当前用户的主账号或小号。
+- 错误码：`project_not_found`（404）/ `project_exists`（409）/ `project_name_invalid`、`project_player_invalid`、`project_already_claimed`、`project_not_claimed`、`project_completed`（400）/ `project_permission_denied`（403）/ `project_name_too_large`、`project_description_too_large`、`project_remark_too_large`（413）/ `project_unavailable`（503）。
+- MCDR 离线：读接口回退缓存并返回 `online:false`，写接口返回 `project_unavailable`。
+
 ---
 
 ## 7. WebSocket 协议（后端 ↔ MCDR）
@@ -642,8 +673,15 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | 后端 → MCDR | `get_whitelist` | 白名单玩家名单 |
 | 后端 → MCDR | `add_player` | `{player}` → 加入白名单（幂等） |
 | 后端 → MCDR | `remove_player` | `{player}` → 移出白名单（幂等） |
+| 后端 → MCDR | `project_list` | 工程列表（含描述 / 备注 / 时间；数据源为 signup 插件的 `project.json`） |
+| 后端 → MCDR | `project_get` | `{name}` → 单个工程 |
+| 后端 → MCDR | `project_create` | `{name, creator}` → 创建工程（创建者身份由后端校验后传入） |
+| 后端 → MCDR | `project_claim` | `{name, player}` → 认领工程（同一 MC 名不可重复认领） |
+| 后端 → MCDR | `project_complete` | `{name}` → 标记完成 |
+| 后端 → MCDR | `project_delete` | `{name}` → 删除工程 |
+| 后端 → MCDR | `project_update` | `{name, description?, remark?}` → 更新描述 / 备注（仅官网编辑） |
 
-断线重连由 MCDR 插件负责（固定 5s 重试）；后端 WS 未连接时，`/api/server/status` 回退上次缓存或离线占位，白名单相关操作失败只记日志、不阻断主流程。
+断线重连由 MCDR 插件负责（固定 5s 重试，**日志只在连接状态变化时输出**）；后端 WS 未连接时，`/api/server/status` 回退上次缓存或离线占位，白名单相关操作失败只记日志、不阻断主流程；工程接口读操作回退 10s 缓存并标记 `online:false`，写操作返回 `project_unavailable`。
 
 ---
 
@@ -651,16 +689,17 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 目录 `mcdr_connecter_plugin/`：
 
-- 元数据（`mcdreforged.plugin.json` 与代码内 `PLUGIN_METADATA` 一致）：`id=mcdr2web`、`version=0.1.0`、`name=MCDR to Web`。
+- 元数据（`mcdreforged.plugin.json` 与代码内 `PLUGIN_METADATA` 一致）：`id=mcdr2web`、`version=0.2.0`、`name=MCDR to Web`。
 - 依赖：`mcdreforged>=2.15.0`、`whitelist_api>=2.0.0`、`online_player_api>=1.0.0`；插件自身依赖 `websockets`。
 - 事件：仅 `on_load` / `on_unload`（在线玩家与服务器事件由 `online_player_api` 负责维护）。
 - 命令：`!!mcdr2web ping`（测试后端 WS 连通）、`!!mcdr2web status`（显示连接状态）。
 - 配置：MCDR 工作目录下 `config/mcdr2web.json`，字段 `ws_host` / `ws_port` / `tps_report_interval`。
 - TPS/MSPT 采集：RCON `tick query`；玩家上限：RCON `list`。RCON 未开启时对应字段为空。
+- 工程桥接：按需 `from signup import ...`（handler 内延迟导入）调用 signup ≥ 1.6.0 的工程数据函数；signup 未安装 / 版本过旧时工程指令返回 `project_unavailable`，不影响其他指令。工程描述 / 备注 / 时间不可在游戏内修改，signup 的 `website_url`（默认 `https://wanghaiserver.top:31480/`）决定游戏内"官网工程页"可点击链接。
 - `whitelist_api`（未入库）：按 `server.properties` 的 `online-mode`（以及 Paper/Velocity 配置）区分正版 / 离线模式；正版模式走服务器命令，离线模式维护 `whitelist.json`。
 - `online_player_api`（未入库）：内存维护在线名单，提供 `get_player_list` / `is_online`。
 
-> `whitelist_api/` 与 `online_player_api/` 在 `.gitignore` 中被忽略，不在版本库中；全新克隆仓库时插件无法加载，需要另行获取（或从已部署的 MCDR 环境拷贝）。
+> `whitelist_api/`、`online_player_api/` 与 `signup/` 均在 `.gitignore` 中被忽略，不在版本库中；全新克隆仓库时插件无法加载，需要另行获取（或从已部署的 MCDR 环境拷贝）。signup 1.6.0 起工程记录新增 `description` / `remark` / `created_at` / `updated_at` / `claimed_at` / `completed_at` 字段，旧 `project.json` 加载时自动补全。
 
 ---
 
@@ -948,11 +987,12 @@ python SMTP/mail_server.py
 - **无 CORS 中间件**：前端与 API 必须同源（开发用 Vite 代理，生产用反向代理）。
 - **数据库**：无外键、无跨语句事务；部分业务（注册、注销、关注）中途失败可能留下部分写入。
 - **考试接口**：`/api/exam/answer` 会返回对错并允许覆盖提交，`reset` 不消耗次数；接口层面未强制 `can_answer`（仅部分接口检查）。
-- **仓库内容**：`whitelist_api`、`online_player_api`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
+- **仓库内容**：`whitelist_api`、`online_player_api`、`signup`、`pseudo_mcdr`、`SMTP` 不在版本库中；仓库内没有单元测试框架，自动化校验由 CI（见第 14 节）覆盖前端构建、后端启动冒烟、数据层建库冒烟与 MCDR 插件打包 / 导入检查。
 - **Markdown 渲染**：LaTeX / mermaid / 代码高亮全部在浏览器端按需加载（`katex` / `mermaid` / `highlight.js` 均在首次出现对应内容时下载分块），不参与首屏；超大 mermaid 图或超长代码块的高亮可能有可感知延迟。mermaid 使用 `securityLevel: strict`，语法错误只在图表位置显示原始源码，不向页面追加错误图、不执行图表脚本。
 - **Markdown 多语言**：通用编辑器已支持 `multilingual`（v-model 为 `{zh,en}` 对象，编辑 / 预览按所选语言、展示跟随站点语言）；系统消息的标题与正文已启用双语（缺失语言回退），个人简介 / 反馈 / 试卷说明等其余字段仍为单语言；维基仍按 `lang` 列在数据库内存双份。
 - **消息双语**：`messages` 表新增 `title_en` / `content_en` 两列，旧库启动时自动迁移、旧消息英文为空（展示回退中文）；定向消息（考试重审 / 通过通知）同样写入双语内容。管理员可在发布 / 编辑对话框补齐英文版本。
 - **Markdown 上传**：全站 Markdown 编辑器上传要求登录（不检查 permission 等级），文件存 `data/markdown_upload/`；维基上传仍要求 permission ≥ 2，文件存 `data/wiki_upload/`；两处共用同一套类型 / 大小白名单，但不校验文件真实内容。
+- **工程管理（`/projects`）**：数据源是 MCDR 侧 signup 插件的 `project.json`，网页不另存库；游戏服务器或 signup 插件不可用时列表只能读 10 秒缓存（标记 `stale`），写操作返回 503。描述 / 备注 / 时间只能官网编辑，游戏内 `get` 不展示描述与备注；删除权限与插件一致（4 级任意状态；未认领时 3 级或发起者可删）。入口只在用户下拉栏。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
 - **在线地图（`/map`）**：页面本身不含地图数据，由服务器上的 BlueMap 网页端提供 3D 透视视图。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。
@@ -1065,9 +1105,9 @@ location /api/map/ {
 | 检查名称 | 校验内容 | 本地对应命令 |
 |----------|----------|--------------|
 | `前端 · 依赖安装与生产构建` | `npm ci`（严格按 `package-lock.json`）→ `vite build` → 校验 `dist/index.html` 与 JS 产物 | `cd whs && npm ci && npm run build` |
-| `后端 · 启动与接口冒烟` | 全仓 Python 语法编译 → 真实启动 uvicorn（含 lifespan、6 个数据库连接、MCDR WS 命令服务）→ 检查 `/`、`/api/whs`、未登录 401、维基页面 / 搜索、未知路由 404、错误方法 405 → WS `ping` 与未知指令 → 日志无 Traceback | `python .github/scripts/backend_smoke.py` |
+| `后端 · 启动与接口冒烟` | 全仓 Python 语法编译 → 真实启动 uvicorn（含 lifespan、6 个数据库连接、MCDR WS 命令服务）→ 检查 `/`、`/api/whs`、未登录 401、维基页面 / 搜索、工程接口离线 / 未登录行为、未知路由 404、错误方法 405 → WS `ping` 与未知指令 → 日志无 Traceback | `python .github/scripts/backend_smoke.py` |
 | `数据层 · 建库与增删查冒烟` | 考试 YAML 解析（合法 / 非法用例）、`§` 颜色代码剥离、五个 SQLite 库建表与增删查改、维基欢迎页种子与搜索、乐观锁 / 重定向等行为 | `python .github/scripts/data_smoke.py` |
-| `MCDR 插件 · 清单 / 导入 / 打包校验` | `mcdreforged pack` 校验插件清单并生成 `.mcdr` → 用最小桩模块替代未入库依赖后导入插件 → 检查命令表、`tick query` / `list` 解析函数与打包产物内容 | 先安装 `mcdreforged` + `websockets`，再 `python .github/scripts/mcdr_check.py --packed <pack 输出目录>` |
+| `MCDR 插件 · 清单 / 导入 / 打包校验` | `mcdreforged pack` 校验插件清单并生成 `.mcdr` → 用最小桩模块替代未入库依赖后导入插件 → 检查命令表、`tick query` / `list` 解析函数、工程桥接（signup 桩：缺失提示 / 创建 / 认领 / 完成 / 更新 / 删除 / 错误码）与打包产物内容 | 先安装 `mcdreforged` + `websockets`，再 `python .github/scripts/mcdr_check.py --packed <pack 输出目录>` |
 
 ### 14.4 本地复跑与副作用
 
