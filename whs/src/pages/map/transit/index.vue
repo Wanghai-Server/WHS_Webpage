@@ -40,7 +40,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await fetch('/api/map/transit')
+    const res = await fetch('/api/map/transit', { headers: authHeaders() })
     const body = await res.json().catch(() => ({}))
     if (!res.ok) throw new Error(body.code || 'http')
     payload.value = body
@@ -50,6 +50,15 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+function authHeaders() {
+  return authState.token ? { Authorization: `Bearer ${authState.token}` } : {}
+}
+
+function onSelect({ kind, id }) {
+  if (kind !== 'station') return
+  selectedId.value = id
 }
 
 function toggleLine(id) {
@@ -105,7 +114,7 @@ onMounted(load)
         </span>
         <RouterLink v-if="payload?.can_edit" to="/map/transit/edit" class="transit-edit">
           <Pencil :size="14" aria-hidden="true" />
-          {{ t('transit.edit') }}
+          {{ t('transit.editEntry') }}
         </RouterLink>
       </div>
     </header>
@@ -158,7 +167,7 @@ onMounted(load)
           :schematic="schematic"
           :selected-id="selectedId"
           :hidden-lines="hiddenLines"
-          @select="selectStation"
+          @select="onSelect"
         />
 
         <aside v-if="selected" class="transit-card">
@@ -185,7 +194,7 @@ onMounted(load)
 
       <footer class="transit-foot">
         <span>{{ (schematic?.note && (schematic.note[locale] || schematic.note.zh)) || t('transit.schematic') }}</span>
-        <RouterLink to="/map">{{ t('transit.backToMap') }}</RouterLink>
+        <RouterLink to="/map" class="transit-back">← {{ t('transit.backToMap') }}</RouterLink>
       </footer>
     </template>
   </main>
@@ -197,7 +206,8 @@ onMounted(load)
 .transit-page {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 32px 20px 56px;
+  /* 顶部留出固定导航胶囊的高度，避免标题被盖住 */
+  padding: 84px 20px 56px;
 }
 
 .transit-head {
@@ -259,7 +269,9 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 6px 12px;
+  height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
   color: var(--text-color);
   text-decoration: none;
   background: var(--card-color);
@@ -284,7 +296,9 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 7px 11px;
+  height: 34px;
+  padding: 0 11px;
+  box-sizing: border-box;
   color: var(--links-color);
   background: var(--card-color);
   border: 1px solid rgba(var(--text-color-rgb), 0.12);
@@ -342,7 +356,9 @@ onMounted(load)
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 5px 11px;
+  height: 34px;
+  padding: 0 12px;
+  box-sizing: border-box;
   font-size: 12px;
   color: inherit;
   cursor: pointer;
@@ -482,8 +498,22 @@ onMounted(load)
   color: var(--links-color);
 }
 
-.transit-foot a {
-  color: var(--links-color);
+.transit-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  color: var(--text-color);
+  text-decoration: none;
+  background: var(--card-color);
+  border: 1px solid rgba(var(--text-color-rgb), 0.12);
+  border-radius: 9px;
+}
+
+.transit-back:hover {
+  background: var(--float-bg);
 }
 
 .transit-state {
@@ -524,7 +554,7 @@ onMounted(load)
 
 @media (max-width: 767px) {
   .transit-page {
-    padding: 22px 14px 44px;
+    padding: 84px 14px 44px;
   }
 
   .transit-title {

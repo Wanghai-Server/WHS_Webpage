@@ -25,7 +25,10 @@ const viewerPath = ref('/map3d/')
 const frameEl = ref(null)
 const candidate = ref(null)
 const failed = ref(false)
+const loaded = ref(false)
 let timer = null
+let failTimer = null
+let initialHash = ''
 
 async function loadViewer() {
   try {
@@ -45,11 +48,21 @@ const src = computed(() => {
   return `${viewerPath.value}#world:${x}:${y + 40}:${z}:200:0:1.1:0:0:perspective`
 })
 
+function readHash() {
+  try {
+    return frameEl.value?.contentWindow?.location?.hash || ''
+  } catch {
+    return ''
+  }
+}
+
 function parseHash() {
   try {
-    const hash = frameEl.value?.contentWindow?.location?.hash || ''
+    const hash = readHash()
     const body = hash.replace(/^#/, '')
     if (!body) return
+    // 初始 hash 是相机在站点上方的位置，不代表用户选点：跳过它
+    if (body === initialHash) return
     const parts = body.split(':')
     if (parts.length < 4) return
     const x = Number(parts[1])
@@ -74,8 +87,16 @@ function stopPolling() {
 }
 
 function onLoad() {
-  parseHash()
+  loaded.value = true
+  if (failTimer) clearTimeout(failTimer)
+  initialHash = readHash().replace(/^#/, '')
   startPolling()
+}
+
+function onError() {
+  failed.value = true
+  loaded.value = true
+  stopPolling()
 }
 
 function confirm() {
@@ -87,9 +108,16 @@ watch(() => props.open, (open) => {
   if (open) {
     candidate.value = null
     failed.value = false
+    loaded.value = false
+    initialHash = ''
     loadViewer()
+    // 12 秒还没加载出地图，就按“地图不可用”处理，提示手填
+    failTimer = setTimeout(() => {
+      if (!loaded.value) failed.value = true
+    }, 12000)
   } else {
     stopPolling()
+    if (failTimer) clearTimeout(failTimer)
   }
 })
 
@@ -115,6 +143,7 @@ onBeforeUnmount(stopPolling)
           :src="src"
           :title="t('transit.edit.pickTitle')"
           @load="onLoad"
+          @error="onError"
         ></iframe>
       </div>
 
@@ -123,7 +152,7 @@ onBeforeUnmount(stopPolling)
           <MapPin :size="14" aria-hidden="true" />
           X {{ candidate.x }} / Z {{ candidate.z }} / Y {{ candidate.y }}
         </span>
-        <span v-else class="picker-candidate is-empty">{{ t('transit.edit.pickWaiting') }}</span>
+        <span v-else class="picker-candidate is-empty">{{ failed ? t('transit.edit.pickFailed') : t('transit.edit.pickWaiting') }}</span>
 
         <div class="picker-actions">
           <button type="button" class="btn-ghost" @click="emit('close')">{{ t('transit.edit.cancel') }}</button>

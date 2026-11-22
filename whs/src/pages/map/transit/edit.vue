@@ -18,10 +18,12 @@ import Top_navbar from '../../../components/top_navbar.vue'
 import Page_footer from '../../../components/page_footer.vue'
 import TransitDiagram from '../../../components/transit_diagram.vue'
 import TransitPicker from '../../../components/transit_picker.vue'
+import Markdown_editer from '../../../components/markdown_editer.vue'
 import { useAuth } from '../../../composables/useAuth'
 import { useDialogBox } from '../../../composables/useDialogBox'
 import { useTips } from '../../../composables/useTips'
 import { buildSchematic, lineName, stationName } from '../../../composables/transitLayout'
+import { applyIncoming, mergeThreeWay } from '../../../composables/transitMerge'
 import { PALETTE_FAMILIES, dyeLabel, familyLabel } from '../../../constants/mcPalette'
 
 const { t, locale } = useI18n()
@@ -37,6 +39,7 @@ const payload = ref(null)
 const doc = ref(null)
 const baseVersion = ref('')
 const savedSnapshot = ref('')
+const baseDoc = ref(null)
 const summary = ref('')
 const selection = ref(null)
 const activeTab = ref('lines')
@@ -44,6 +47,7 @@ const creating = ref('')
 const draft = ref(null)
 const conflict = ref(null)
 const resolved = ref([])
+const resolvedChoices = ref([])
 const showHistory = ref(false)
 const versions = ref([])
 const historyLoading = ref(false)
@@ -67,8 +71,8 @@ const dirty = computed(() => (doc.value ? snapshot(doc.value) !== savedSnapshot.
 const addableStations = computed(() => (selectedLine.value
   ? stations.value.filter((station) => !selectedLine.value.stations.includes(station.id))
   : []))
-const allResolved = computed(() => (conflict.value?.conflicts || []).length > 0
-  && resolved.value.every(Boolean))
+const allResolved = computed(() => (conflict.value?.conflicts || []).length === 0
+  || resolved.value.every(Boolean))
 const pickerInitial = computed(() => {
   if (pickTarget.value === 'new') {
     return { x: draft.value?.pos?.[0] || 0, z: draft.value?.pos?.[1] || 0, y: draft.value?.y || 80 }
@@ -126,10 +130,11 @@ async function load() {
       return
     }
     if (!body.can_edit) {
-      gate.value = body.can_edit === false ? 'permission' : 'login'
+      gate.value = authState.user ? 'permission' : 'login'
       return
     }
-    doc.value = toSendable(body.data)
+    doc.value = normalizeDoc(toSendable(body.data))
+    baseDoc.value = toSendable(body.data)
     baseVersion.value = body.version
     savedSnapshot.value = snapshot(doc.value)
   } catch {
@@ -139,9 +144,28 @@ async function load() {
   }
 }
 
+function normalizeDoc(value) {
+  const clone = JSON.parse(JSON.stringify(value))
+  for (const key of ['lines', 'stations']) {
+    clone[key] = (clone[key] || []).map((item) => ({
+      ...item,
+      note: { zh: item.note?.zh || '', en: item.note?.en || '' },
+    }))
+  }
+  return clone
+}
+
+function onDiagramSelect({ kind, id }) {
+  select(kind, id)
+}
+
 function select(kind, id) {
   selection.value = { kind, id }
   creating.value = ''
+  const target = kind === 'line'
+    ? lines.value.find((item) => item.id === id)
+    : stations.value.find((item) => item.id === id)
+  if (target && !target.note) target.note = { zh: '', en: '' }
 }
 
 function startCreate(kind) {
@@ -149,7 +173,7 @@ function startCreate(kind) {
   selection.value = null
   colorFamily.value = 0
   if (kind === 'line') {
-    draft.value = { id: `l${lines.value.length + 1}`, name: { zh: '', en: '' }, color: '#2f7fe0', type: 'metro', status: 'open' }
+    draft.value = { id: `l${lines.value.length + 1}`, name: { zh: '', en: '' }, color: '#2f7fe0', type: 'metro', status: 'open', note: { zh: '', en: '' } }
   } else {
     draft.value = {
       id: `s_${Math.random().toString(36).slice(2, 6)}`,
@@ -158,6 +182,7 @@ function startCreate(kind) {
       y: null,
       y_source: null,
       tags: '',
+      note: { zh: '', en: '' },
     }
   }
 }
@@ -185,7 +210,7 @@ function confirmCreate() {
       showTip('error', t('transit.edit.idTaken'))
       return
     }
-    const station = { id: draft.value.id, name: { ...draft.value.name }, pos: [...draft.value.pos] }
+    const station = { id: draft.value.id, name: { ...draft.value.name }, pos: [...draft.value.pos], note: { zh: '', en: '' } }
     const tags = String(draft.value.tags || '').split(',').map((item) => item.trim()).filter(Boolean)
     if (tags.length) station.tags = tags
     if (draft.value.y != null) {
@@ -258,6 +283,17 @@ function setColor(hex) {
   else if (draft.value) draft.value.color = hex
 }
 
+function setY(station, raw) {
+  const value = raw === '' || raw == null ? null : Number(raw)
+  if (value == null || !Number.isFinite(value)) {
+    delete station.y
+    delete station.y_source
+    return
+  }
+  station.y = Math.round(value)
+  station.y_source = 'explicit'
+}
+
 function clearY(station) {
   delete station.y
   delete station.y_source
@@ -293,8 +329,29 @@ function onPicked(coords) {
   }
 }
 
+function validateLocal() {
+  for (const line of doc.value.lines) {
+    if (!line.name?.zh && !line.name?.en) return t('transit.edit.nameRequired')
+    if (!/^#[0-9a-fA-F]{6}$/.test(line.color || '')) return t('transit.edit.errColor')
+    if ((line.stations || []).length < 2) return t('transit.edit.errStations')
+  }
+  for (const station of doc.value.stations) {
+    if (!Array.isArray(station.pos) || station.pos.length !== 2 || !station.pos.every(Number.isInteger)) {
+      return t('transit.edit.errPos')
+    }
+  }
+  return ''
+}
+
 async function save(options = {}) {
   if (!doc.value || saving.value) return
+  if (!options.skipValidate) {
+    const message = validateLocal()
+    if (message) {
+      showTip('warning', message)
+      return
+    }
+  }
   saving.value = true
   error.value = ''
   try {
@@ -304,18 +361,23 @@ async function save(options = {}) {
       body: JSON.stringify({
         base_version: options.base || baseVersion.value,
         summary: summary.value,
-        data: toSendable(doc.value),
+        data: options.data || toSendable(doc.value),
         force: options.force === true,
       }),
     })
     const body = await res.json().catch(() => ({}))
     if (res.status === 409) {
-      conflict.value = body.detail || { conflicts: [], current_version: baseVersion.value }
+      const detail = body.detail || {}
+      conflict.value = {
+        ...detail,
+        current: detail.current ? normalizeDoc(toSendable(detail.current)) : null,
+      }
       resolved.value = (conflict.value.conflicts || []).map(() => false)
+      resolvedChoices.value = []
       return
     }
     if (!res.ok) {
-      error.value = body.detail || body.message?.[locale.value] || t('transit.edit.saveFailed')
+      error.value = body.message?.[locale.value] || body.detail || t('transit.edit.saveFailed')
       return
     }
     await reload(body.version)
@@ -333,13 +395,19 @@ async function reload(version) {
   const body = await res.json().catch(() => ({}))
   if (!body.available) return
   payload.value = body
-  doc.value = toSendable(body.data)
+  doc.value = normalizeDoc(toSendable(body.data))
+  baseDoc.value = toSendable(body.data)
   baseVersion.value = version || body.version
   savedSnapshot.value = snapshot(doc.value)
   summary.value = ''
 }
 
 function applyTheirValue(item) {
+  if (item.path.startsWith('note.')) {
+    if (!doc.value.note) doc.value.note = { zh: '', en: '' }
+    doc.value.note[item.path.slice(5)] = item.current == null ? '' : item.current
+    return
+  }
   const match = /^(lines|stations)\[([^\]]+)\](?:\.(.+))?$/.exec(item.path)
   if (!match) return
   const [, kind, id, rest] = match
@@ -352,7 +420,10 @@ function applyTheirValue(item) {
   }
   const list = kind === 'lines' ? doc.value.lines : doc.value.stations
   const target = list.find((entry) => entry.id === id)
-  if (!target) return
+  if (!target) {
+    if (item.current && typeof item.current === 'object') list.push(JSON.parse(JSON.stringify(item.current)))
+    return
+  }
   const parts = rest.split('.')
   let node = target
   for (const part of parts.slice(0, -1)) {
@@ -363,12 +434,31 @@ function applyTheirValue(item) {
 }
 
 function resolveConflict(index, keepMine) {
+  resolvedChoices.value[index] = keepMine ? 'mine' : 'theirs'
   if (!keepMine) applyTheirValue(conflict.value.conflicts[index])
   resolved.value[index] = true
 }
 
 async function submitResolved() {
-  await save({ base: conflict.value?.current_version || baseVersion.value })
+  if (!conflict.value) return
+  const current = conflict.value.current ? toSendable(conflict.value.current) : null
+  if (!current) {
+    await save({ base: conflict.value.current_version || baseVersion.value })
+    return
+  }
+  const local = toSendable(doc.value)
+  const base = baseDoc.value || local
+  const { data } = mergeThreeWay(base, current, local)
+  conflict.value.conflicts.forEach((item, index) => {
+    if (resolvedChoices.value[index] === 'mine') applyIncoming(data, item.path, item.incoming)
+  })
+  await save({ data, base: conflict.value.current_version, skipValidate: true })
+}
+
+function closeConflict() {
+  conflict.value = null
+  resolved.value = []
+  resolvedChoices.value = []
 }
 
 async function forceMerge() {
@@ -394,7 +484,28 @@ async function openHistory() {
   }
 }
 
+async function resetDoc() {
+  if (!dirty.value) return
+  const ok = await dialog.confirm({
+    title: t('transit.edit.resetTitle'),
+    message: t('transit.edit.resetMessage'),
+    danger: true,
+    confirmText: t('transit.edit.reset'),
+  })
+  if (!ok) return
+  const res = await fetch('/api/map/transit', { headers: authHeaders() })
+  const body = await res.json().catch(() => ({}))
+  if (!body.available) return
+  payload.value = body
+  doc.value = normalizeDoc(toSendable(body.data))
+  baseDoc.value = toSendable(body.data)
+  baseVersion.value = body.version
+  savedSnapshot.value = snapshot(doc.value)
+  summary.value = ''
+}
+
 async function rollback(version) {
+  if (dirty.value && !window.confirm(t('transit.edit.rollbackDirty'))) return
   const ok = await dialog.confirm({
     title: t('transit.edit.rollbackTitle'),
     message: t('transit.edit.rollbackMessage', { id: version.id }),
@@ -466,7 +577,7 @@ onBeforeUnmount(() => {
         <button type="button" class="btn-ghost" @click="openHistory">
           <History :size="15" /> {{ t('transit.edit.history') }}
         </button>
-        <button type="button" class="btn-ghost" :disabled="!dirty" @click="reload(baseVersion)">
+        <button type="button" class="btn-ghost" :disabled="!dirty" @click="resetDoc">
           <RotateCcw :size="15" /> {{ t('transit.edit.reset') }}
         </button>
         <button type="button" class="btn-primary" :disabled="saving || !dirty" @click="save()">
@@ -567,7 +678,7 @@ onBeforeUnmount(() => {
         <TransitDiagram
           :schematic="schematic"
           :selected-id="selection?.id || ''"
-          @select="(station) => select('station', station.id)"
+          @select="onDiagramSelect"
         />
         <p class="preview-hint">{{ t('transit.edit.previewHint') }}</p>
       </section>
@@ -667,9 +778,9 @@ onBeforeUnmount(() => {
               <option v-for="station in addableStations" :key="station.id" :value="station.id">{{ stationName(station, locale) }}</option>
             </select>
           </div>
-          <div class="field-row">
-            <label class="field"><span>{{ t('transit.edit.noteZh') }}</span><input v-model="selectedLine.note.zh" class="input" /></label>
-            <label class="field"><span>{{ t('transit.edit.noteEn') }}</span><input v-model="selectedLine.note.en" class="input" /></label>
+          <div class="field note-field">
+            <span>{{ t('transit.edit.note') }}</span>
+            <Markdown_editer v-model="selectedLine.note" multilingual :min-height="150" :placeholder="t('transit.edit.notePlaceholder')" />
           </div>
           <div class="detail-actions">
             <button type="button" class="icon-btn" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /></button>
@@ -688,7 +799,7 @@ onBeforeUnmount(() => {
           <button type="button" class="btn-ghost full" @click="openPicker('station')"><MapPin :size="14" /> {{ t('transit.edit.pick') }}</button>
           <div class="field-row">
             <label class="field"><span>{{ t('transit.edit.y') }}</span>
-              <input v-model.number="selectedStation.y" class="input" type="number" :placeholder="t('transit.edit.yAuto')" />
+              <input :value="selectedStation.y ?? ''" class="input" type="number" :placeholder="t('transit.edit.yAuto')" @input="setY(selectedStation, $event.target.value)" />
             </label>
             <button type="button" class="btn-ghost self-end" @click="clearY(selectedStation)">{{ t('transit.edit.yClear') }}</button>
           </div>
@@ -696,11 +807,11 @@ onBeforeUnmount(() => {
             {{ selectedStation.y_source === 'picked' ? t('transit.edit.yPicked') : selectedStation.y_source === 'explicit' ? t('transit.edit.yManual') : t('transit.edit.yAutoHint') }}
           </p>
           <label class="field"><span>{{ t('transit.edit.tags') }}</span>
-            <input :value="tagsValue(selectedStation)" class="input" @input="setTags(selectedStation, $event.target.value)" />
+            <input :value="tagsValue(selectedStation)" class="input" @change="setTags(selectedStation, $event.target.value)" />
           </label>
-          <div class="field-row">
-            <label class="field"><span>{{ t('transit.edit.noteZh') }}</span><input v-model="selectedStation.note.zh" class="input" /></label>
-            <label class="field"><span>{{ t('transit.edit.noteEn') }}</span><input v-model="selectedStation.note.en" class="input" /></label>
+          <div class="field note-field">
+            <span>{{ t('transit.edit.note') }}</span>
+            <Markdown_editer v-model="selectedStation.note" multilingual :min-height="150" :placeholder="t('transit.edit.notePlaceholder')" />
           </div>
           <div class="detail-actions">
             <button type="button" class="btn-danger" @click="deleteStation(selectedStation)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
@@ -709,7 +820,7 @@ onBeforeUnmount(() => {
       </aside>
     </div>
 
-    <div v-if="showHistory" class="modal-overlay" @click.self="showHistory = false">
+    <div v-if="showHistory" class="modal-overlay is-glass" @click.self="showHistory = false">
       <section class="modal">
         <header class="modal-head">
           <h2>{{ t('transit.edit.historyTitle') }}</h2>
@@ -735,13 +846,15 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <div v-if="conflict" class="modal-overlay">
+    <div v-if="conflict" class="modal-overlay is-glass">
       <section class="modal">
         <header class="modal-head">
           <h2>{{ t('transit.edit.conflictTitle') }}</h2>
+          <button type="button" class="icon-btn" :aria-label="t('transit.edit.cancel')" @click="closeConflict"><X :size="16" /></button>
         </header>
         <p class="hint-text">{{ t('transit.edit.conflictHint', { base: conflict.base_version, current: conflict.current_version }) }}</p>
-        <ul class="conflict-list">
+        <p v-if="!conflict.conflicts.length" class="hint-text">{{ t('transit.edit.conflictEmpty') }}</p>
+        <ul v-else class="conflict-list">
           <li v-for="(item, index) in conflict.conflicts" :key="item.path" :class="{ resolved: resolved[index] }">
             <code>{{ item.path }}</code>
             <div class="conflict-values">
@@ -755,6 +868,7 @@ onBeforeUnmount(() => {
           </li>
         </ul>
         <footer class="modal-actions">
+          <button type="button" class="btn-ghost" @click="closeConflict">{{ t('transit.edit.cancel') }}</button>
           <button v-if="canForce" type="button" class="btn-danger" @click="forceMerge">{{ t('transit.edit.forceMerge') }}</button>
           <button type="button" class="btn-primary" :disabled="!allResolved || saving" @click="submitResolved">{{ t('transit.edit.conflictResubmit') }}</button>
         </footer>
@@ -776,7 +890,8 @@ onBeforeUnmount(() => {
 .edit-page {
   max-width: 1440px;
   margin: 0 auto;
-  padding: 24px 20px 48px;
+  /* 顶部留出固定导航胶囊的高度 */
+  padding: 84px 20px 48px;
 }
 
 .edit-head {
@@ -1365,9 +1480,32 @@ onBeforeUnmount(() => {
   margin-top: 10px;
 }
 
+/* 通用弹窗的毛玻璃版本 */
+.modal-overlay.is-glass {
+  background: rgba(0, 0, 0, 0.32);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.is-glass .modal {
+  background: rgba(var(--card-color-rgb, 255, 255, 255), 0.78);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+  border: 1px solid rgba(var(--text-color-rgb), 0.14);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+
+.note-field {
+  margin-top: 10px;
+}
+
+.note-field :deep(.markdown-editer) {
+  margin-top: 6px;
+}
+
 @media (max-width: 767px) {
   .edit-page {
-    padding: 16px 12px 90px;
+    padding: 84px 12px 90px;
   }
 
   .edit-head h1 {

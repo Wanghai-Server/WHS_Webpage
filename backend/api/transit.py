@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from data import read_config
 from data.transit import (
     TRANSIT_PATH,
+    _LOCK,
     TransitConflictError,
     TransitConfigError,
     diff_versions,
@@ -83,9 +84,11 @@ def _current_payload() -> dict:
         return cached[2]
 
     try:
-        data, version, warnings = load_current()
-        store = read_store()
-        current = (store.get("versions") or [{}])[-1]
+        # 读也进同一把锁：避免解析到「正在追加」的半截文件
+        with _LOCK:
+            data, version, warnings = load_current()
+            store = read_store()
+            current = (store.get("versions") or [{}])[-1]
     except TransitConfigError as exc:
         print(f"[transit] 数据不可用：{exc}", flush=True)
         return {"available": False, "error": str(exc)}
@@ -118,9 +121,9 @@ def transit_current(authorization: str = Header(None)):
 
 @router.get("/api/map/transit/versions")
 def transit_versions():
-    """历史版本列表（公开，不含 data）。"""
     try:
-        store = read_store()
+        with _LOCK:
+            store = read_store()
     except TransitConfigError as exc:
         return {"available": False, "error": str(exc), "versions": []}
     versions = []
@@ -156,14 +159,19 @@ def transit_version(version_id: str, authorization: str = Header(None)):
     doc = next((item for item in store.get("versions") or [] if str(item.get("id")) == version_id), None)
     if doc is None:
         return _error("transit_version_not_found", 404, version_id)
+    try:
+        data, _ = validate_data(doc.get("data"))
+    except TransitConfigError as exc:
+        return _error("transit_unavailable", 503, f"版本 {version_id} 数据损坏：{exc}")
     return {
         "id": doc.get("id"),
         "parent": doc.get("parent"),
         "created_at": doc.get("created_at"),
         "author": doc.get("author") or {},
         "summary": doc.get("summary") or "",
-        "data": _with_effective_y(validate_data(doc.get("data"))[0]),
+        "data": _with_effective_y(data),
     }
+
 
 
 @router.get("/api/map/transit/diff")
@@ -228,6 +236,7 @@ def transit_submit(payload: dict = Body(...), authorization: str = Header(None))
             "base_version": exc.base_version,
             "current_version": exc.current_version,
             "conflicts": exc.conflicts,
+            "current": _with_effective_y(exc.current_data) if exc.current_data else None,
         })
     except OSError as exc:
         print(f"[transit] 写入失败：{exc}", flush=True)
@@ -259,7 +268,10 @@ def transit_rollback(payload: dict = Body(...), authorization: str = Header(None
     try:
         result = rollback(target, author=_author(user), summary=payload.get("summary"))
     except TransitConfigError as exc:
-        return _error("transit_version_not_found", 404, str(exc))
+        message = str(exc)
+        if "不存在" in message:
+            return _error("transit_version_not_found", 404, message)
+        return _error("transit_invalid", 400, message)
     except OSError as exc:
         print(f"[transit] 回退写入失败：{exc}", flush=True)
         return _error("transit_unavailable", 503, str(exc))

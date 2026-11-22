@@ -204,8 +204,9 @@ export function buildSchematic(data, options = {}) {
     const first = lines.find((line) => line.id === ids[0])
     return {
       ...station,
-      x,
-      y,
+      // sx/sy 是示意图坐标；x/z 与 y（世界高度）保持真实数据不变
+      sx: x,
+      sy: y,
       lines: ids,
       transfer: ids.length > 1,
       color: first?.color || '#888888',
@@ -216,7 +217,7 @@ export function buildSchematic(data, options = {}) {
   return {
     lines,
     stations,
-    bounds: measure([...lines.flatMap((line) => line.points), ...stations.map((item) => [item.x, item.y])], labelRects),
+    bounds: measure([...lines.flatMap((line) => line.points), ...stations.map((item) => [item.sx, item.sy])], labelRects),
     note: data?.note || null,
   }
 }

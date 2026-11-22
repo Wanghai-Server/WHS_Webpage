@@ -59,12 +59,14 @@ class TransitConfigError(ValueError):
 class TransitConflictError(ValueError):
     """并发提交冲突：需要人工解决。"""
 
-    def __init__(self, conflicts: list[dict], base_version: str, current_version: str):
+    def __init__(self, conflicts: list[dict], base_version: str, current_version: str,
+                 current_data: dict | None = None):
         self.conflicts = conflicts
         self.base_version = base_version
         self.current_version = current_version
+        # 冲突时的“对方当前完整数据”：前端据此先合并再重提，避免覆盖对手的非冲突修改
+        self.current_data = current_data
         super().__init__(f"conflicts with {current_version}: {len(conflicts)} 处")
-
 
 # ---------------------------------------------------------------------------
 # 持久化：多文档 YAML
@@ -624,11 +626,13 @@ def submit(data, *, base_version: str | None, author: dict, summary: str,
         if current is not None and base_version != current_id:
             base = next((doc for doc in versions if str(doc.get("id")) == base_version), None)
             if base is None:
-                raise TransitConflictError([], str(base_version or ""), str(current_id))
+                raise TransitConflictError([], str(base_version or ""), str(current_id),
+                                             current_data=current.get("data") or {})
             if not force:
                 merged, conflicts = merge_three_way(base.get("data") or {}, current.get("data") or {}, normalized)
                 if conflicts:
-                    raise TransitConflictError(conflicts, str(base_version), str(current_id))
+                    raise TransitConflictError(conflicts, str(base_version), str(current_id),
+                                                 current_data=current.get("data") or {})
                 normalized, warnings = validate_data(merged, require_lines=True)
                 merged_note = True
 

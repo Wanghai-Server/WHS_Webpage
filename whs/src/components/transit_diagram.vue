@@ -1,11 +1,16 @@
 <script setup>
 /**
- * 轨交示意图（SVG 渲染，纯展示）。
+ * 轨交示意图（SVG 渲染，纯展示 + 点击选中）。
  *
  * 只吃 transitLayout.buildSchematic() 的结果：线路 path、站点坐标、站名。
  * 页面负责取数 / 图例 / 站点卡，编辑页也复用本组件做实时预览。
+ *
+ * - 站点/线路都可点选，emit('select', { kind: 'station' | 'line', id })；
+ * - 缩放按钮带缓动动画，滚轮/拖拽即时；
+ * - 只在示意图 bounds 变化时重新适配视野，编辑名称/颜色不会重置缩放。
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { Crosshair, Minus, Plus } from 'lucide-vue-next'
 
 const props = defineProps({
   schematic: { type: Object, required: true },
@@ -13,12 +18,13 @@ const props = defineProps({
   hiddenLines: { type: Array, default: () => [] },
   interactive: { type: Boolean, default: true },
 })
-
 const emit = defineEmits(['select'])
 
 const svgEl = ref(null)
 const viewBox = ref({ x: 0, y: 0, w: 800, h: 500 })
 let drag = null
+let animation = null
+let lastBoundsKey = ''
 
 const lines = computed(() => (props.schematic?.lines || [])
   .filter((line) => !props.hiddenLines.includes(line.id)))
@@ -43,15 +49,54 @@ function dashFor(line) {
   return ''
 }
 
-function fit() {
-  const bounds = props.schematic?.bounds
-  if (!bounds) return
-  viewBox.value = { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
+function boundsKey(bounds) {
+  if (!bounds) return ''
+  return `${Math.round(bounds.x)},${Math.round(bounds.y)},${Math.round(bounds.width)},${Math.round(bounds.height)}`
 }
 
-watch(() => props.schematic, fit, { immediate: true })
+function fit(animate = false) {
+  const bounds = props.schematic?.bounds
+  if (!bounds) return
+  lastBoundsKey = boundsKey(bounds)
+  const target = { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
+  if (animate) tweenTo(target)
+  else viewBox.value = target
+}
 
-function zoom(factor, clientX, clientY) {
+watch(() => boundsKey(props.schematic?.bounds), (key) => {
+  // 只有视野范围真的变了才重新适配（改名字、改颜色不会触发）
+  if (key && key !== lastBoundsKey) fit()
+}, { immediate: true })
+
+function easeOutCubic(t) {
+  return 1 - (1 - t) ** 3
+}
+
+function tweenTo(target, duration = 200) {
+  stopAnimation()
+  const from = { ...viewBox.value }
+  const startedAt = performance.now()
+  const step = (now) => {
+    const progress = Math.min((now - startedAt) / duration, 1)
+    const eased = easeOutCubic(progress)
+    viewBox.value = {
+      x: from.x + (target.x - from.x) * eased,
+      y: from.y + (target.y - from.y) * eased,
+      w: from.w + (target.w - from.w) * eased,
+      h: from.h + (target.h - from.h) * eased,
+    }
+    if (progress < 1) animation = requestAnimationFrame(step)
+    else animation = null
+  }
+  animation = requestAnimationFrame(step)
+}
+
+function stopAnimation() {
+  if (animation) cancelAnimationFrame(animation)
+  animation = null
+}
+
+function zoom(factor, clientX, clientY, animate = false) {
   if (!svgEl.value) return
   const rect = svgEl.value.getBoundingClientRect()
   const box = viewBox.value
@@ -59,22 +104,26 @@ function zoom(factor, clientX, clientY) {
   const ratio = scale / box.w
   const cx = clientX === undefined ? box.x + box.w / 2 : box.x + ((clientX - rect.left) / rect.width) * box.w
   const cy = clientY === undefined ? box.y + box.h / 2 : box.y + ((clientY - rect.top) / rect.height) * box.h
-  viewBox.value = {
+  const target = {
     x: cx - (cx - box.x) * ratio,
     y: cy - (cy - box.y) * ratio,
     w: scale,
     h: box.h * ratio,
   }
+  if (animate) tweenTo(target, 180)
+  else viewBox.value = target
 }
 
 function onWheel(event) {
   if (!props.interactive) return
   event.preventDefault()
+  stopAnimation()
   zoom(event.deltaY > 0 ? 1.12 : 1 / 1.12, event.clientX, event.clientY)
 }
 
 function onPointerDown(event) {
   if (!props.interactive || event.button !== 0) return
+  stopAnimation()
   drag = { x: event.clientX, y: event.clientY, box: { ...viewBox.value } }
   svgEl.value?.setPointerCapture?.(event.pointerId)
 }
@@ -94,20 +143,25 @@ function onPointerUp() {
 }
 
 function select(station) {
-  if (props.interactive) emit('select', station)
+  if (props.interactive) emit('select', { kind: 'station', id: station.id })
+}
+
+function selectLine(line) {
+  if (props.interactive) emit('select', { kind: 'line', id: line.id })
 }
 
 onBeforeUnmount(() => {
   drag = null
+  stopAnimation()
 })
 </script>
 
 <template>
   <div class="transit-diagram">
-    <div class="transit-zoom">
-      <button type="button" :aria-label="'zoom in'" @click="zoom(1 / 1.2)">+</button>
-      <button type="button" :aria-label="'zoom out'" @click="zoom(1.2)">−</button>
-      <button type="button" :aria-label="'reset'" @click="fit">⌂</button>
+    <div class="transit-zoom" role="group" aria-label="zoom">
+      <button type="button" :aria-label="'zoom in'" @click="zoom(0.8, undefined, undefined, true)"><Plus :size="16" /></button>
+      <button type="button" :aria-label="'zoom out'" @click="zoom(1.25, undefined, undefined, true)"><Minus :size="16" /></button>
+      <button type="button" :aria-label="'reset'" @click="fit(true)"><Crosshair :size="16" /></button>
     </div>
 
     <svg
@@ -124,24 +178,40 @@ onBeforeUnmount(() => {
       @pointerleave="onPointerUp"
     >
       <g class="transit-lines">
-        <path
+        <g
           v-for="line in lines"
           :key="line.id"
-          :d="line.path"
-          fill="none"
-          :stroke="line.color"
-          :stroke-width="line.type === 'metro' ? 7 : 5"
-          :stroke-dasharray="dashFor(line)"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-        />
+          class="transit-line"
+          :class="{ 'is-selected': line.id === selectedId }"
+        >
+          <path
+            class="line-hit"
+            :d="line.path"
+            fill="none"
+            stroke="transparent"
+            :stroke-width="26"
+            stroke-linecap="round"
+            @click.stop="selectLine(line)"
+          />
+          <path
+            class="line-stroke"
+            :d="line.path"
+            fill="none"
+            :stroke="line.color"
+            :stroke-width="line.type === 'metro' ? 7 : 5"
+            :stroke-dasharray="dashFor(line)"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            @click.stop="selectLine(line)"
+          />
+        </g>
       </g>
 
       <g class="transit-stations">
         <g
           v-for="station in stations"
           :key="station.id"
-          :transform="`translate(${station.x} ${station.y})`"
+          :transform="`translate(${station.sx} ${station.sy})`"
           :class="{
             'is-dim': isDimmed(station),
             'is-selected': station.id === selectedId,
@@ -157,8 +227,8 @@ onBeforeUnmount(() => {
           <circle class="station-dot" r="6" :fill="stationColor(station)" stroke-width="2" />
           <text
             v-if="station.label"
-            :x="station.label.x - station.x"
-            :y="station.label.y - station.y"
+            :x="station.label.x - station.sx"
+            :y="station.label.y - station.sy"
             :text-anchor="station.label.anchor"
             class="station-label"
           >{{ station.label.text }}</text>
@@ -186,6 +256,19 @@ onBeforeUnmount(() => {
   height: 100%;
   touch-action: none;
   user-select: none;
+}
+
+.line-hit {
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.transit-lines .transit-line {
+  transition: opacity 0.15s ease;
+}
+
+.transit-lines .transit-line.is-selected .line-stroke {
+  filter: drop-shadow(0 0 6px rgba(0, 0, 0, 0.35));
 }
 
 .station-ring,
@@ -232,18 +315,32 @@ onBeforeUnmount(() => {
 }
 
 .transit-zoom button {
-  width: 30px;
-  height: 30px;
-  font-size: 15px;
-  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   color: var(--text-color);
   cursor: pointer;
-  background: var(--card-color);
+  background: rgba(var(--card-color-rgb, 255, 255, 255), 0.75);
+  backdrop-filter: blur(8px);
   border: 1px solid rgba(var(--text-color-rgb), 0.12);
-  border-radius: 8px;
+  border-radius: 9px;
+  transition: transform 0.12s ease, background 0.15s ease;
 }
 
 .transit-zoom button:hover {
   background: var(--float-bg);
+}
+
+.transit-zoom button:active {
+  transform: scale(0.88);
+}
+
+@media (max-width: 767px) {
+  .transit-svg {
+    /* 手机上允许上下滑动页面，横向拖拽仍可平移示意图 */
+    touch-action: pan-y;
+  }
 }
 </style>
