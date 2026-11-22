@@ -284,9 +284,9 @@ WHS_Webpage/
 │       │   │   ├── upload.js        # Markdown 编辑器上传（/api/markdown/upload）与类型 / 大小常量
 │       │   │   └── colorCodes.js    # MC § 颜色 / 格式代码插件
 │       │   └── wiki/{api,locale,markdown}.js  # 维基 API / 语言状态 / Markdown 兼容层（委托统一渲染管线）
-│       ├── components/              # 41 个可复用组件
+│       ├── components/              # 42 个可复用组件
 │       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown / hcaptcha_box
-│       │   ├── 工程：project_create（发起）/ project_detail（详情与操作）/ mc_account_picker（账号选择）
+│       │   ├── 工程：project_create（发起）/ project_detail（详情与操作）/ project_account_dialog（认领 / 发起确认与账号选择）/ mc_account_picker（账号选择）
 │       │   ├── Markdown：markdown_editer（通用编辑器）/ markdown_view（统一渲染与复制 / mermaid / 公式增强）
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
@@ -632,13 +632,14 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 | GET | `/api/projects/detail?name=` | 公开 | 单个工程详情 + `viewer`；离线时返回缓存并标记 `stale` |
 | GET | `/api/projects/accounts` | 登录 | 当前用户的 MC 账号（主账号 + 小号），供发起 / 认领选择 |
 | POST | `/api/projects` | 等级 ≥ 3 | `{name, player}` 发起工程（玩家名必须是本人账号） |
-| POST | `/api/projects/claim` | 等级 ≥ 2 | `{name, player}` 认领工程；同一 MC 名不可重复认领 |
+| POST | `/api/projects/claim` | 等级 ≥ 2 | `{name, player}` 认领工程；同一用户任一游戏账号认领后不可再次认领 |
 | POST | `/api/projects/complete` | 发起者或 ≥ 3 | `{name}` 标记完成 |
 | DELETE | `/api/projects?name=` | ≥ 4 任意状态；否则未认领时 ≥ 3 或发起者 | 删除工程（与插件逻辑一致） |
 | PUT | `/api/projects/meta` | 发起者或 ≥ 3 | `{name, description?, remark?}` 更新描述（Markdown ≤ 20000）/ 备注（纯文本 ≤ 500） |
 
 - 数据源是游戏内 signup 插件的 `project.json`，经 `mcdr2web` 的 `project_*` WS 指令读写；后端不另存工程库。
 - 工程名 1–32 字符（去首尾空白、禁止控制字符）；`player` 必须是当前用户的主账号或小号。
+- 认领去重：网页按「用户」判断（主账号或任一小号已在认领者中即隐藏按钮并拒绝请求），工程数据仍按 MC 名记录；游戏内插件仍只按 MC 名判定。
 - 错误码：`project_not_found`（404）/ `project_exists`（409）/ `project_name_invalid`、`project_player_invalid`、`project_already_claimed`、`project_not_claimed`、`project_completed`（400）/ `project_permission_denied`（403）/ `project_name_too_large`、`project_description_too_large`、`project_remark_too_large`（413）/ `project_unavailable`（503）。
 - MCDR 离线：读接口回退缓存并返回 `online:false`，写接口返回 `project_unavailable`。
 
@@ -992,7 +993,7 @@ python SMTP/mail_server.py
 - **Markdown 多语言**：通用编辑器已支持 `multilingual`（v-model 为 `{zh,en}` 对象，编辑 / 预览按所选语言、展示跟随站点语言）；系统消息的标题与正文已启用双语（缺失语言回退），个人简介 / 反馈 / 试卷说明等其余字段仍为单语言；维基仍按 `lang` 列在数据库内存双份。
 - **消息双语**：`messages` 表新增 `title_en` / `content_en` 两列，旧库启动时自动迁移、旧消息英文为空（展示回退中文）；定向消息（考试重审 / 通过通知）同样写入双语内容。管理员可在发布 / 编辑对话框补齐英文版本。
 - **Markdown 上传**：全站 Markdown 编辑器上传要求登录（不检查 permission 等级），文件存 `data/markdown_upload/`；维基上传仍要求 permission ≥ 2，文件存 `data/wiki_upload/`；两处共用同一套类型 / 大小白名单，但不校验文件真实内容。
-- **工程管理（`/projects`）**：数据源是 MCDR 侧 signup 插件的 `project.json`，网页不另存库；游戏服务器或 signup 插件不可用时列表只能读 10 秒缓存（标记 `stale`），写操作返回 503。描述 / 备注 / 时间只能官网编辑，游戏内 `get` 不展示描述与备注；删除权限与插件一致（4 级任意状态；未认领时 3 级或发起者可删）。入口只在用户下拉栏。
+- **工程管理（`/projects`）**：数据源是 MCDR 侧 signup 插件的 `project.json`，网页不另存库；游戏服务器或 signup 插件不可用时列表只能读 10 秒缓存（标记 `stale`），写操作返回 503。描述 / 备注 / 时间只能官网编辑，游戏内 `get` 不展示描述与备注；删除权限与插件一致（4 级任意状态；未认领时 3 级或发起者可删）；认领按网站用户去重（任一账号已认领即隐藏 / 拒绝），游戏内仍按 MC 名。入口只在用户下拉栏。
 - **Python 版本**：必须 ≥ 3.12（代码使用了 3.12 才支持的 f-string 语法）。
 - **在线地图（`/map`）**：页面本身不含地图数据，由服务器上的 BlueMap 网页端提供 3D 透视视图。没部署时页面显示「服务器尚未开启在线地图」。安装和代理都在服务器上做：
   1. 服务端是 Fabric 1.21.11，BlueMap 要放进 `mods/`，不是 `plugins/`。版本按官方下载页标注的 1.21.11 支持线选（5.x，5.14 及以上），别拿面向 26.x 的最新构建。

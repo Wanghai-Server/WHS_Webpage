@@ -11,11 +11,10 @@ import { useI18n } from 'vue-i18n'
 import { Link2, X } from 'lucide-vue-next'
 import MarkdownView from './markdown_view.vue'
 import MarkdownEditer from './markdown_editer.vue'
-import McAccountPicker from './mc_account_picker.vue'
+import ProjectAccountDialog from './project_account_dialog.vue'
 import { useAuth } from '../composables/useAuth'
 import { useDialogBox } from '../composables/useDialogBox'
 import { useTips } from '../composables/useTips'
-import { preferredPlayer } from '../composables/useProjectPlayer'
 
 const props = defineProps({
   open: { type: Boolean, default: false },
@@ -34,7 +33,7 @@ const dialogBox = useDialogBox()
 const editing = ref(false)
 const description = ref('')
 const remark = ref('')
-const claimPlayer = ref('')
+const claimDialogOpen = ref(false)
 const busy = ref(false)
 
 const isLoggedIn = computed(() => !!authState.token)
@@ -42,7 +41,6 @@ const canClaim = computed(() => props.online && props.viewer?.can_claim)
 const canComplete = computed(() => props.online && props.viewer?.can_complete)
 const canDelete = computed(() => props.online && props.viewer?.can_delete)
 const canEdit = computed(() => props.online && props.viewer?.can_edit)
-const showAccountPicker = computed(() => props.accounts.length > 1)
 
 const statusKey = computed(() => {
   const status = props.project?.status || 'unclaimed'
@@ -85,9 +83,9 @@ function formatTime(value) {
 function reset() {
   editing.value = false
   busy.value = false
+  claimDialogOpen.value = false
   description.value = props.project?.description || ''
   remark.value = props.project?.remark || ''
-  claimPlayer.value = preferredPlayer(props.accounts)
 }
 
 watch(
@@ -102,13 +100,14 @@ function applyResult(data) {
   editing.value = false
 }
 
-async function claim() {
-  if (!props.online || !props.project) return
-  const player = claimPlayer.value || props.accounts[0]?.name || ''
-  if (!player) {
-    showTip('warning', t('projects.bindAccount'))
-    return
-  }
+function openClaim() {
+  if (!canClaim.value) return
+  claimDialogOpen.value = true
+}
+
+async function confirmClaim(player) {
+  if (!props.online || !props.project || !player) return
+  claimDialogOpen.value = false
   busy.value = true
   try {
     const { ok, data } = await request('POST', '/api/projects/claim', {
@@ -129,8 +128,26 @@ async function claim() {
   }
 }
 
+async function startEdit() {
+  if (!canEdit.value || !props.project) return
+  const confirmed = await dialogBox.confirm({
+    title: t('projects.editConfirmTitle'),
+    message: t('projects.editConfirmMessage', { name: props.project.name }),
+  })
+  if (!confirmed) return
+  // 每次进入编辑都用当前工程内容重置草稿，取消后再次编辑不会带入未保存内容
+  description.value = props.project.description || ''
+  remark.value = props.project.remark || ''
+  editing.value = true
+}
+
 async function complete() {
   if (!props.online || !props.project) return
+  const confirmed = await dialogBox.confirm({
+    title: t('projects.completeConfirmTitle'),
+    message: t('projects.completeConfirmMessage', { name: props.project.name }),
+  })
+  if (!confirmed) return
   busy.value = true
   try {
     const { ok, data } = await request('POST', '/api/projects/complete', {
@@ -266,39 +283,39 @@ async function saveMeta() {
               </div>
             </dl>
 
-            <section class="pd-section">
-              <h3 class="pd-section-title">
-                {{ t('projects.description') }}
-                <Link2 v-if="editing" :size="14" />
-              </h3>
-              <MarkdownEditer
-                v-if="editing"
-                v-model="description"
-                :placeholder="t('projects.descriptionHint')"
-                :min-height="180"
-                :show-lang-switch="false"
-              />
-              <MarkdownView v-else-if="project.description" :content="project.description" />
-              <p v-else class="pd-empty">{{ t('projects.descriptionEmpty') }}</p>
-            </section>
+            <Transition name="pd-edit" mode="out-in">
+              <div :key="editing ? 'edit' : 'view'" class="pd-sections">
+                <section class="pd-section">
+                  <h3 class="pd-section-title">
+                    {{ t('projects.description') }}
+                    <Link2 v-if="editing" :size="14" />
+                  </h3>
+                  <MarkdownEditer
+                    v-if="editing"
+                    v-model="description"
+                    :placeholder="t('projects.descriptionHint')"
+                    :min-height="180"
+                    :show-lang-switch="false"
+                  />
+                  <MarkdownView v-else-if="project.description" :content="project.description" />
+                  <p v-else class="pd-empty">{{ t('projects.descriptionEmpty') }}</p>
+                </section>
 
-            <section class="pd-section">
-              <h3 class="pd-section-title">{{ t('projects.remark') }}</h3>
-              <textarea
-                v-if="editing"
-                v-model="remark"
-                class="pd-remark-input"
-                maxlength="500"
-                rows="4"
-                :placeholder="t('projects.remarkHint')"
-              ></textarea>
-              <p v-else-if="project.remark" class="pd-remark">{{ project.remark }}</p>
-              <p v-else class="pd-empty">{{ t('projects.remarkEmpty') }}</p>
-            </section>
-          </div>
-
-          <div v-if="!editing && canClaim && showAccountPicker" class="pd-account">
-            <McAccountPicker v-model="claimPlayer" :accounts="accounts" />
+                <section class="pd-section">
+                  <h3 class="pd-section-title">{{ t('projects.remark') }}</h3>
+                  <textarea
+                    v-if="editing"
+                    v-model="remark"
+                    class="pd-remark-input"
+                    maxlength="500"
+                    rows="4"
+                    :placeholder="t('projects.remarkHint')"
+                  ></textarea>
+                  <p v-else-if="project.remark" class="pd-remark">{{ project.remark }}</p>
+                  <p v-else class="pd-empty">{{ t('projects.remarkEmpty') }}</p>
+                </section>
+              </div>
+            </Transition>
           </div>
 
           <footer class="pd-foot">
@@ -327,7 +344,7 @@ async function saveMeta() {
                 type="button"
                 class="pd-btn ghost"
                 :disabled="busy"
-                @click="editing = true"
+                @click="startEdit"
               >
                 {{ t('projects.edit') }}
               </button>
@@ -345,7 +362,7 @@ async function saveMeta() {
                 type="button"
                 class="pd-btn primary"
                 :disabled="busy || !online"
-                @click="claim"
+                @click="openClaim"
               >
                 {{ t('projects.claim') }}
               </button>
@@ -355,6 +372,17 @@ async function saveMeta() {
       </div>
     </Transition>
   </Teleport>
+
+  <ProjectAccountDialog
+    :open="claimDialogOpen"
+    :title="t('projects.claimDialogTitle')"
+    :message="t('projects.claimDialogMessage', { name: project?.name || '' })"
+    :accounts="accounts"
+    :busy="busy"
+    :confirm-text="t('projects.claim')"
+    @close="claimDialogOpen = false"
+    @confirm="confirmClaim"
+  />
 </template>
 
 <style scoped>
@@ -519,6 +547,24 @@ async function saveMeta() {
   gap: 8px;
 }
 
+/* 查看 / 编辑切换：整块内容淡入淡出 + 轻微上移，避免生硬跳变 */
+.pd-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.pd-edit-enter-active,
+.pd-edit-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.pd-edit-enter-from,
+.pd-edit-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
 .pd-section-title {
   margin: 0;
   display: flex;
@@ -564,11 +610,6 @@ async function saveMeta() {
 .pd-remark-input:focus {
   outline: 2px solid rgba(235, 170, 40, 0.4);
   outline-offset: 1px;
-}
-
-.pd-account {
-  padding: 0 22px 14px;
-  flex-shrink: 0;
 }
 
 .pd-foot {
@@ -635,10 +676,6 @@ async function saveMeta() {
 
   .pd-foot {
     padding: 12px 16px 16px;
-  }
-
-  .pd-account {
-    padding: 0 16px 12px;
   }
 }
 </style>

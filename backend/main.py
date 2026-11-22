@@ -719,8 +719,8 @@ ERROR_MESSAGES = {
         "en": "Please choose one of your own game accounts",
     },
     "project_already_claimed": {
-        "zh": "该游戏账号已经认领过这个工程",
-        "en": "This game account has already claimed the project",
+        "zh": "你已经认领过这个工程",
+        "en": "You have already claimed this project",
     },
     "project_not_claimed": {
         "zh": "该工程尚未被认领，无法完成",
