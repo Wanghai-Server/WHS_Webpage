@@ -74,8 +74,8 @@ const selectedLine = computed(() => (selection.value?.kind === 'line'
   ? lines.value.find((item) => item.id === selection.value.id) || null
   : null))
 const segmentsExpanded = ref(false)
-watch(selectedLine, (line) => {
-  segmentsExpanded.value = !!(line?.segments?.length)
+watch(selectedLine, () => {
+  segmentsExpanded.value = false
 }, { immediate: true })
 const selectedStation = computed(() => (selection.value?.kind === 'station'
   ? stations.value.find((item) => item.id === selection.value.id) || null
