@@ -12,7 +12,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { onBeforeRouteLeave } from 'vue-router'
 import {
-  ArrowDown, ArrowLeft, ArrowUp, History, MapPin, Plus, RotateCcw, Save, Search, Trash2, X,
+  ArrowDown, ArrowLeft, ArrowUp, ChevronDown, History, MapPin, Plus, RotateCcw, Save, Search, Trash2, X,
 } from 'lucide-vue-next'
 import Top_navbar from '../../../components/top_navbar.vue'
 import Page_footer from '../../../components/page_footer.vue'
@@ -73,6 +73,10 @@ const schematic = computed(() => (doc.value ? buildSchematic(doc.value, { locale
 const selectedLine = computed(() => (selection.value?.kind === 'line'
   ? lines.value.find((item) => item.id === selection.value.id) || null
   : null))
+const segmentsExpanded = ref(false)
+watch(selectedLine, (line) => {
+  segmentsExpanded.value = !!(line?.segments?.length)
+}, { immediate: true })
 const selectedStation = computed(() => (selection.value?.kind === 'station'
   ? stations.value.find((item) => item.id === selection.value.id) || null
   : null))
@@ -814,8 +818,12 @@ onBeforeUnmount(() => {
             </label>
           </div>
           <div v-if="selectedLine.stations.length > 1" class="field segments-field">
-            <span>{{ t('transit.edit.segments') }}</span>
-            <div class="segment-list">
+            <button type="button" class="segment-toggle" :aria-expanded="segmentsExpanded" @click="segmentsExpanded = !segmentsExpanded">
+              <span>{{ t('transit.edit.segments') }}</span>
+              <span v-if="selectedLine.segments?.length" class="segment-count">{{ selectedLine.segments.length }}</span>
+              <ChevronDown :size="14" class="segment-caret" :class="{ open: segmentsExpanded }" />
+            </button>
+            <div v-show="segmentsExpanded" class="segment-list">
               <div
                 v-for="(id, index) in selectedLine.stations.slice(0, -1)"
                 :key="`${id}-${selectedLine.stations[index + 1]}`"
@@ -1321,6 +1329,37 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 10px 12px 14px;
   overflow-y: auto;
+}
+
+.segment-toggle {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 2px;
+  color: var(--text-color);
+  font-size: 13px;
+  text-align: left;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.segment-toggle .segment-count {
+  padding: 0 6px;
+  color: var(--links-color);
+  font-size: 11px;
+  background: rgba(var(--text-color-rgb), 0.08);
+  border-radius: 999px;
+}
+
+.segment-caret {
+  margin-left: auto;
+  transition: transform 0.18s ease;
+}
+
+.segment-caret.open {
+  transform: rotate(180deg);
 }
 
 .segment-list {

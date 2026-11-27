@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { buildSchematic } from '../src/composables/transitLayout.js'
+import { buildSchematic, transferArcs } from '../src/composables/transitLayout.js'
 
 const data = {
   lines: [
@@ -54,5 +54,14 @@ test('分段运营：相邻区段按段拆 path，未设置区段沿用整线状
   }
   const line2 = result.lines.find((item) => item.id === 'l2')
   assert.equal(line2.segmentPaths.length, 2, '没有分段设置也按站间拆 path')
-  assert.equal(result.stations.find((item) => item.id === 'hub').directions.length, 2, '换乘站记录两条线的方向')
+})
+
+test('换乘站弧形箭头：两条弧线带箭头，颜色取线路色', () => {
+  const arcs = transferArcs(schematic.stations.find((item) => item.id === 'hub'), schematic.lines)
+  assert.equal(arcs.length, 2)
+  assert.deepEqual(arcs.map((arc) => arc.color).sort(), ['#2f7fe0', '#e04f5f'])
+  for (const arc of arcs) {
+    assert.ok(arc.path.startsWith('M '), '弧线是 path')
+    assert.ok(arc.head.endsWith('Z'), '箭头是闭合三角形')
+  }
 })

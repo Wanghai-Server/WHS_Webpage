@@ -11,6 +11,7 @@
  */
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Crosshair, Minus, Plus } from 'lucide-vue-next'
+import { transferArcs } from '../composables/transitLayout'
 
 const props = defineProps({
   schematic: { type: Object, required: true },
@@ -318,13 +319,11 @@ onBeforeUnmount(() => {
           <circle class="station-hit" r="20" fill="transparent" />
           <circle class="station-dot" r="5.5" :stroke="stationColor(station)" stroke-width="2.5" />
           <!-- 换乘站：空心圆 + 双向箭头 -->
-          <g v-if="station.transfer" class="transfer-arrows" :fill="stationColor(station)">
-            <path
-              v-for="angle in station.directions"
-              :key="angle"
-              :transform="`rotate(${angle})`"
-              d="M 9 -4 L 15 0 L 9 4 Z"
-            />
+          <g v-if="station.transfer" class="transfer-arrows">
+            <g v-for="(arc, index) in transferArcs(station, props.schematic.lines)" :key="index">
+              <path :d="arc.path" fill="none" :stroke="arc.color" stroke-width="3" stroke-linecap="round" />
+              <path :d="arc.head" :fill="arc.color" stroke="none" />
+            </g>
           </g>
           <template v-if="station.label">
             <rect

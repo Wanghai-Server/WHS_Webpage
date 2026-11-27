@@ -91,6 +91,17 @@ function round(value) {
   return Math.round(value * 10) / 10
 }
 
+/** 换乘站：两条旋转弧形箭头，颜色取经过的线路（最多两条）。 */
+export function transferArcs(station, lines = []) {
+  const colors = (station.lines || [])
+    .map((id) => lines.find((item) => item.id === id)?.color)
+    .filter(Boolean)
+  return [
+    { color: colors[0] || station.color || '#888888', path: 'M -10 -3 Q 0 -18 8 -4', head: 'M 7 -8 L 14 -4 L 7 0 Z' },
+    { color: colors[1] || colors[0] || station.color || '#888888', path: 'M 10 3 Q 0 18 -8 4', head: 'M -7 8 L -14 4 L -7 0 Z' },
+  ]
+}
+
 function pairKey(a, b) {
   return [a, b].sort().join('|')
 }
@@ -236,7 +247,6 @@ export function buildSchematic(data, options = {}) {
       sy: y,
       lines: ids,
       transfer: ids.length > 1,
-      directions: directionsFor(station.id, ids, lines, placed),
       color: first?.color || '#888888',
       label: labelById.get(station.id),
     }
@@ -248,23 +258,6 @@ export function buildSchematic(data, options = {}) {
     bounds: measure([...lines.flatMap((line) => line.points), ...stations.map((item) => [item.sx, item.sy])], labelRects),
     note: data?.note || null,
   }
-}
-
-function directionsFor(stationId, lineIds, lines, placed) {
-  const angles = []
-  for (const lineId of lineIds) {
-    const line = lines.find((item) => item.id === lineId)
-    if (!line) continue
-    const pos = line.stations.indexOf(stationId)
-    if (pos < 0) continue
-    const point = placed.get(stationId)
-    const prev = placed.get(line.stations[pos - 1]) || point
-    const next = placed.get(line.stations[pos + 1]) || point
-    if (!point || prev === next) continue
-    const angle = Math.round((Math.atan2(next[1] - prev[1], next[0] - prev[0]) * 180) / Math.PI)
-    if (!angles.includes(angle)) angles.push(angle)
-  }
-  return angles
 }
 
 function measure(points, rects) {
