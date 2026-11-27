@@ -701,6 +701,37 @@ def check_transit() -> None:
             else:
                 fail(f"非法数据未被拒绝：{name}")
 
+        # 11c. 分段运营：合法区段保留，非相邻 / 重复 / 非法状态拒绝
+        seg_case = make_data()
+        seg_case["lines"][0]["segments"] = [
+            {"from": seg_case["lines"][0]["stations"][1], "to": seg_case["lines"][0]["stations"][0], "status": "building"},
+        ]
+        normalized_seg, _ = validate_data(seg_case, require_lines=True)
+        check(normalized_seg["lines"][0]["segments"][0]["status"] == "building", "合法分段状态被保留")
+        bad_segments = [
+            ("同一车站", lambda line: {"from": line["stations"][0], "to": line["stations"][0], "status": "building"}),
+            ("不存在的车站", lambda line: {"from": line["stations"][0], "to": "s_missing", "status": "building"}),
+            ("非法状态", lambda line: {"from": line["stations"][0], "to": line["stations"][1], "status": "closed"}),
+        ]
+        for name, make_seg in bad_segments:
+            case = make_data()
+            case["lines"][0]["segments"] = [make_seg(case["lines"][0])]
+            try:
+                validate_data(case, require_lines=True)
+            except TransitConfigError:
+                ok(f"分段运营非法数据被拒绝：{name}")
+            else:
+                fail(f"分段运营非法数据未被拒绝：{name}")
+        dup = make_data()
+        pair = {"from": dup["lines"][0]["stations"][0], "to": dup["lines"][0]["stations"][1], "status": "open"}
+        dup["lines"][0]["segments"] = [pair, dict(pair)]
+        try:
+            validate_data(dup, require_lines=True)
+        except TransitConfigError:
+            ok("同一区段重复设置被拒绝")
+        else:
+            fail("同一区段重复设置未被拒绝")
+
         # 12. 单版本过大：拒绝且不写盘（避免每次提交都触发全量重写）
         huge = make_data()
         huge["note"] = {"zh": "x" * (MAX_BYTES // 4 + 64), "en": "x"}

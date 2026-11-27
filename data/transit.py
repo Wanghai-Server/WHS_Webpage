@@ -51,7 +51,7 @@ Y_SOURCES = ("explicit", "picked")
 # 坐标范围与 Minecraft 世界边界一致
 _POS_LIMIT = 30_000_000
 
-LINE_FIELDS = ("name", "color", "type", "status", "note", "stations")
+LINE_FIELDS = ("name", "color", "type", "status", "note", "stations", "segments")
 STATION_FIELDS = ("name", "pos", "y", "y_source", "tags", "note")
 
 
@@ -270,6 +270,34 @@ def validate_data(raw, *, require_lines: bool = False) -> tuple[dict, list[str]]
             clean.append(sid)
             used.setdefault(sid, []).append(lid)
 
+        raw_segments = item.get("segments")
+        segments: list[dict] = []
+        if raw_segments is not None:
+            if not isinstance(raw_segments, list):
+                _fail(f"{where}.segments", "segments 必须是数组")
+            adjacent = {frozenset((clean[pos], clean[pos + 1])) for pos in range(len(clean) - 1)}
+            seen_pairs: set = set()
+            for index, seg in enumerate(raw_segments):
+                seg_where = f"{where}.segments[{index}]"
+                if not isinstance(seg, dict):
+                    _fail(seg_where, "每个区段必须是对象")
+                start = seg.get("from")
+                end = seg.get("to")
+                if not isinstance(start, str) or start not in clean:
+                    _fail(f"{seg_where}.from", "from 必须是本线路的车站 id")
+                if not isinstance(end, str) or end not in clean:
+                    _fail(f"{seg_where}.to", "to 必须是本线路的车站 id")
+                pair = frozenset((start, end))
+                if pair not in adjacent:
+                    _fail(seg_where, "from/to 必须是相邻车站")
+                if pair in seen_pairs:
+                    _fail(seg_where, "同一区段重复设置")
+                seen_pairs.add(pair)
+                seg_status = seg.get("status")
+                if seg_status not in LINE_STATUS:
+                    _fail(f"{seg_where}.status", f"status 只能是 {'/'.join(LINE_STATUS)}")
+                segments.append({"from": start, "to": end, "status": seg_status})
+
         line = {
             "id": lid,
             "name": _i18n(where, item.get("name")),
@@ -278,6 +306,8 @@ def validate_data(raw, *, require_lines: bool = False) -> tuple[dict, list[str]]
             "status": status,
             "stations": clean,
         }
+        if segments:
+            line["segments"] = segments
         if item.get("note") is not None:
             line["note"] = _i18n(where, item["note"], "note")
         lines.append(line)

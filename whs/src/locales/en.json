@@ -104,6 +104,8 @@
         "status": "Status",
         "statusOpen": "Open",
         "statusBuilding": "Under construction",
+        "segments": "Segment status",
+        "statusInherit": "Follow line",
         "statusPlanned": "Planned",
         "type": "Type",
         "typeMetro": "Metro",

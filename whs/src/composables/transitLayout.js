@@ -91,6 +91,10 @@ function round(value) {
   return Math.round(value * 10) / 10
 }
 
+function pairKey(a, b) {
+  return [a, b].sort().join('|')
+}
+
 function textWidth(text) {
   let width = 0
   for (const char of String(text || '')) {
@@ -175,7 +179,32 @@ export function buildSchematic(data, options = {}) {
     })
     const path = roundedPath(clean, stationIndexes)
     if (!path) continue
-    lines.push({ ...line, path, points: clean })
+
+    // 分段运营：按相邻站对拆 path，未设置的区段沿用整线 status
+    const segmentPaths = []
+    const overrides = new Map((line.segments || []).map((seg) => [pairKey(seg.from, seg.to), seg.status]))
+    if (overrides.size) {
+      const pointIndex = new Map(clean.map((point, index) => [keyOf(point), index]))
+      for (let pos = 0; pos + 1 < line.stations.length; pos += 1) {
+        const from = line.stations[pos]
+        const to = line.stations[pos + 1]
+        const a = placed.get(from)
+        const b = placed.get(to)
+        if (!a || !b) continue
+        let start = pointIndex.get(keyOf(a))
+        let end = pointIndex.get(keyOf(b))
+        if (start == null || end == null) continue
+        if (start > end) [start, end] = [end, start]
+        const slice = clean.slice(start, end + 1)
+        segmentPaths.push({
+          from,
+          to,
+          status: overrides.get(pairKey(from, to)) || line.status,
+          path: roundedPath(slice, new Set([0, slice.length - 1])),
+        })
+      }
+    }
+    lines.push({ ...line, path, points: clean, segmentPaths })
   }
 
   const used = sourceStations.filter((station) => placed.has(station.id) && stationLines.get(station.id)?.length)

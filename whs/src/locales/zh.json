@@ -104,6 +104,8 @@
         "status": "状态",
         "statusOpen": "运营中",
         "statusBuilding": "在建",
+        "segments": "分段运营",
+        "statusInherit": "跟随整线",
         "statusPlanned": "规划中",
         "type": "类型",
         "typeMetro": "地铁",

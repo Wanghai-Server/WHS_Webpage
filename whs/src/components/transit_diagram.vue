@@ -278,7 +278,23 @@ onBeforeUnmount(() => {
             stroke-linecap="round"
             @click.stop="selectLine(line)"
           />
+          <template v-if="line.segmentPaths?.length">
+            <path
+              v-for="(segment, index) in line.segmentPaths"
+              :key="`${segment.from}-${segment.to}-${index}`"
+              class="line-stroke"
+              :d="segment.path"
+              fill="none"
+              :stroke="line.color"
+              :stroke-width="line.type === 'metro' ? 5 : 3.5"
+              :stroke-dasharray="dashFor(segment)"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              @click.stop="selectLine(line)"
+            />
+          </template>
           <path
+            v-else
             class="line-stroke"
             :d="line.path"
             fill="none"

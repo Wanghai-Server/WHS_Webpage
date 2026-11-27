@@ -40,3 +40,17 @@ test('多线路经过的车站标记为换乘站，单线车站不是', () => {
   assert.deepEqual(hub.lines.sort(), ['l1', 'l2'])
   assert.equal(a.transfer, false)
 })
+
+test('分段运营：相邻区段按段拆 path，未设置区段沿用整线状态', () => {
+  const segmented = JSON.parse(JSON.stringify(data))
+  segmented.lines[0].segments = [{ from: 'a', to: 'hub', status: 'building' }]
+  const result = buildSchematic(segmented, { locale: 'zh' })
+  const line = result.lines.find((item) => item.id === 'l1')
+  assert.equal(line.segmentPaths.length, 2)
+  assert.equal(line.segmentPaths[0].status, 'building')
+  assert.equal(line.segmentPaths[1].status, 'open')
+  for (const segment of line.segmentPaths) {
+    assert.ok(segment.path.startsWith('M '), '每段都有独立 path')
+  }
+  assert.equal(result.lines.find((item) => item.id === 'l2').segmentPaths.length, 0)
+})

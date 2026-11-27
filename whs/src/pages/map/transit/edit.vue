@@ -124,15 +124,23 @@ function toSendable(value) {
     }
     return out
   })
-  clone.lines = (clone.lines || []).map((line) => ({
-    id: line.id,
-    name: line.name || {},
-    color: line.color,
-    type: line.type || 'metro',
-    status: line.status || 'open',
-    stations: [...(line.stations || [])],
-    ...(line.note?.zh || line.note?.en ? { note: line.note } : {}),
-  }))
+  clone.lines = (clone.lines || []).map((line) => {
+    const ids = [...(line.stations || [])]
+    const adjacent = new Set(ids.slice(0, -1).map((id, index) => [id, ids[index + 1]].sort().join('|')))
+    const segments = (line.segments || [])
+      .filter((seg) => seg.from && seg.to && adjacent.has([seg.from, seg.to].sort().join('|')))
+      .map((seg) => ({ from: seg.from, to: seg.to, status: seg.status || 'open' }))
+    return {
+      id: line.id,
+      name: line.name || {},
+      color: line.color,
+      type: 'rail',
+      status: line.status || 'open',
+      stations: ids,
+      ...(segments.length ? { segments } : {}),
+      ...(line.note?.zh || line.note?.en ? { note: line.note } : {}),
+    }
+  })
   if (!(clone.note?.zh || clone.note?.en)) delete clone.note
   return { ...(clone.note ? { note: clone.note } : {}), lines: clone.lines, stations: clone.stations }
 }
@@ -351,6 +359,22 @@ function setTags(station, value) {
   const tags = String(value || '').split(',').map((item) => item.trim()).filter(Boolean)
   if (tags.length) station.tags = tags
   else delete station.tags
+}
+
+function segmentStatus(from, to) {
+  const line = selectedLine.value
+  const key = [from, to].sort().join('|')
+  const seg = (line?.segments || []).find((item) => [item.from, item.to].sort().join('|') === key)
+  return seg?.status || ''
+}
+
+function setSegmentStatus(from, to, value) {
+  const line = selectedLine.value
+  if (!line) return
+  const key = [from, to].sort().join('|')
+  const list = (line.segments || []).filter((item) => [item.from, item.to].sort().join('|') !== key)
+  if (value) list.push({ from, to, status: value })
+  line.segments = list
 }
 
 function openPicker(target) {
@@ -785,6 +809,22 @@ onBeforeUnmount(() => {
             <label class="field"><span>{{ t('transit.edit.status') }}</span>
               <Status_dropdown v-model="selectedLine.status" :options="statusOptions" variant="select" />
             </label>
+          </div>
+          <div v-if="selectedLine.stations.length > 1" class="field segments-field">
+            <span>{{ t('transit.edit.segments') }}</span>
+            <div class="segment-list">
+              <div
+                v-for="(id, index) in selectedLine.stations.slice(0, -1)"
+                :key="`${id}-${selectedLine.stations[index + 1]}`"
+                class="segment-row"
+              >
+                <span class="segment-label">{{ stationName(stations.find((item) => item.id === id) || {}, locale) || id }} — {{ stationName(stations.find((item) => item.id === selectedLine.stations[index + 1]) || {}, locale) || selectedLine.stations[index + 1] }}</span>
+                <select class="input segment-select" :value="segmentStatus(id, selectedLine.stations[index + 1])" @change="setSegmentStatus(id, selectedLine.stations[index + 1], $event.target.value)">
+                  <option value="">{{ t('transit.edit.statusInherit') }}</option>
+                  <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                </select>
+              </div>
+            </div>
           </div>
           <div class="field"><span>{{ t('transit.edit.color') }}</span>
             <div class="palette">
@@ -1275,6 +1315,34 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 10px 12px 14px;
   overflow-y: auto;
+}
+
+.segment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.segment-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.segment-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 12px;
+  color: var(--links-color);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.segment-select {
+  width: 128px;
+  height: 32px;
+  padding: 0 6px;
 }
 
 .field-fixed {
