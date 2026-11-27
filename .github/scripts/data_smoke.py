@@ -798,7 +798,11 @@ def check_transit() -> None:
 
         # 14. 校验器默认值
         normalized, _ = validate_data(make_data())
-        check(normalized["lines"][0]["type"] == "metro", "线路 type 缺省为 metro")
+        check(normalized["lines"][0]["type"] == "rail", "线路 type 缺省为 rail")
+        legacy = make_data()
+        legacy["lines"][0]["type"] = "metro"
+        migrated, _ = validate_data(legacy)
+        check(migrated["lines"][0]["type"] == "rail", "历史 metro 类型读取时迁移为 rail")
         check(normalized["lines"][0]["status"] == "open", "线路 status 缺省为 open")
 
 

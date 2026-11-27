@@ -183,26 +183,24 @@ export function buildSchematic(data, options = {}) {
     // 分段运营：按相邻站对拆 path，未设置的区段沿用整线 status
     const segmentPaths = []
     const overrides = new Map((line.segments || []).map((seg) => [pairKey(seg.from, seg.to), seg.status]))
-    if (overrides.size) {
-      const pointIndex = new Map(clean.map((point, index) => [keyOf(point), index]))
-      for (let pos = 0; pos + 1 < line.stations.length; pos += 1) {
-        const from = line.stations[pos]
-        const to = line.stations[pos + 1]
-        const a = placed.get(from)
-        const b = placed.get(to)
-        if (!a || !b) continue
-        let start = pointIndex.get(keyOf(a))
-        let end = pointIndex.get(keyOf(b))
-        if (start == null || end == null) continue
-        if (start > end) [start, end] = [end, start]
-        const slice = clean.slice(start, end + 1)
-        segmentPaths.push({
-          from,
-          to,
-          status: overrides.get(pairKey(from, to)) || line.status,
-          path: roundedPath(slice, new Set([0, slice.length - 1])),
-        })
-      }
+    const pointIndex = new Map(clean.map((point, index) => [keyOf(point), index]))
+    for (let pos = 0; pos + 1 < line.stations.length; pos += 1) {
+      const from = line.stations[pos]
+      const to = line.stations[pos + 1]
+      const a = placed.get(from)
+      const b = placed.get(to)
+      if (!a || !b) continue
+      let start = pointIndex.get(keyOf(a))
+      let end = pointIndex.get(keyOf(b))
+      if (start == null || end == null) continue
+      if (start > end) [start, end] = [end, start]
+      const slice = clean.slice(start, end + 1)
+      segmentPaths.push({
+        from,
+        to,
+        status: overrides.get(pairKey(from, to)) || line.status,
+        path: roundedPath(slice, new Set([0, slice.length - 1])),
+      })
     }
     lines.push({ ...line, path, points: clean, segmentPaths })
   }
@@ -238,6 +236,7 @@ export function buildSchematic(data, options = {}) {
       sy: y,
       lines: ids,
       transfer: ids.length > 1,
+      directions: directionsFor(station.id, ids, lines, placed),
       color: first?.color || '#888888',
       label: labelById.get(station.id),
     }
@@ -249,6 +248,23 @@ export function buildSchematic(data, options = {}) {
     bounds: measure([...lines.flatMap((line) => line.points), ...stations.map((item) => [item.sx, item.sy])], labelRects),
     note: data?.note || null,
   }
+}
+
+function directionsFor(stationId, lineIds, lines, placed) {
+  const angles = []
+  for (const lineId of lineIds) {
+    const line = lines.find((item) => item.id === lineId)
+    if (!line) continue
+    const pos = line.stations.indexOf(stationId)
+    if (pos < 0) continue
+    const point = placed.get(stationId)
+    const prev = placed.get(line.stations[pos - 1]) || point
+    const next = placed.get(line.stations[pos + 1]) || point
+    if (!point || prev === next) continue
+    const angle = Math.round((Math.atan2(next[1] - prev[1], next[0] - prev[0]) * 180) / Math.PI)
+    if (!angles.includes(angle)) angles.push(angle)
+  }
+  return angles
 }
 
 function measure(points, rects) {

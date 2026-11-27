@@ -44,7 +44,8 @@ _LOCK = threading.RLock()
 _ID_RE = re.compile(r"^[a-z0-9_-]{1,32}$")
 _COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 
-LINE_TYPES = ("metro", "rail", "bus")
+LINE_TYPES = ("rail",)
+LEGACY_LINE_TYPES = ("metro", "bus")
 LINE_STATUS = ("open", "building", "planned")
 Y_SOURCES = ("explicit", "picked")
 
@@ -247,7 +248,10 @@ def validate_data(raw, *, require_lines: bool = False) -> tuple[dict, list[str]]
             warnings.append(f"线路 {lid} 与 {colors[color]} 用了同一个颜色 {color}")
         colors[color] = lid
 
-        ltype = item.get("type") or "metro"
+        ltype = item.get("type") or "rail"
+        # 历史数据里的 metro/bus 读取时统一迁移为 rail（望海交通系统只有铁路）
+        if ltype in LEGACY_LINE_TYPES:
+            ltype = "rail"
         if ltype not in LINE_TYPES:
             _fail(where, f"type 只能是 {'/'.join(LINE_TYPES)}")
         status = item.get("status") or "open"
@@ -459,7 +463,7 @@ def seed_version() -> dict:
                 "id": "l1",
                 "name": {"zh": "1号线", "en": "Line 1"},
                 "color": "#2f7fe0",
-                "type": "metro",
+                "type": "rail",
                 "status": "open",
                 "stations": ["s_origin", "s_hub", "s_harbour", "s_dock"],
             },
@@ -467,7 +471,7 @@ def seed_version() -> dict:
                 "id": "l2",
                 "name": {"zh": "2号线", "en": "Line 2"},
                 "color": "#e2554a",
-                "type": "metro",
+                "type": "rail",
                 "status": "open",
                 "stations": ["s_mine", "s_hub", "s_market"],
             },

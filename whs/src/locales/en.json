@@ -104,6 +104,8 @@
         "status": "Status",
         "statusOpen": "Open",
         "statusBuilding": "Under construction",
+        "moveUp": "Move up",
+        "moveDown": "Move down",
         "segments": "Segment status",
         "statusInherit": "Follow line",
         "statusPlanned": "Planned",

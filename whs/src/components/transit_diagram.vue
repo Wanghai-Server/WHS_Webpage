@@ -278,29 +278,15 @@ onBeforeUnmount(() => {
             stroke-linecap="round"
             @click.stop="selectLine(line)"
           />
-          <template v-if="line.segmentPaths?.length">
-            <path
-              v-for="(segment, index) in line.segmentPaths"
-              :key="`${segment.from}-${segment.to}-${index}`"
-              class="line-stroke"
-              :d="segment.path"
-              fill="none"
-              :stroke="line.color"
-              :stroke-width="line.type === 'metro' ? 5 : 3.5"
-              :stroke-dasharray="dashFor(segment)"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              @click.stop="selectLine(line)"
-            />
-          </template>
           <path
-            v-else
+            v-for="(segment, index) in line.segmentPaths"
+            :key="`${segment.from}-${segment.to}-${index}`"
             class="line-stroke"
-            :d="line.path"
+            :d="segment.path"
             fill="none"
             :stroke="line.color"
-            :stroke-width="line.type === 'metro' ? 5 : 3.5"
-            :stroke-dasharray="dashFor(line)"
+            :stroke-width="4"
+            :stroke-dasharray="dashFor(segment)"
             stroke-linecap="round"
             stroke-linejoin="round"
             @click.stop="selectLine(line)"
@@ -333,8 +319,12 @@ onBeforeUnmount(() => {
           <circle class="station-dot" r="5.5" :stroke="stationColor(station)" stroke-width="2.5" />
           <!-- 换乘站：空心圆 + 双向箭头 -->
           <g v-if="station.transfer" class="transfer-arrows" :fill="stationColor(station)">
-            <path d="M -13 -3.5 L -8 0 L -13 3.5 Z" />
-            <path d="M 13 -3.5 L 8 0 L 13 3.5 Z" />
+            <path
+              v-for="angle in station.directions"
+              :key="angle"
+              :transform="`rotate(${angle})`"
+              d="M 9 -4 L 15 0 L 9 4 Z"
+            />
           </g>
           <template v-if="station.label">
             <rect

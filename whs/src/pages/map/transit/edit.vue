@@ -361,6 +361,11 @@ function setTags(station, value) {
   else delete station.tags
 }
 
+const segmentOptions = computed(() => [
+  { value: '', label: t('transit.edit.statusInherit') },
+  ...statusOptions.value,
+])
+
 function segmentStatus(from, to) {
   const line = selectedLine.value
   const key = [from, to].sort().join('|')
@@ -744,7 +749,6 @@ onBeforeUnmount(() => {
           <label class="field"><span>{{ t('transit.edit.nameEn') }}</span><input v-model="draft.name.en" class="input" /></label>
           <template v-if="creating === 'line'">
             <div class="field-row">
-              <div class="field"><span>{{ t('transit.edit.type') }}</span><span class="field-fixed">{{ t('transit.edit.typeRail') }}</span></div>
               <label class="field"><span>{{ t('transit.edit.status') }}</span>
                 <Status_dropdown v-model="draft.status" :options="statusOptions" variant="select" />
               </label>
@@ -805,7 +809,6 @@ onBeforeUnmount(() => {
           <label class="field"><span>{{ t('transit.edit.nameZh') }}</span><input v-model="selectedLine.name.zh" class="input" /></label>
           <label class="field"><span>{{ t('transit.edit.nameEn') }}</span><input v-model="selectedLine.name.en" class="input" /></label>
           <div class="field-row">
-            <div class="field"><span>{{ t('transit.edit.type') }}</span><span class="field-fixed">{{ t('transit.edit.typeRail') }}</span></div>
             <label class="field"><span>{{ t('transit.edit.status') }}</span>
               <Status_dropdown v-model="selectedLine.status" :options="statusOptions" variant="select" />
             </label>
@@ -819,10 +822,13 @@ onBeforeUnmount(() => {
                 class="segment-row"
               >
                 <span class="segment-label">{{ stationName(stations.find((item) => item.id === id) || {}, locale) || id }} — {{ stationName(stations.find((item) => item.id === selectedLine.stations[index + 1]) || {}, locale) || selectedLine.stations[index + 1] }}</span>
-                <select class="input segment-select" :value="segmentStatus(id, selectedLine.stations[index + 1])" @change="setSegmentStatus(id, selectedLine.stations[index + 1], $event.target.value)">
-                  <option value="">{{ t('transit.edit.statusInherit') }}</option>
-                  <option v-for="option in statusOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
+                <Status_dropdown
+                  class="segment-select"
+                  :model-value="segmentStatus(id, selectedLine.stations[index + 1])"
+                  :options="segmentOptions"
+                  variant="select"
+                  @update:model-value="setSegmentStatus(id, selectedLine.stations[index + 1], $event)"
+                />
               </div>
             </div>
           </div>
@@ -858,8 +864,8 @@ onBeforeUnmount(() => {
               <li v-for="(id, index) in selectedLine.stations" :key="id">
                 <span class="seq-index">{{ index + 1 }}</span>
                 <span class="seq-name">{{ stationName(stations.find((item) => item.id === id) || {}, locale) || id }}</span>
-                <button type="button" class="icon-btn" :disabled="index === 0" @click="moveStationInLine(selectedLine, index, -1)"><ArrowUp :size="13" /></button>
-                <button type="button" class="icon-btn" :disabled="index === selectedLine.stations.length - 1" @click="moveStationInLine(selectedLine, index, 1)"><ArrowDown :size="13" /></button>
+                <button type="button" class="icon-btn" title="站序上移" aria-label="站序上移" :disabled="index === 0" @click="moveStationInLine(selectedLine, index, -1)"><ArrowUp :size="13" /></button>
+                <button type="button" class="icon-btn" title="站序下移" aria-label="站序下移" :disabled="index === selectedLine.stations.length - 1" @click="moveStationInLine(selectedLine, index, 1)"><ArrowDown :size="13" /></button>
                 <button type="button" class="icon-btn danger" @click="removeStationFromLine(selectedLine, id)"><Trash2 :size="13" /></button>
               </li>
             </ol>
@@ -905,8 +911,8 @@ onBeforeUnmount(() => {
             <button type="button" class="btn-primary" @click="confirmCreate">{{ t('transit.edit.create') }}</button>
           </template>
           <template v-else-if="selectedLine">
-            <button type="button" class="icon-btn" title="上移线路（调整线路显示顺序）" aria-label="上移线路" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /></button>
-            <button type="button" class="icon-btn" title="下移线路（调整线路显示顺序）" aria-label="下移线路" :disabled="lines[lines.length - 1]?.id === selectedLine.id" @click="moveLine(selectedLine, 1)"><ArrowDown :size="14" /></button>
+            <button type="button" class="btn-ghost" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /> {{ t('transit.edit.moveUp') }}</button>
+            <button type="button" class="btn-ghost" :disabled="lines[lines.length - 1]?.id === selectedLine.id" @click="moveLine(selectedLine, 1)"><ArrowDown :size="14" /> {{ t('transit.edit.moveDown') }}</button>
             <button type="button" class="btn-danger" @click="deleteLine(selectedLine)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
           </template>
           <template v-else>
@@ -1340,9 +1346,15 @@ onBeforeUnmount(() => {
 }
 
 .segment-select {
-  width: 128px;
+  flex: 0 0 150px;
+  width: 150px;
+}
+
+.segment-select :deep(.sd-btn) {
+  box-sizing: border-box;
+  width: 100%;
   height: 32px;
-  padding: 0 6px;
+  font-size: 12px;
 }
 
 .field-fixed {

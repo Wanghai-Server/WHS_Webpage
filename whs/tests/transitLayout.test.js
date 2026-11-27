@@ -52,5 +52,7 @@ test('分段运营：相邻区段按段拆 path，未设置区段沿用整线状
   for (const segment of line.segmentPaths) {
     assert.ok(segment.path.startsWith('M '), '每段都有独立 path')
   }
-  assert.equal(result.lines.find((item) => item.id === 'l2').segmentPaths.length, 0)
+  const line2 = result.lines.find((item) => item.id === 'l2')
+  assert.equal(line2.segmentPaths.length, 2, '没有分段设置也按站间拆 path')
+  assert.equal(result.stations.find((item) => item.id === 'hub').directions.length, 2, '换乘站记录两条线的方向')
 })

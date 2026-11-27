@@ -15,7 +15,7 @@ lines:
   - id: l1
     name: { zh: 1号线, en: Line 1 }
     color: '#e04f5f'
-    type: rail            # 望海交通系统固定为铁路
+    type: rail            # 固定铁路；历史 metro/bus 读取时迁移为 rail
     status: open          # open / building / planned
     note: { zh: ..., en: ... }
     stations: [s_a, s_hub, s_c]
@@ -47,7 +47,8 @@ lines:
 - 校验：区间必须相邻、站必须存在、状态枚举合法、不得重复；错误码仍为 `transit_invalid`（`data/transit.py` 已实现）
 - 渲染：按区间拆 path，`open` 实线、`building` 长虚线、`planned` 点线；图例按整线状态
 - 编辑：线路详情里按相邻站对列出状态下拉，默认「跟随整线」
-- 三方合并：`segments` 按 `from|to` 归一化后做集合合并，相邻站变化时由校验拦截
+- 三方合并：`segments` 作为线路字段整体合并；同一线路同时修改分段会报 `lines[id].segments` 冲突，需人工处理
+- 渲染：每对相邻站一条独立 path，即使没有 `segments` 也按段绘制
 
 ## 版本库
 
