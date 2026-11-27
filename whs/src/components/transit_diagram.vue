@@ -320,13 +320,22 @@ onBeforeUnmount(() => {
             <path d="M -13 -3.5 L -8 0 L -13 3.5 Z" />
             <path d="M 13 -3.5 L 8 0 L 13 3.5 Z" />
           </g>
-          <text
-            v-if="station.label"
-            :x="station.label.x - station.sx"
-            :y="station.label.y - station.sy"
-            :text-anchor="station.label.anchor"
-            class="station-label"
-          >{{ station.label.text }}</text>
+          <template v-if="station.label">
+            <rect
+              class="station-label-hit"
+              :x="station.label.hit[0] - station.sx"
+              :y="station.label.hit[1] - station.sy"
+              :width="station.label.hit[2]"
+              :height="station.label.hit[3]"
+              rx="4"
+            />
+            <text
+              :x="station.label.x - station.sx"
+              :y="station.label.y - station.sy"
+              :text-anchor="station.label.anchor"
+              class="station-label"
+            >{{ station.label.text }}</text>
+          </template>
         </g>
         </TransitionGroup>
       </g>
@@ -448,8 +457,15 @@ onBeforeUnmount(() => {
   stroke-width: 3;
 }
 
+.station-label-hit {
+  fill: transparent;
+  cursor: pointer;
+}
+
 .station-label {
   font-size: 13px;
+  pointer-events: auto;
+  cursor: pointer;
   font-weight: 500;
   fill: var(--text-color);
   pointer-events: none;

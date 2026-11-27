@@ -62,11 +62,6 @@ const isMobile = ref(false)
 const colorFamily = ref(0)
 
 const canForce = computed(() => !!payload.value?.can_force)
-const typeOptions = computed(() => [
-  { value: 'metro', label: t('transit.edit.typeMetro') },
-  { value: 'rail', label: t('transit.edit.typeRail') },
-  { value: 'bus', label: t('transit.edit.typeBus') },
-])
 const statusOptions = computed(() => [
   { value: 'open', label: t('transit.edit.statusOpen') },
   { value: 'building', label: t('transit.edit.statusBuilding') },
@@ -201,7 +196,7 @@ function startCreate(kind) {
   selection.value = null
   colorFamily.value = 0
   if (kind === 'line') {
-    draft.value = { id: `l${lines.value.length + 1}`, name: { zh: '', en: '' }, color: '#2f7fe0', type: 'metro', status: 'open', note: { zh: '', en: '' } }
+    draft.value = { id: `l${lines.value.length + 1}`, name: { zh: '', en: '' }, color: '#2f7fe0', type: 'rail', status: 'open', note: { zh: '', en: '' } }
   } else {
     draft.value = {
       id: `s_${Math.random().toString(36).slice(2, 6)}`,
@@ -725,9 +720,7 @@ onBeforeUnmount(() => {
           <label class="field"><span>{{ t('transit.edit.nameEn') }}</span><input v-model="draft.name.en" class="input" /></label>
           <template v-if="creating === 'line'">
             <div class="field-row">
-              <label class="field"><span>{{ t('transit.edit.type') }}</span>
-                <Status_dropdown v-model="draft.type" :options="typeOptions" variant="select" />
-              </label>
+              <div class="field"><span>{{ t('transit.edit.type') }}</span><span class="field-fixed">{{ t('transit.edit.typeRail') }}</span></div>
               <label class="field"><span>{{ t('transit.edit.status') }}</span>
                 <Status_dropdown v-model="draft.status" :options="statusOptions" variant="select" />
               </label>
@@ -788,9 +781,7 @@ onBeforeUnmount(() => {
           <label class="field"><span>{{ t('transit.edit.nameZh') }}</span><input v-model="selectedLine.name.zh" class="input" /></label>
           <label class="field"><span>{{ t('transit.edit.nameEn') }}</span><input v-model="selectedLine.name.en" class="input" /></label>
           <div class="field-row">
-            <label class="field"><span>{{ t('transit.edit.type') }}</span>
-              <Status_dropdown v-model="selectedLine.type" :options="typeOptions" variant="select" />
-            </label>
+            <div class="field"><span>{{ t('transit.edit.type') }}</span><span class="field-fixed">{{ t('transit.edit.typeRail') }}</span></div>
             <label class="field"><span>{{ t('transit.edit.status') }}</span>
               <Status_dropdown v-model="selectedLine.status" :options="statusOptions" variant="select" />
             </label>
@@ -874,8 +865,8 @@ onBeforeUnmount(() => {
             <button type="button" class="btn-primary" @click="confirmCreate">{{ t('transit.edit.create') }}</button>
           </template>
           <template v-else-if="selectedLine">
-            <button type="button" class="icon-btn" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /></button>
-            <button type="button" class="icon-btn" :disabled="lines[lines.length - 1]?.id === selectedLine.id" @click="moveLine(selectedLine, 1)"><ArrowDown :size="14" /></button>
+            <button type="button" class="icon-btn" title="上移线路（调整线路显示顺序）" aria-label="上移线路" :disabled="lines[0]?.id === selectedLine.id" @click="moveLine(selectedLine, -1)"><ArrowUp :size="14" /></button>
+            <button type="button" class="icon-btn" title="下移线路（调整线路显示顺序）" aria-label="下移线路" :disabled="lines[lines.length - 1]?.id === selectedLine.id" @click="moveLine(selectedLine, 1)"><ArrowDown :size="14" /></button>
             <button type="button" class="btn-danger" @click="deleteLine(selectedLine)"><Trash2 :size="14" /> {{ t('transit.edit.delete') }}</button>
           </template>
           <template v-else>
@@ -1284,6 +1275,18 @@ onBeforeUnmount(() => {
   flex: 1;
   padding: 10px 12px 14px;
   overflow-y: auto;
+}
+
+.field-fixed {
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  color: var(--links-color);
+  background: rgba(var(--text-color-rgb), 0.05);
+  border: 1px solid rgba(var(--text-color-rgb), 0.12);
+  border-radius: 8px;
+  font-size: 13px;
 }
 
 .field {

@@ -194,7 +194,7 @@ export function buildSchematic(data, options = {}) {
     ]
     const pick = candidates.find((item) => !labelRects.some((rect) => overlap(rect, item.rect))) || candidates[0]
     labelRects.push(pick.rect)
-    labels.push({ id: station.id, text, x: pick.x, y: pick.y, anchor: pick.anchor })
+    labels.push({ id: station.id, text, x: pick.x, y: pick.y, anchor: pick.anchor, hit: pick.rect })
   }
 
   const labelById = new Map(labels.map((item) => [item.id, item]))
