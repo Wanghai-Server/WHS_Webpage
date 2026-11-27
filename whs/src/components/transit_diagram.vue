@@ -317,7 +317,7 @@ onBeforeUnmount(() => {
         >
           <!-- 透明热区：手机上点站名/站点附近都能选中，避免只能靠搜索 -->
           <circle class="station-hit" r="20" fill="transparent" />
-          <circle class="station-dot" r="5.5" :stroke="stationColor(station)" stroke-width="2.5" />
+          <circle v-if="!station.transfer" class="station-dot" r="5.5" :stroke="stationColor(station)" stroke-width="2.5" />
           <!-- 换乘站：空心圆 + 双向箭头 -->
           <g v-if="station.transfer" class="transfer-arrows">
             <g v-for="(arc, index) in transferArcs(station, props.schematic.lines)" :key="index">

@@ -91,14 +91,23 @@ function round(value) {
   return Math.round(value * 10) / 10
 }
 
-/** 换乘站：两条旋转弧形箭头，颜色取经过的线路（最多两条）。 */
+/** 换乘站：两条反向弧形箭头（不画中心圆），箭头为沿切线方向的尖三角。 */
 export function transferArcs(station, lines = []) {
   const colors = (station.lines || [])
     .map((id) => lines.find((item) => item.id === id)?.color)
     .filter(Boolean)
+  // 半径 12：上弧 210°→330°，下弧 30°→150°；三角底边沿切线，尖端向外
   return [
-    { color: colors[0] || station.color || '#888888', path: 'M -10 -3 Q 0 -18 8 -4', head: 'M 7 -8 L 14 -4 L 7 0 Z' },
-    { color: colors[1] || colors[0] || station.color || '#888888', path: 'M 10 3 Q 0 18 -8 4', head: 'M -7 8 L -14 4 L -7 0 Z' },
+    {
+      color: colors[0] || station.color || '#888888',
+      path: 'M -10.39 -6 A 12 12 0 0 1 10.39 -6',
+      head: 'M 13 -0.8 L 7.2 -7.1 L 11 -9.3 Z',
+    },
+    {
+      color: colors[1] || colors[0] || station.color || '#888888',
+      path: 'M 10.39 6 A 12 12 0 0 1 -10.39 6',
+      head: 'M -13 0.8 L -7.2 7.1 L -11 9.3 Z',
+    },
   ]
 }
 
