@@ -126,6 +126,9 @@ function toSendable(value) {
       out.y = station.y
       out.y_source = station.y_source
     }
+    if (Array.isArray(station.label_offset) && station.label_offset.length === 2) {
+      out.label_offset = [...station.label_offset]
+    }
     return out
   })
   clone.lines = (clone.lines || []).map((line) => {
@@ -391,6 +394,17 @@ function openPicker(target) {
   pickerOpen.value = true
 }
 
+function onLabelMove({ id, dx, dy }) {
+  const station = stations.value.find((item) => item.id === id)
+  if (!station) return
+  station.label_offset = [Math.round(dx), Math.round(dy)]
+}
+
+function resetLabelOffset(id) {
+  const station = stations.value.find((item) => item.id === id)
+  if (station) delete station.label_offset
+}
+
 function onPicked(coords) {
   pickerOpen.value = false
   if (pickTarget.value === 'new' && draft.value) {
@@ -589,7 +603,15 @@ async function resetDoc() {
 }
 
 async function rollback(version) {
-  if (dirty.value && !window.confirm(t('transit.edit.rollbackDirty'))) return
+  if (dirty.value) {
+    const keep = await dialog.confirm({
+      title: t('transit.edit.unsavedTitle'),
+      message: t('transit.edit.rollbackDirty'),
+      confirmText: t('transit.edit.rollback'),
+      danger: true,
+    })
+    if (!keep) return
+  }
   const ok = await dialog.confirm({
     title: t('transit.edit.rollbackTitle'),
     message: t('transit.edit.rollbackMessage', { id: version.id }),
@@ -622,9 +644,14 @@ function beforeUnload(event) {
   event.returnValue = ''
 }
 
-onBeforeRouteLeave(() => {
+onBeforeRouteLeave(async () => {
   if (!dirty.value) return true
-  return window.confirm(t('transit.edit.unsaved'))
+  return dialog.confirm({
+    title: t('transit.edit.unsavedTitle'),
+    message: t('transit.edit.unsaved'),
+    confirmText: t('transit.edit.unsavedLeave'),
+    danger: true,
+  })
 })
 
 onMounted(() => {
@@ -735,7 +762,10 @@ onBeforeUnmount(() => {
           :schematic="schematic"
           :selected-id="selection?.id || ''"
           :locale="locale"
+          editable-labels
           @select="onDiagramSelect"
+          @label-move="onLabelMove"
+          @label-reset="resetLabelOffset"
         />
         <p class="preview-hint">{{ t('transit.edit.previewHint') }}</p>
       </section>
@@ -895,6 +925,7 @@ onBeforeUnmount(() => {
             <label class="field"><span>{{ t('transit.edit.posZ') }}</span><input v-model.number="selectedStation.pos[1]" class="input" type="number" /></label>
           </div>
           <button type="button" class="btn-ghost full" @click="openPicker('station')"><MapPin :size="14" /> {{ t('transit.edit.pick') }}</button>
+          <button v-if="selectedStation.label_offset?.length" type="button" class="btn-ghost full" @click="resetLabelOffset(selectedStation.id)">{{ t('transit.edit.labelReset') }}</button>
           <div class="field-row">
             <label class="field"><span>{{ t('transit.edit.y') }}</span>
               <input :value="selectedStation.y ?? ''" class="input" type="number" :placeholder="t('transit.edit.yAuto')" @input="setY(selectedStation, $event.target.value)" />
@@ -1057,7 +1088,7 @@ onBeforeUnmount(() => {
 
 .head-left {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -1069,16 +1100,23 @@ onBeforeUnmount(() => {
 }
 
 .back-btn {
+  display: inline-flex;
+  align-items: center;
   height: 34px;
   padding: 0 12px;
   font-size: 12px;
+  line-height: 1;
   text-decoration: none;
 }
 
 .head-actions .btn-ghost,
 .head-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
   height: 34px;
   padding: 0 12px;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .summary-input {
@@ -1087,14 +1125,21 @@ onBeforeUnmount(() => {
 }
 
 .edit-head h1 {
+  display: flex;
+  align-items: center;
   margin: 0;
   font-size: 22px;
   font-weight: 800;
+  line-height: 1.15;
 }
 
 .version-badge {
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
   font-size: 12px;
+  line-height: 1;
   font-family: ui-monospace, Menlo, monospace;
   background: var(--float-bg);
   border-radius: 999px;

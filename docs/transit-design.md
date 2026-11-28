@@ -24,6 +24,7 @@ stations:
     name: { zh: 甲站, en: A }
     pos: [x, z]           # 世界坐标，整数
     y: 64                 # 可选，缺省用 map.start_y
+    label_offset: [20, -10]  # 可选，示意图站名相对自动位置的偏移（编辑器拖动产生）
     tags: [换乘]
     note: { zh: ..., en: ... }
 ```

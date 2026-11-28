@@ -7,7 +7,7 @@
  * hash 里就是当前相机 `mapId:x:y:z:...`，编辑器直接读它作为候选坐标；
  * 读不到（iframe 未就绪 / BlueMap 没部署）就提示手动填写。
  */
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { MapPin, X } from 'lucide-vue-next'
 import { useAuth } from '../composables/useAuth'
@@ -28,6 +28,7 @@ const failed = ref(false)
 const loaded = ref(false)
 const frameReady = ref(false)
 const viewerReady = ref(false)
+const manual = reactive({ x: 0, z: 0, y: 80 })
 let timer = null
 let failTimer = null
 let probeTimer = null
@@ -43,14 +44,8 @@ async function loadViewer() {
   } catch {
     // 拿不到就退回默认入口
   }
-  // 先确认入口可用再塞进 iframe：502/401 错误页也会触发 load，
-  // 之前无条件清定时器导致失败提示永远不出现
-  try {
-    const probe = await fetch(viewerPath.value, { method: 'HEAD', headers, cache: 'no-store' })
-    if (!probe.ok) return false
-  } catch {
-    return false
-  }
+  // 不用 HEAD 探活阻断 iframe：部分反代不支持 HEAD / 鉴权时序不同，
+  // 错误页也会触发 load，交给 onLoad 的 canvas 探测与超时兜底处理。
   viewerReady.value = true
   return true
 }
@@ -84,6 +79,9 @@ function parseHash() {
     const z = Number(parts[3])
     if (![x, y, z].every(Number.isFinite)) return
     candidate.value = { x: Math.round(x), y: Math.round(y), z: Math.round(z) }
+    manual.x = candidate.value.x
+    manual.z = candidate.value.z
+    manual.y = candidate.value.y
     failed.value = false
   } catch {
     // 跨域或 iframe 还没加载完，交给下一轮轮询
@@ -92,7 +90,7 @@ function parseHash() {
 
 function startPolling() {
   stopPolling()
-  timer = setInterval(parseHash, 700)
+  timer = setInterval(parseHash, 400)
 }
 
 function stopPolling() {
@@ -122,7 +120,6 @@ function confirmReady() {
 function fail() {
   failed.value = true
   loaded.value = true
-  stopPolling()
   if (failTimer) clearTimeout(failTimer)
   if (probeTimer) clearTimeout(probeTimer)
 }
@@ -135,8 +132,9 @@ function probeCanvas() {
     return
   }
   probeTries += 1
-  if (probeTries >= 8) {
-    // 同源但没有 canvas：多半是 502/401 错误页
+  if (probeTries >= 30) {
+    // 同源但 12 秒仍没有 canvas：多半是 502/401 错误页；保留轮询，
+    // 地图晚一点渲染出来时仍能继续读取 hash
     fail()
     return
   }
@@ -144,15 +142,32 @@ function probeCanvas() {
 }
 
 function onLoad() {
-  // load 事件错误页也会触发：不直接判定成功，先探测 canvas
+  // load 事件错误页也会触发：不直接判定成功，先探测 canvas；
+  // 同时马上开始轮询 hash，BlueMap 渲染慢时也能接住坐标
   initialHash = readHash().replace(/^#/, '')
   probeTries = 0
   if (probeTimer) clearTimeout(probeTimer)
   probeTimer = setTimeout(probeCanvas, 300)
+  startPolling()
+  try {
+    // 点击地图时 BlueMap 会更新 hash；点击后再补一次解析，覆盖拖动/点击两种交互
+    frameEl.value?.contentDocument?.addEventListener('pointerup', () => {
+      setTimeout(parseHash, 120)
+      setTimeout(parseHash, 500)
+    })
+  } catch {
+    // 跨域时无法挂监听，交给轮询
+  }
 }
 
 function onError() {
   fail()
+}
+
+function useManual() {
+  if (![manual.x, manual.z, manual.y].every(Number.isFinite)) return
+  candidate.value = { x: Math.round(manual.x), z: Math.round(manual.z), y: Math.round(manual.y) }
+  failed.value = false
 }
 
 function confirm() {
@@ -168,6 +183,9 @@ watch(() => props.open, async (open) => {
     frameReady.value = false
     viewerReady.value = false
     initialHash = ''
+    manual.x = Number(props.initial?.x) || 0
+    manual.z = Number(props.initial?.z) || 0
+    manual.y = Number(props.initial?.y) || 80
     // 12 秒还没确认地图可用，就提示手动填写
     failTimer = setTimeout(() => {
       if (!frameReady.value) fail()
@@ -206,6 +224,14 @@ onBeforeUnmount(() => {
       </header>
 
       <p class="picker-hint">{{ t('transit.edit.pickHint') }}</p>
+
+      <div class="picker-manual">
+        <span>{{ t('transit.edit.pickManual') }}</span>
+        <label>X <input v-model.number="manual.x" class="manual-input" type="number" /></label>
+        <label>Z <input v-model.number="manual.z" class="manual-input" type="number" /></label>
+        <label>Y <input v-model.number="manual.y" class="manual-input" type="number" /></label>
+        <button type="button" class="btn-ghost" @click="useManual">{{ t('transit.edit.pickManualUse') }}</button>
+      </div>
 
       <div class="picker-frame-wrap">
         <iframe
@@ -298,6 +324,33 @@ onBeforeUnmount(() => {
   font-size: 12px;
   color: var(--links-color);
   border-bottom: 1px solid rgba(var(--text-color-rgb), 0.08);
+}
+
+.picker-manual {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: 8px 16px;
+  font-size: 12px;
+  color: var(--links-color);
+  border-bottom: 1px solid rgba(var(--text-color-rgb), 0.08);
+}
+
+.picker-manual label {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.manual-input {
+  width: 80px;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--text-color);
+  background: rgba(var(--text-color-rgb), 0.06);
+  border: 1px solid rgba(var(--text-color-rgb), 0.16);
+  border-radius: 7px;
 }
 
 .picker-frame-wrap {

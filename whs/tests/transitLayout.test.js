@@ -65,3 +65,17 @@ test('换乘站弧形箭头：两条弧线带箭头，颜色取线路色', () =>
     assert.ok(arc.head.endsWith('Z'), '箭头是闭合三角形')
   }
 })
+
+
+test('站名偏移会移动文字和热区，自动位置保留', () => {
+  const shifted = JSON.parse(JSON.stringify(data))
+  shifted.stations[0].label_offset = [25, -12]
+  const result = buildSchematic(shifted, { locale: 'zh' })
+  const auto = schematic.stations.find((item) => item.id === 'a').label
+  const moved = result.stations.find((item) => item.id === 'a').label
+  assert.equal(moved.x, auto.x + 25)
+  assert.equal(moved.y, auto.y - 12)
+  assert.equal(moved.hit[0], auto.hit[0] + 25)
+  assert.equal(moved.hit[1], auto.hit[1] - 12)
+  assert.equal(moved.autoX, auto.autoX)
+})
