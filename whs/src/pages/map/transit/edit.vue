@@ -603,7 +603,15 @@ async function resetDoc() {
 }
 
 async function rollback(version) {
-  if (dirty.value && !window.confirm(t('transit.edit.rollbackDirty'))) return
+  if (dirty.value) {
+    const keep = await dialog.confirm({
+      title: t('transit.edit.unsavedTitle'),
+      message: t('transit.edit.rollbackDirty'),
+      confirmText: t('transit.edit.rollback'),
+      danger: true,
+    })
+    if (!keep) return
+  }
   const ok = await dialog.confirm({
     title: t('transit.edit.rollbackTitle'),
     message: t('transit.edit.rollbackMessage', { id: version.id }),
@@ -636,9 +644,14 @@ function beforeUnload(event) {
   event.returnValue = ''
 }
 
-onBeforeRouteLeave(() => {
+onBeforeRouteLeave(async () => {
   if (!dirty.value) return true
-  return window.confirm(t('transit.edit.unsaved'))
+  return dialog.confirm({
+    title: t('transit.edit.unsavedTitle'),
+    message: t('transit.edit.unsaved'),
+    confirmText: t('transit.edit.unsavedLeave'),
+    danger: true,
+  })
 })
 
 onMounted(() => {
@@ -1075,7 +1088,7 @@ onBeforeUnmount(() => {
 
 .head-left {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 10px;
   flex-wrap: wrap;
 }
@@ -1087,16 +1100,23 @@ onBeforeUnmount(() => {
 }
 
 .back-btn {
+  display: inline-flex;
+  align-items: center;
   height: 34px;
   padding: 0 12px;
   font-size: 12px;
+  line-height: 1;
   text-decoration: none;
 }
 
 .head-actions .btn-ghost,
 .head-actions .btn-primary {
+  display: inline-flex;
+  align-items: center;
   height: 34px;
   padding: 0 12px;
+  font-size: 13px;
+  line-height: 1;
 }
 
 .summary-input {
@@ -1105,14 +1125,21 @@ onBeforeUnmount(() => {
 }
 
 .edit-head h1 {
+  display: flex;
+  align-items: center;
   margin: 0;
   font-size: 22px;
   font-weight: 800;
+  line-height: 1.15;
 }
 
 .version-badge {
-  padding: 2px 8px;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
   font-size: 12px;
+  line-height: 1;
   font-family: ui-monospace, Menlo, monospace;
   background: var(--float-bg);
   border-radius: 999px;

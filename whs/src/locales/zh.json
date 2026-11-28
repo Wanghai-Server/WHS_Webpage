@@ -86,6 +86,8 @@
         "pickFailed": "暂时读不到地图视角，请手动填写坐标",
         "conflictEmpty": "没有可逐条解决的冲突，可直接重新提交（会先合并线上修改）。",
         "reset": "还原",
+        "unsavedTitle": "更改尚未保存",
+        "unsavedLeave": "放弃更改并返回",
         "unsaved": "有未保存的修改，确定离开吗？",
         "lines": "线路",
         "stations": "站点",

@@ -86,6 +86,8 @@
         "pickFailed": "Cannot read the map view right now, please enter coordinates manually",
         "conflictEmpty": "No per-item conflicts. You can resubmit directly (live changes are merged first).",
         "reset": "Revert",
+        "unsavedTitle": "Unsaved changes",
+        "unsavedLeave": "Discard changes and go back",
         "unsaved": "You have unsaved changes. Leave anyway?",
         "lines": "Lines",
         "stations": "Stations",
