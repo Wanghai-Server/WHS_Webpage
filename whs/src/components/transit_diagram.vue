@@ -321,7 +321,7 @@ onBeforeUnmount(() => {
           <!-- 换乘站：空心圆 + 双向箭头 -->
           <g v-if="station.transfer" class="transfer-arrows">
             <g v-for="(arc, index) in transferArcs(station, props.schematic.lines)" :key="index">
-              <path :d="arc.path" fill="none" :stroke="arc.color" stroke-width="3" stroke-linecap="round" />
+              <path :d="arc.path" fill="none" :stroke="arc.color" stroke-width="3.5" stroke-linecap="round" />
               <path :d="arc.head" :fill="arc.color" stroke="none" />
             </g>
           </g>

@@ -100,13 +100,13 @@ export function transferArcs(station, lines = []) {
   return [
     {
       color: colors[0] || station.color || '#888888',
-      path: 'M -10.39 -6 A 12 12 0 0 1 10.39 -6',
-      head: 'M 13 -0.8 L 7.2 -7.1 L 11 -9.3 Z',
+      path: 'M -6 -4 Q 0 -10 6 -4',
+      head: 'M 12 -4 L 6 -7.5 L 6 -0.5 Z',
     },
     {
       color: colors[1] || colors[0] || station.color || '#888888',
-      path: 'M 10.39 6 A 12 12 0 0 1 -10.39 6',
-      head: 'M -13 0.8 L -7.2 7.1 L -11 9.3 Z',
+      path: 'M 6 4 Q 0 10 -6 4',
+      head: 'M -12 4 L -6 7.5 L -6 0.5 Z',
     },
   ]
 }
