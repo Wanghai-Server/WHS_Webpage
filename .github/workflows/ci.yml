@@ -60,6 +60,10 @@ jobs:
         working-directory: whs
         run: npm ci --no-audit --no-fund
 
+      - name: 前端单测（node --test）
+        working-directory: whs
+        run: npm test
+
       - name: 生产构建（vite build）
         working-directory: whs
         run: npm run build

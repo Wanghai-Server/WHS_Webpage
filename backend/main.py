@@ -28,6 +28,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from data import read_config, read_whs_config
+from data.transit import recover_transit_file
 from data.exam import (
     ExamConfigError,
     fill_blank_blanks,
@@ -490,6 +491,26 @@ ERROR_MESSAGES = {
         "zh": "地图服务暂时不可用",
         "en": "Map service is temporarily unavailable",
     },
+    "transit_invalid": {
+        "zh": "路线图数据不合法，请检查后重试",
+        "en": "Invalid route map data, please check and retry",
+    },
+    "transit_conflict": {
+        "zh": "路线图已被其他人修改，请解决冲突后重新保存",
+        "en": "The route map was modified by someone else; resolve the conflicts and save again",
+    },
+    "transit_force_forbidden": {
+        "zh": "只有服务器所有者可以强制并入改动",
+        "en": "Only the server owner can force merge changes",
+    },
+    "transit_unavailable": {
+        "zh": "路线图数据暂时不可用",
+        "en": "Route map data is temporarily unavailable",
+    },
+    "transit_version_not_found": {
+        "zh": "路线图版本不存在",
+        "en": "Route map version not found",
+    },
     "gender_invalid": {
         "zh": "性别选项不合法",
         "en": "Invalid gender option",
@@ -771,6 +792,11 @@ ERROR_STATUS: dict[str, int] = {
     "email_send_failed": 502,
     "account_locked": 403,
     "permission_denied": 403,
+    "transit_invalid": 400,
+    "transit_conflict": 409,
+    "transit_force_forbidden": 403,
+    "transit_unavailable": 503,
+    "transit_version_not_found": 404,
     "gender_invalid": 400,
     "birthday_invalid": 400,
     "account_banned": 403,
@@ -888,6 +914,17 @@ async def lifespan(app: FastAPI):
     EXAM_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     EXAM_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 
+    # 轨交路线图数据是运行时文件（不入库），首次启动时用种子创建；
+    # 文件完全损坏时备份坏文件并重建，绝不让一个数据文件拖垮整个网站启动
+    try:
+        created, backup = recover_transit_file()
+        if backup:
+            print(f"[transit] data/transit.yml 损坏，已备份为 {backup} 并重建种子数据", flush=True)
+        elif created:
+            print("[transit] 已创建 data/transit.yml（种子数据）", flush=True)
+    except Exception as exc:  # noqa: BLE001 - 启动阶段任何异常都不应阻断其他接口
+        print(f"[transit] 初始化失败，轨交接口将返回 503：{exc}", flush=True)
+
     # 启动 MCDR 插件通信的 WS 命令服务（仅监听环回地址，端口来自 config.json 的 ws_port）
     await ws_server.start()
     ws_serve_task = asyncio.create_task(ws_server.wait_until_closed())
@@ -906,6 +943,28 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
+
+# 轨交写接口的请求体上限：防止超大 JSON 直接把内存和版本库撑爆
+_TRANSIT_BODY_LIMIT = 16 * 1024 * 1024
+
+
+@app.middleware("http")
+async def limit_transit_body(request: Request, call_next):
+    if request.method in ("POST", "PUT", "PATCH") and request.url.path.startswith("/api/map/transit"):
+        length = request.headers.get("content-length")
+        try:
+            too_large = bool(length) and int(length) > _TRANSIT_BODY_LIMIT
+        except ValueError:
+            too_large = True
+        if too_large:
+            return JSONResponse(
+                status_code=413,
+                content={
+                    "code": "transit_invalid",
+                    "message": {"zh": "请求体过大，请精简数据后重试", "en": "Request body too large"},
+                },
+            )
+    return await call_next(request)
 
 
 @app.exception_handler(UserDatabaseError)
@@ -1300,6 +1359,7 @@ from api.map import router as map_router
 from api.markdown import router as markdown_router
 from api.message import router as message_router
 from api.project import router as project_router
+from api.transit import router as transit_router
 from api.search import router as search_router
 from api.server import router as server_router
 from api.site import router as site_router
@@ -1319,3 +1379,4 @@ app.include_router(search_router)
 app.include_router(wiki_router)
 app.include_router(markdown_router)
 app.include_router(project_router)
+app.include_router(transit_router)

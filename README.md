@@ -19,7 +19,7 @@
 3. 技术栈
 4. 项目结构
 5. 快速开始
-6. HTTP API（共 106 条）
+6. HTTP API（共 113 条）
 7. WebSocket 协议（后端 ↔ MCDR）
 8. MCDR 插件
 9. 数据层（SQLite）
@@ -146,6 +146,19 @@
 - `bot_` 前缀视为假人，不计入官网在线人数；WS 不可用时回退上一次缓存或离线占位。
 - 白名单列表接口已提供（前端预留成员墙用途）。
 
+### 轨交路线图
+
+- 独立页面 `/map/transit`（公开，游客也能看）与 `/map/transit/edit`（permission ≥ 3 的编辑器）；**不叠在 BlueMap 上**，两边只通过链接与坐标跳转关联。
+- 示意图用 SVG 画：线路直线 + 曲线圆角（方向量化到 15°，含 0 / 30 / 45 / 60 / 90），在建 / 规划线用虚线；站间距固定，**只表达拓扑与换乘关系，不按真实距离等比**。
+- 点车站出卡片，`在 3D 地图中查看` 跳到 `/map?x=&z=&y=&station=` 由 BlueMap 定位；`/map` 页内有指向路线图的提示条（不进导航栏）。
+- 数据是 `data/transit.yml`：**运行时文件，不入库**，后端启动时自动创建；一个文件里按 YAML 文档追加多个版本，版本 ID 是提交内容 SHA256 的前 6 位。
+- 提交只追加不重写（写放大 = 单版本大小），重复提交幂等、不落盘；版本数超过 200 或文件超过 8 MiB 时压实并留 `.bak`。
+- 多人协作：提交带 `base_version` 做三方合并，同字段冲突返回 409 与冲突清单；`force` 强制并入仅 permission ≥ 4。
+- 线路颜色用 MC 染色方块预设色板（羊毛 / 混凝土 / 混凝土粉末 / 染色玻璃 / 染色陶瓦，各 16 色），也允许 HEX。
+- 编辑器：桌面三栏（元素面板 / 实时预览 / 详情，未选中隐藏详情，新建就地内联），手机顶部面板 + 底部抽屉；线路与站点增删改、站序上下移、双语名称与提示、站点标签。
+- 站点坐标可「从地图取点」：弹窗 / 抽屉内嵌 BlueMap，读相机 hash 回填 `x / z / y`；`y` 默认自动（取点值或 `map.start_y`），可手改。
+- 历史版本可查看与回退（回退生成新版本）；冲突面板逐项选择「用我的 / 用线上」，owner 可强制并入。
+
 ### 工程管理
 
 - 公开浏览 `/projects`：按状态筛选（全部 / 待认领 / 已认领 / 已完成）、查看详情；入口只放在用户下拉栏（顶部 / 底部导航不放入口）。
@@ -209,7 +222,7 @@ WHS_Webpage/
 │   │                                #   错误码表、全局异常处理、lifespan、路由注册
 │   ├── ws_server.py                 # 与 MCDR 插件通信的 WS 命令服务（127.0.0.1:<ws_port>）
 │   ├── requirements.txt
-│   ├── api/                         # 路由层（按业务拆分，共 106 条路由）
+│   ├── api/                         # 路由层（按业务拆分，共 113 条路由）
 │   │   ├── __init__.py
 │   │   ├── site.py                  # 服务状态 / 站点公开配置
 │   │   ├── auth.py                  # 验证码 / 注册 / 登录 / 账号信息 / 解锁
@@ -219,6 +232,7 @@ WHS_Webpage/
 │   │   ├── exam.py                  # 入服考试（考生端 + 管理端）
 │   │   ├── feedback.py              # 反馈中心（列表 / 详情 / 提交 / 编辑 / 删除 / 评论 / 状态）
 │   │   ├── project.py               # 工程管理（列表 / 发起 / 认领 / 完成 / 删除 / 描述备注；经 WS 读写 signup）
+│   │   ├── transit.py               # 轨交路线图（读取 / 提交 / 回退 / 校验；追加式版本库）
 │   │   ├── server.py                # 服务器实时状态
 │   │   ├── search.py                # 全站搜索（Wiki + 用户 + 反馈）
 │   │   ├── wiki.py                  # 维基（页面 / 修订 / 重定向 / 消歧义 / 媒体）
@@ -230,6 +244,8 @@ WHS_Webpage/
 │   ├── __init__.py                  # 配置读取 / 默认值（read_config、read_whs_config）
 │   ├── config.json                  # 私密配置（不入库，缺失时自动生成默认值）
 │   ├── whs_config.json              # 公开配置（不入库，缺失时自动生成默认值）
+│   ├── transit.py                   # 轨交路线图版本库：追加 / 校验 / 合并 / 回退 / 压实
+│   ├── transit.yml                  # 轨交路线图运行时版本库（不入库，启动自建）
 │   ├── exam.py                      # 试卷 YAML 的加载 / 校验 / 写入
 │   ├── exam.yml                     # 当前试卷（不入库，管理端在线编辑即覆盖本文件）
 │   ├── main/
@@ -276,6 +292,7 @@ WHS_Webpage/
 │       │   ├── useEmailCode.js      # 邮箱验证码发送 / 冷却 / 重置人机验证（统一封装）
 │       │   ├── usePasswordStrength.js # 密码强度规则、低/中/高等级与熵估算
 │       │   ├── useProjectPlayer.js  # 工程账号选择记忆（仅 localStorage）
+│       │   ├── transitLayout.js     # 轨交示意图布局（15° 量化 / 贝塞尔圆角 / 站名避让）
 │       │   ├── sha256.js            # 前端密码哈希
 │       │   ├── clipboard.js
 │       │   ├── markdown/            # 统一 Markdown 体系
@@ -284,9 +301,11 @@ WHS_Webpage/
 │       │   │   ├── upload.js        # Markdown 编辑器上传（/api/markdown/upload）与类型 / 大小常量
 │       │   │   └── colorCodes.js    # MC § 颜色 / 格式代码插件
 │       │   └── wiki/{api,locale,markdown}.js  # 维基 API / 语言状态 / Markdown 兼容层（委托统一渲染管线）
-│       ├── components/              # 42 个可复用组件
+│       ├── constants/mcPalette.js    # MC 染色方块色板（5 类 × 16 色）
+│       ├── components/              # 44 个可复用组件
 │       │   ├── 导航与公共：top_navbar / page_footer / global_search / user_dropdown / tabs / tips / dialog_box / status_dropdown / hcaptcha_box
 │       │   ├── 工程：project_create（发起）/ project_detail（详情与操作）/ project_account_dialog（认领 / 发起确认与账号选择）/ mc_account_picker（账号选择）
+│       │   ├── 地图：transit_diagram（SVG 示意图）/ transit_picker（BlueMap 取点）
 │       │   ├── Markdown：markdown_editer（通用编辑器）/ markdown_view（统一渲染与复制 / mermaid / 公式增强）
 │       │   ├── 账号：login / register / forgot_password / full_user_info / username_suggestion / change_password / cancel_account / user_settings / manage_accounts / user_profile / basic_user_info / follow_list / player_info
 │       │   ├── 消息：message_box / message_detail
@@ -294,11 +313,13 @@ WHS_Webpage/
 │       │   ├── 考试：exam_question / exam_editor / doc_viewer
 │       │   ├── 维基：wiki_markdown / wiki_outline / wiki_outline_node / wiki_search / wiki_page_404
 │       │   └── 管理：admin_settings / admin_user_panel / joinus_tips
-│       └── pages/                   # 18 个页面
+│       └── pages/                   # 20 个页面
 │           ├── home.vue / about.vue / map.vue / login.vue / user.vue / search.vue / joinus.vue / exam.vue
 │           ├── forum/index.vue      # 论坛（静态占位）
 │           ├── feedback/            # 反馈中心：index（列表） / detail（详情）
 │           ├── project/index.vue    # 工程管理（列表 / 发起 / 详情；入口在用户下拉栏）
+│           ├── map/transit/index.vue  # 轨交路线图（公开只读）
+│           ├── map/transit/edit.vue   # 轨交路线图编辑器（≥3）
 │           └── wiki/                # index / layout / page_view / page_editor / page_history / search
 │
 ├── mcdr_connecter_plugin/           # MCDR 插件（mcdr2web）
@@ -425,7 +446,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 ---
 
-## 6. HTTP API（共 106 条）
+## 6. HTTP API（共 113 条）
 
 ### 6.1 约定
 
@@ -614,7 +635,21 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 
 地图由服务器上的 BlueMap 网页端提供，地图页固定使用 3D 透视视图；后端不再代理瓦片，只负责鉴权与下发配置。
 
-### 6.13 全站 Markdown 上传（2 条）
+### 6.13 轨交路线图（7 条）
+
+| 方法 | 路径 | 鉴权 | 说明 |
+|------|------|------|------|
+| GET | `/api/map/transit` | 公开 | 当前版本 `data` + 版本号 + `can_edit` / `can_force`；车站带生效的 `y` 与来源 |
+| GET | `/api/map/transit/versions` | 公开 | 历史版本列表（id / 时间 / 作者 / 摘要 / 统计，不含 data） |
+| GET | `/api/map/transit/versions/{id}` | ≥3 | 单个版本内容（回退预览 / 版本对比） |
+| GET | `/api/map/transit/diff?from_version=&to_version=` | ≥3 | 两个版本的结构化差异 |
+| POST | `/api/map/transit/validate` | ≥3 | 干跑校验，不落盘 |
+| POST | `/api/map/transit` | ≥3 | 提交新版本；`base_version` 落后则三方合并，冲突 409；`force` 仅 ≥4 |
+| POST | `/api/map/transit/rollback` | ≥3 | 回退到指定版本（追加新版本，历史保留） |
+
+数据文件 `data/transit.yml` 不入库，由后端启动时自动创建；写操作只追加，版本数超过 200 或文件超过 8 MiB 时压实。
+
+### 6.14 全站 Markdown 上传（2 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
@@ -624,7 +659,7 @@ npm run preview                # 预览生产构建（--host 0.0.0.0 --port 5173
 - 文件保存到独立目录 `data/markdown_upload/`（与维基分开），随机 UUID 文件名；与 `/api/wiki/upload` 共用 `backend/api/media_upload.py` 的白名单 / 大小限制 / 落盘与读取逻辑。
 - 错误码：`markdown_upload_unsupported`（400）/ `markdown_upload_too_large`（413）/ `markdown_upload_not_found`（404）。
 
-### 6.14 工程管理（8 条）
+### 6.15 工程管理（8 条）
 
 | 方法 | 路径 | 鉴权 | 说明 |
 |------|------|------|------|
@@ -889,6 +924,7 @@ uvicorn main:app --host 127.0.0.1 --port 7777
 
 - 以**单 worker** 运行（验证码、登录失败计数、服务器状态缓存等均为进程内状态，多 worker 会互相不可见）。
 - 需要长期运行时可交给 systemd / supervisor / Windows 服务等进程管理器；本地一键启动可直接用 `python manage.py --prod`。
+- 首次启动还会创建 `data/transit.yml`（轨交路线图的追加式版本库）；它不在 Git 里，**运行中会随提交增长，需要纳入备份**（压实前会自动留一份 `.bak`）。
 - 首次启动会自动创建数据表、播种维基欢迎页；欢迎页内容随版本升级自动刷新（仅当未被用户编辑过时，以「系统」身份追加修订并保留旧版历史）；`data/` 下缺少的配置文件会以默认值生成，需要手工补全密钥（见 5.2）。
 
 ### 11.2 前端
@@ -1107,7 +1143,7 @@ location /api/map/ {
 |----------|----------|--------------|
 | `前端 · 依赖安装与生产构建` | `npm ci`（严格按 `package-lock.json`）→ `vite build` → 校验 `dist/index.html` 与 JS 产物 | `cd whs && npm ci && npm run build` |
 | `后端 · 启动与接口冒烟` | 全仓 Python 语法编译 → 真实启动 uvicorn（含 lifespan、6 个数据库连接、MCDR WS 命令服务）→ 检查 `/`、`/api/whs`、未登录 401、维基页面 / 搜索、工程接口离线 / 未登录行为、未知路由 404、错误方法 405 → WS `ping` 与未知指令 → 日志无 Traceback | `python .github/scripts/backend_smoke.py` |
-| `数据层 · 建库与增删查冒烟` | 考试 YAML 解析（合法 / 非法用例）、`§` 颜色代码剥离、五个 SQLite 库建表与增删查改、维基欢迎页种子与搜索、乐观锁 / 重定向等行为 | `python .github/scripts/data_smoke.py` |
+| `数据层 · 建库与增删查冒烟` | 考试 YAML 解析（合法 / 非法用例）、轨交路线图数据校验（引用 / 坐标 / 颜色 / 缺字段等非法用例）、`§` 颜色代码剥离、五个 SQLite 库建表与增删查改、维基欢迎页种子与搜索、乐观锁 / 重定向等行为 | `python .github/scripts/data_smoke.py` |
 | `MCDR 插件 · 清单 / 导入 / 打包校验` | `mcdreforged pack` 校验插件清单并生成 `.mcdr` → 用最小桩模块替代未入库依赖后导入插件 → 检查命令表、`tick query` / `list` 解析函数、工程桥接（signup 桩：缺失提示 / 创建 / 认领 / 完成 / 更新 / 删除 / 错误码）与打包产物内容 | 先安装 `mcdreforged` + `websockets`，再 `python .github/scripts/mcdr_check.py --packed <pack 输出目录>` |
 
 ### 14.4 本地复跑与副作用
