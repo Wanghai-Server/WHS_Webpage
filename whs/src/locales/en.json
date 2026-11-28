@@ -121,6 +121,8 @@
         "posZ": "Z",
         "pick": "Pick on map",
         "pickTitle": "Pick a point on BlueMap",
+        "pickManual": "Enter coordinates",
+        "pickManualUse": "Use these coordinates",
         "pickHint": "Move the view to the target spot; the coordinate is read automatically, then fill it back.",
         "pickWaiting": "Move the map, waiting for coordinates…",
         "pickUse": "Use this position",

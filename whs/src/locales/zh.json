@@ -121,6 +121,8 @@
         "posZ": "Z 坐标",
         "pick": "从地图取点",
         "pickTitle": "从 BlueMap 取点",
+        "pickManual": "手动输入坐标",
+        "pickManualUse": "使用输入坐标",
         "pickHint": "把视角移动到目标位置，坐标会自动读取；确认后回填到表单。",
         "pickWaiting": "移动地图，等待读取坐标…",
         "pickUse": "用这个位置",
