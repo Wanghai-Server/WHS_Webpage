@@ -286,7 +286,7 @@ onBeforeUnmount(() => {
             :d="segment.path"
             fill="none"
             :stroke="line.color"
-            :stroke-width="4"
+            :stroke-width="2"
             :stroke-dasharray="dashFor(segment)"
             stroke-linecap="round"
             stroke-linejoin="round"
@@ -317,11 +317,11 @@ onBeforeUnmount(() => {
         >
           <!-- 透明热区：手机上点站名/站点附近都能选中，避免只能靠搜索 -->
           <circle class="station-hit" r="20" fill="transparent" />
-          <circle v-if="!station.transfer" class="station-dot" r="5.5" :stroke="stationColor(station)" stroke-width="2.5" />
+          <circle v-if="!station.transfer" class="station-dot" r="5.5" :stroke="stationColor(station)" stroke-width="1.25" />
           <!-- 换乘站：空心圆 + 双向箭头 -->
           <g v-if="station.transfer" class="transfer-arrows">
             <g v-for="(arc, index) in transferArcs(station, props.schematic.lines)" :key="index">
-              <path :d="arc.path" fill="none" :stroke="arc.color" stroke-width="3.5" stroke-linecap="round" />
+              <path :d="arc.path" fill="none" :stroke="arc.color" stroke-width="1.75" stroke-linecap="round" />
               <path :d="arc.head" :fill="arc.color" stroke="none" />
             </g>
           </g>
@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
 
 .transit-stations g.is-selected .station-dot {
   stroke: var(--notice-color);
-  stroke-width: 3;
+  stroke-width: 1.5;
 }
 
 .station-label-hit {
@@ -476,7 +476,7 @@ onBeforeUnmount(() => {
   pointer-events: none;
   paint-order: stroke;
   stroke: var(--bg-color);
-  stroke-width: 3px;
+  stroke-width: 2px;
   stroke-linejoin: round;
 }
 
