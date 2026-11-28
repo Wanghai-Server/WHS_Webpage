@@ -79,3 +79,31 @@ test('站名偏移会移动文字和热区，自动位置保留', () => {
   assert.equal(moved.hit[1], auto.hit[1] - 12)
   assert.equal(moved.autoX, auto.autoX)
 })
+
+test('相邻站格位被别的线路占用时沿线跨格，不横向拐成 S 形', () => {
+  const crowded = {
+    lines: [
+      { id: 'l0', name: { zh: '0' }, color: '#111111', status: 'open', stations: ['a1', 'a2'] },
+      { id: 'l1', name: { zh: '1' }, color: '#222222', status: 'open', stations: ['a1', 'b2'] },
+    ],
+    stations: [
+      { id: 'a1', name: { zh: 'A1' }, pos: [0, 0] },
+      { id: 'a2', name: { zh: 'A2' }, pos: [0, 100] },
+      { id: 'b2', name: { zh: 'B2' }, pos: [0, 100] },
+    ],
+  }
+  const result = buildSchematic(crowded, { locale: 'zh' })
+  const a1 = result.stations.find((item) => item.id === 'a1')
+  const b2 = result.stations.find((item) => item.id === 'b2')
+  assert.ok(Math.abs(b2.sx - a1.sx) < 0.01, '同一竖直方向的站保持同一 X')
+  assert.ok(b2.sy > a1.sy)
+})
+
+test('拖站名只改 label_offset，不改变路线包围盒', () => {
+  const shifted = JSON.parse(JSON.stringify(data))
+  shifted.stations[0].label_offset = [200, 200]
+  const before = buildSchematic(data, { locale: 'zh' })
+  const after = buildSchematic(shifted, { locale: 'zh' })
+  assert.deepEqual(after.routeBounds, before.routeBounds)
+  assert.notDeepEqual(after.bounds, before.bounds)
+})

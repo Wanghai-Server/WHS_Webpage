@@ -179,14 +179,14 @@ function boundsKey(bounds) {
 function fit(animate = false) {
   const bounds = props.schematic?.bounds
   if (!bounds) return
-  lastBoundsKey = boundsKey(bounds)
+  lastBoundsKey = boundsKey(props.schematic?.routeBounds || bounds)
   const target = { x: bounds.x, y: bounds.y, w: bounds.width, h: bounds.height }
   if (animate) tweenTo(target)
   else viewBox.value = target
 }
 
-watch(() => boundsKey(props.schematic?.bounds), (key) => {
-  // 只有视野范围真的变了才重新适配（改名字、改颜色不会触发）
+watch(() => boundsKey(props.schematic?.routeBounds || props.schematic?.bounds), (key) => {
+  // 只有路线本身的范围变了才重新适配；拖动站名不会重置缩放
   if (key && key !== lastBoundsKey) fit()
 }, { immediate: true })
 
@@ -222,7 +222,7 @@ function zoom(factor, clientX, clientY, animate = false) {
   if (!svgEl.value) return
   const rect = svgEl.value.getBoundingClientRect()
   const box = viewBox.value
-  const scale = Math.min(Math.max(box.w * factor, 160), 6000)
+  const scale = Math.min(Math.max(box.w * factor, 40), 6000)
   const ratio = scale / box.w
   const cx = clientX === undefined ? box.x + box.w / 2 : box.x + ((clientX - rect.left) / rect.width) * box.w
   const cy = clientY === undefined ? box.y + box.h / 2 : box.y + ((clientY - rect.top) / rect.height) * box.h

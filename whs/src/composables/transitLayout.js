@@ -174,11 +174,16 @@ export function buildSchematic(data, options = {}) {
       if (!point) {
         const dir = previous ? snapVector(station.pos[0] - previous.pos[0], station.pos[1] - previous.pos[1]) : [1, 0]
         const base = points.length ? points[points.length - 1] : [0, 0]
-        point = [base[0] + dir[0] * step, base[1] + dir[1] * step]
-        let guard = 0
-        while (occupied.has(keyOf(point)) && occupied.get(keyOf(point)) !== stationId && guard < 12) {
-          point = [point[0] + dir[1] * step, point[1] - dir[0] * step]
-          guard += 1
+        // 沿当前方向找空位：遇到别的线路已占用的站时继续向前跨一格，
+        // 不横向偏移，避免同一直线被挤成 S 形折线
+        let advance = 1
+        point = [base[0] + dir[0] * step * advance, base[1] + dir[1] * step * advance]
+        while (occupied.has(keyOf(point)) && occupied.get(keyOf(point)) !== stationId && advance < 12) {
+          advance += 1
+          point = [base[0] + dir[0] * step * advance, base[1] + dir[1] * step * advance]
+        }
+        if (occupied.has(keyOf(point)) && occupied.get(keyOf(point)) !== stationId) {
+          point = [base[0] + dir[1] * step, base[1] - dir[0] * step]
         }
         placed.set(stationId, point)
         occupied.set(keyOf(point), stationId)
@@ -276,10 +281,13 @@ export function buildSchematic(data, options = {}) {
     }
   })
 
+  const routePoints = [...lines.flatMap((line) => line.points), ...stations.map((item) => [item.sx, item.sy])]
   return {
     lines,
     stations,
-    bounds: measure([...lines.flatMap((line) => line.points), ...stations.map((item) => [item.sx, item.sy])], labelRects),
+    // 路线本身的包围盒：站名拖动不触发自动重新适配视野
+    routeBounds: measure(routePoints, []),
+    bounds: measure(routePoints, labelRects),
     note: data?.note || null,
   }
 }
