@@ -701,6 +701,21 @@ def check_transit() -> None:
             else:
                 fail(f"非法数据未被拒绝：{name}")
 
+        # 11d. 站名偏移：合法值保留，越界/非数组拒绝
+        label_case = make_data()
+        label_case["stations"][0]["label_offset"] = [20, -10]
+        normalized_label, _ = validate_data(label_case)
+        check(normalized_label["stations"][0]["label_offset"] == [20, -10], "站名偏移被保留")
+        for name, value in (("越界", [999, 0]), ("缺一项", [1]), ("非数字", ["a", 0])):
+            case = make_data()
+            case["stations"][0]["label_offset"] = value
+            try:
+                validate_data(case)
+            except TransitConfigError:
+                ok(f"站名偏移非法值被拒绝：{name}")
+            else:
+                fail(f"站名偏移非法值未被拒绝：{name}")
+
         # 11c. 分段运营：合法区段保留，非相邻 / 重复 / 非法状态拒绝
         seg_case = make_data()
         seg_case["lines"][0]["segments"] = [

@@ -126,6 +126,9 @@ function toSendable(value) {
       out.y = station.y
       out.y_source = station.y_source
     }
+    if (Array.isArray(station.label_offset) && station.label_offset.length === 2) {
+      out.label_offset = [...station.label_offset]
+    }
     return out
   })
   clone.lines = (clone.lines || []).map((line) => {
@@ -389,6 +392,17 @@ function setSegmentStatus(from, to, value) {
 function openPicker(target) {
   pickTarget.value = target
   pickerOpen.value = true
+}
+
+function onLabelMove({ id, dx, dy }) {
+  const station = stations.value.find((item) => item.id === id)
+  if (!station) return
+  station.label_offset = [Math.round(dx), Math.round(dy)]
+}
+
+function resetLabelOffset(id) {
+  const station = stations.value.find((item) => item.id === id)
+  if (station) delete station.label_offset
 }
 
 function onPicked(coords) {
@@ -735,7 +749,10 @@ onBeforeUnmount(() => {
           :schematic="schematic"
           :selected-id="selection?.id || ''"
           :locale="locale"
+          editable-labels
           @select="onDiagramSelect"
+          @label-move="onLabelMove"
+          @label-reset="resetLabelOffset"
         />
         <p class="preview-hint">{{ t('transit.edit.previewHint') }}</p>
       </section>
@@ -895,6 +912,7 @@ onBeforeUnmount(() => {
             <label class="field"><span>{{ t('transit.edit.posZ') }}</span><input v-model.number="selectedStation.pos[1]" class="input" type="number" /></label>
           </div>
           <button type="button" class="btn-ghost full" @click="openPicker('station')"><MapPin :size="14" /> {{ t('transit.edit.pick') }}</button>
+          <button v-if="selectedStation.label_offset?.length" type="button" class="btn-ghost full" @click="resetLabelOffset(selectedStation.id)">{{ t('transit.edit.labelReset') }}</button>
           <div class="field-row">
             <label class="field"><span>{{ t('transit.edit.y') }}</span>
               <input :value="selectedStation.y ?? ''" class="input" type="number" :placeholder="t('transit.edit.yAuto')" @input="setY(selectedStation, $event.target.value)" />

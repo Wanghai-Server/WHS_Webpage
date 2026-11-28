@@ -53,7 +53,7 @@ Y_SOURCES = ("explicit", "picked")
 _POS_LIMIT = 30_000_000
 
 LINE_FIELDS = ("name", "color", "type", "status", "note", "stations", "segments")
-STATION_FIELDS = ("name", "pos", "y", "y_source", "tags", "note")
+STATION_FIELDS = ("name", "pos", "y", "y_source", "tags", "note", "label_offset")
 
 
 class TransitConfigError(ValueError):
@@ -216,6 +216,18 @@ def validate_data(raw, *, require_lines: bool = False) -> tuple[dict, list[str]]
             if source not in Y_SOURCES:
                 _fail(where, f"y_source 只能是 {'/'.join(Y_SOURCES)}")
             entry["y_source"] = source
+        if item.get("label_offset") is not None:
+            offset = item["label_offset"]
+            if not isinstance(offset, (list, tuple)) or len(offset) != 2:
+                _fail(where, "label_offset 必须是 [dx, dy]")
+            values = []
+            for value in offset:
+                if isinstance(value, bool) or not isinstance(value, (int, float)):
+                    _fail(where, "label_offset 必须是数字")
+                if not math.isfinite(value) or abs(value) > 500:
+                    _fail(where, "label_offset 超出范围 ±500")
+                values.append(round(value, 2))
+            entry["label_offset"] = values
         if item.get("tags") is not None:
             tags = item["tags"]
             if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):

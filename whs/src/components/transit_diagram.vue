@@ -18,9 +18,10 @@ const props = defineProps({
   selectedId: { type: String, default: '' },
   hiddenLines: { type: Array, default: () => [] },
   interactive: { type: Boolean, default: true },
+  editableLabels: { type: Boolean, default: false },
   locale: { type: String, default: 'zh' },
 })
-const emit = defineEmits(['select'])
+const emit = defineEmits(['select', 'label-move', 'label-reset'])
 
 const svgEl = ref(null)
 const containerEl = ref(null)
@@ -32,6 +33,8 @@ let animation = null
 let lastBoundsKey = ''
 let moved = false
 let suppressClick = false
+let labelDrag = null
+let labelMoved = false
 
 const lines = computed(() => (props.schematic?.lines || [])
   .filter((line) => !props.hiddenLines.includes(line.id)))
@@ -101,6 +104,58 @@ function moveTip(event) {
 function leaveHover() {
   hovered.value = null
   tooltip.value = null
+}
+
+function svgPoint(event) {
+  const svg = svgEl.value
+  if (!svg) return null
+  const pt = svg.createSVGPoint()
+  pt.x = event.clientX
+  pt.y = event.clientY
+  const ctm = svg.getScreenCTM()
+  return ctm ? pt.matrixTransform(ctm.inverse()) : null
+}
+
+function startLabelDrag(station, event) {
+  if (!props.editableLabels || event.button !== 0 || !station.label) return
+  const point = svgPoint(event)
+  if (!point) return
+  event.preventDefault()
+  event.stopPropagation()
+  labelDrag = {
+    id: station.id,
+    start: point,
+    offsetX: station.label.offsetX || 0,
+    offsetY: station.label.offsetY || 0,
+  }
+  labelMoved = false
+  window.addEventListener('pointermove', onLabelDrag)
+  window.addEventListener('pointerup', stopLabelDrag, { once: true })
+}
+
+function onLabelDrag(event) {
+  if (!labelDrag) return
+  const point = svgPoint(event)
+  if (!point) return
+  const dx = Math.round(point.x - labelDrag.start.x)
+  const dy = Math.round(point.y - labelDrag.start.y)
+  if (Math.abs(dx) > 2 || Math.abs(dy) > 2) labelMoved = true
+  emit('label-move', { id: labelDrag.id, dx: labelDrag.offsetX + dx, dy: labelDrag.offsetY + dy })
+}
+
+function stopLabelDrag() {
+  window.removeEventListener('pointermove', onLabelDrag)
+  labelDrag = null
+  // 拖完后的 click 由 onStationClick 吃掉；若没有 click，下一帧复位
+  if (labelMoved) setTimeout(() => { labelMoved = false }, 0)
+}
+
+function onStationClick(station) {
+  if (labelMoved) {
+    labelMoved = false
+    return
+  }
+  select(station)
 }
 
 function stationColor(station) {
@@ -309,7 +364,7 @@ onBeforeUnmount(() => {
           :tabindex="interactive ? 0 : undefined"
           :role="interactive ? 'button' : undefined"
           :aria-label="station.label?.text || station.id"
-          @click.stop="select(station)"
+          @click.stop="onStationClick(station)"
           @keydown.enter.prevent="select(station)"
           @pointerenter="enterStation(station, $event)"
           @pointermove="moveTip"
@@ -328,17 +383,25 @@ onBeforeUnmount(() => {
           <template v-if="station.label">
             <rect
               class="station-label-hit"
+              :class="{ 'is-editable': editableLabels }"
               :x="station.label.hit[0] - station.sx"
               :y="station.label.hit[1] - station.sy"
               :width="station.label.hit[2]"
               :height="station.label.hit[3]"
               rx="4"
+              @pointerdown="startLabelDrag(station, $event)"
+              @click.stop="onStationClick(station)"
+              @dblclick.stop="emit('label-reset', station.id)"
             />
             <text
               :x="station.label.x - station.sx"
               :y="station.label.y - station.sy"
               :text-anchor="station.label.anchor"
               class="station-label"
+              :class="{ 'is-editable': editableLabels }"
+              @pointerdown="startLabelDrag(station, $event)"
+              @click.stop="onStationClick(station)"
+              @dblclick.stop="emit('label-reset', station.id)"
             >{{ station.label.text }}</text>
           </template>
         </g>
@@ -465,6 +528,11 @@ onBeforeUnmount(() => {
 .station-label-hit {
   fill: transparent;
   cursor: pointer;
+}
+
+.station-label-hit.is-editable,
+.station-label.is-editable {
+  cursor: move;
 }
 
 .station-label {

@@ -240,8 +240,23 @@ export function buildSchematic(data, options = {}) {
       { anchor: 'middle', x, y: y + 21, rect: [x - width / 2 - 3, y + 9, width + 6, 18] },
     ]
     const pick = candidates.find((item) => !labelRects.some((rect) => overlap(rect, item.rect))) || candidates[0]
-    labelRects.push(pick.rect)
-    labels.push({ id: station.id, text, x: pick.x, y: pick.y, anchor: pick.anchor, hit: pick.rect })
+    const rawOffset = Array.isArray(station.label_offset) ? station.label_offset : []
+    const offsetX = Number(rawOffset[0]) || 0
+    const offsetY = Number(rawOffset[1]) || 0
+    const hit = [pick.rect[0] + offsetX, pick.rect[1] + offsetY, pick.rect[2], pick.rect[3]]
+    labelRects.push(hit)
+    labels.push({
+      id: station.id,
+      text,
+      autoX: pick.x,
+      autoY: pick.y,
+      offsetX,
+      offsetY,
+      x: pick.x + offsetX,
+      y: pick.y + offsetY,
+      anchor: pick.anchor,
+      hit,
+    })
   }
 
   const labelById = new Map(labels.map((item) => [item.id, item]))
